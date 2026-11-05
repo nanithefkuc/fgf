@@ -190,27 +190,54 @@ isa-accept EXPECTED:
 # compile on the crate MSRV. The first line names the expectation: a
 # panic fragment or rustc diagnostic code/text (`expect:`) that must appear
 # in the error, or `expect-rejection` when only rejection is the contract.
-# A rejection-only case fails when stderr holds
-# an unresolved-name error (`E0405`, `E0412`, `E0422`, `E0423`, `E0425`,
-# `E0432`, `E0433`): such a snippet was rejected for a missing import, not the
-# bound under test. Every case also fails when it trips on a private module
-# path (`E0603`), because a privatized module is not the contract the snippet
-# names.
+# An optional second line (`// expect-code: E0080`) adds a required
+# diagnostic code, so const-validation regressions pin both the named
+# fragment and the evaluation error. A rejection-only case fails when
+# stderr holds an unresolved-name error (`E0405`, `E0412`, `E0422`,
+# `E0423`, `E0425`, `E0432`, `E0433`): such a snippet was rejected for a
+# missing import, not the bound under test. Every case also fails when it
+# trips on a private module path (`E0603`), because a privatized module is
+# not the contract the snippet names.
+# Every snippet runs against the all-features rlib; the sealed/row-hook
+# raw-arithmetic probes and the raw/proof/prepared/query/removal privacy
+# probes additionally run against the stable-maximal rlib (every stable
+# feature, `internals` off), each
+# built separately with its exact artifact path retained, so one
+# configuration's rlib can never serve the other's run. Diagnostics are
+# labeled by configuration.
 # Cargo does not treat that directory as test targets, so these run only
 # through this recipe.
 [group('test')]
 compile-fail:
     #!/usr/bin/env bash
     set -euo pipefail
-    rlib=$(cargo +{{MSRV}} build --lib --all-features --message-format=json | jq -rs '[.[] | select(.reason == "compiler-artifact" and .target.name == "fgf") | .filenames[]? | select(endswith(".rlib"))] | first // empty')
-    if [[ -z "${rlib}" ]]; then
-        echo "compile-fail: fgf rlib not found in the build output" >&2
-        exit 1
-    fi
+    rlib_of() {
+        cargo +{{MSRV}} build --lib "${@}" --message-format=json |
+            jq -rs '[.[] | select(.reason == "compiler-artifact" and .target.name == "fgf") | .filenames[]? | select(endswith(".rlib"))] | first // empty'
+    }
     scratch=$(mktemp -d)
     trap 'rm -rf "${scratch}"' EXIT
+    # The root package's rlib lives at one canonical path, so the second
+    # build overwrites the first: each configuration's artifact is copied
+    # to its own file before the next build runs.
+    rlib_all_src=$(rlib_of --all-features)
+    if [[ -z "${rlib_all_src}" ]]; then
+        echo "compile-fail: all-features fgf rlib not found in the build output" >&2
+        exit 1
+    fi
+    rlib_all="${scratch}/libfgf-all.rlib"
+    cp "${rlib_all_src}" "${rlib_all}"
+    rlib_stable_src=$(rlib_of --no-default-features --features {{API_STABLE_FEATURES}})
+    if [[ -z "${rlib_stable_src}" ]]; then
+        echo "compile-fail: stable-maximal fgf rlib not found in the build output" >&2
+        exit 1
+    fi
+    rlib_stable="${scratch}/libfgf-stable.rlib"
+    cp "${rlib_stable_src}" "${rlib_stable}"
     failures=0
-    for snippet in tests/compile_fail/*.rs; do
+    run_case() {
+        local config="${1}" rlib="${2}" snippet="${3}"
+        local header fragment code err
         header=$(head -n 1 "${snippet}")
         case "${header}" in
             "// expect-rejection") fragment="" ;;
@@ -220,21 +247,42 @@ compile-fail:
                 exit 1
                 ;;
         esac
+        code=$(sed -n '2p' "${snippet}")
+        case "${code}" in
+            "// expect-code: "*) code="${code##*expect-code: }" ;;
+            *) code="" ;;
+        esac
         if err=$(rustc +{{MSRV}} --edition 2024 --crate-type lib --extern fgf="${rlib}" -L dependency=target/debug/deps --out-dir "${scratch}" "${snippet}" 2>&1); then
-            echo "compile-fail: FAIL ${snippet} compiled successfully" >&2
+            echo "compile-fail: FAIL [${config}] ${snippet} compiled successfully" >&2
             failures=$((failures + 1))
         elif grep -qE -- 'error\[E0603\]: module `[^`]+` is private' <<< "${err}"; then
-            echo "compile-fail: FAIL ${snippet}: rejected for a private module path" >&2
+            echo "compile-fail: FAIL [${config}] ${snippet}: rejected for a private module path" >&2
             failures=$((failures + 1))
         elif [[ -n "${fragment}" ]] && ! grep -qF -- "${fragment}" <<< "${err}"; then
-            echo "compile-fail: FAIL ${snippet} expected fragment: ${fragment}" >&2
+            echo "compile-fail: FAIL [${config}] ${snippet} expected fragment: ${fragment}" >&2
+            failures=$((failures + 1))
+        elif [[ -n "${code}" ]] && ! grep -qF -- "error[${code}]" <<< "${err}"; then
+            echo "compile-fail: FAIL [${config}] ${snippet} expected code: ${code}" >&2
             failures=$((failures + 1))
         elif [[ -z "${fragment}" ]] && grep -qE -- 'error\[E(0405|0412|0422|0423|0425|0432|0433)\]' <<< "${err}"; then
-            echo "compile-fail: FAIL ${snippet}: rejected for an unresolved name" >&2
+            echo "compile-fail: FAIL [${config}] ${snippet}: rejected for an unresolved name" >&2
             failures=$((failures + 1))
         else
-            echo "compile-fail: ok $(basename "${snippet}")"
+            echo "compile-fail: ok [${config}] $(basename "${snippet}")"
         fi
+    }
+    for snippet in tests/compile_fail/*.rs; do
+        run_case all-features "${rlib_all}" "${snippet}"
+    done
+    for snippet in \
+        tests/compile_fail/sealed_*.rs \
+        tests/compile_fail/row_hook_*.rs \
+        tests/compile_fail/raw_*_without_proof.rs \
+        tests/compile_fail/field_buffer_*.rs \
+        tests/compile_fail/field_kernels_*.rs
+    do
+        [[ -e "${snippet}" ]] || continue
+        run_case stable-maximal "${rlib_stable}" "${snippet}"
     done
     if [[ "${failures}" -ne 0 ]]; then
         echo "compile-fail: ${failures} case(s) failed" >&2

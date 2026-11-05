@@ -19,8 +19,10 @@ use super::arithmetic;
 use super::descriptor::Storage;
 use super::private::Sealed;
 use crate::field::binary::BinaryField;
+use crate::field::dispatch::{KernelDispatch, RawDispatch};
 use crate::field::private::RowAccess;
 use crate::field::{Elem, Field, FieldBuffer, FieldElem};
+use simdispatch::Backend;
 
 /// The storage word types a packed extension row may select.
 pub trait PackedWord: Sealed {}
@@ -103,7 +105,7 @@ storage_marker!(PackedPadded);
 /// [`PackedPadded<W>`](PackedPadded), which require a binary base.
 pub trait ExtensionStorage<B: Field, const D: usize>: Sealed + 'static {
     /// The raw word of one element.
-    type Raw: Copy + Eq + Ord + Hash + core::fmt::Debug + 'static;
+    type Raw: Copy + Eq + Ord + Hash + core::fmt::Debug + Send + Sync + 'static;
 }
 
 impl Sealed for Components {}
@@ -154,13 +156,195 @@ pub(crate) trait StorageRepr<B: Field, const D: usize>: ExtensionStorage<B, D> {
     fn from_pinned_word(word: u64) -> Self::Raw;
 }
 
+/// The dispatch contract of one extension storage, generic over the row.
+///
+/// Each entry is the row's [`KernelDispatch`](crate::field::dispatch::KernelDispatch)
+/// entry of the same name, routed through the storage that decides the
+/// row's raw word and byte form; the queries carry the same names. The
+/// contract is declarations only — the engine implements it per storage
+/// and owns every body, default composition included, so a method reaching
+/// another entry calls it through the row `F` and overrides compose
+/// exactly as they do on a row's own implementation. The row parameter is
+/// bounded by [`StorageRow`], which ties the row's raw word and prepared
+/// coefficient to this storage; the helper never appears as a supertrait
+/// here.
+pub(crate) trait StorageDispatch<B: Field, const D: usize>: StorageRepr<B, D> {
+    /// The backend-ready form of one coefficient.
+    type Prepared: Clone + Send + Sync + core::fmt::Debug;
+
+    /// The row's backend query.
+    fn backend<F: StorageRow<B, D, Self>>(proof: RawDispatch) -> Backend;
+
+    /// The row's elementwise-vectorization query.
+    fn has_vector_elementwise<F: StorageRow<B, D, Self>>(proof: RawDispatch) -> bool;
+
+    /// The row's vector-elementwise threshold query.
+    fn vector_elementwise_min_bytes<F: StorageRow<B, D, Self>>(proof: RawDispatch) -> usize;
+
+    /// `KernelDispatch::prepare`.
+    fn prepare<F: StorageRow<B, D, Self>>(proof: RawDispatch, coeff: Elem<F>) -> Self::Prepared;
+
+    /// `KernelDispatch::prepared_coeff`.
+    fn prepared_coeff<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        prepared: &Self::Prepared,
+    ) -> Elem<F>;
+
+    /// `KernelDispatch::add_assign`.
+    fn add_assign<F: StorageRow<B, D, Self>>(proof: RawDispatch, dst: &mut [u8], src: &[u8]);
+
+    /// `KernelDispatch::add_gather_offsets`.
+    fn add_gather_offsets<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        region: &[u8],
+        dst: &mut [u8],
+        offsets: &[u32],
+    );
+
+    /// `KernelDispatch::sub_assign`.
+    fn sub_assign<F: StorageRow<B, D, Self>>(proof: RawDispatch, dst: &mut [u8], src: &[u8]);
+
+    /// `KernelDispatch::mul_add`.
+    fn mul_add<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: &Self::Prepared,
+        src: &[u8],
+    );
+
+    /// `KernelDispatch::mul_into`.
+    fn mul_into<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: &Self::Prepared,
+        src: &[u8],
+    );
+
+    /// `KernelDispatch::mul_assign`.
+    fn mul_assign<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: &Self::Prepared,
+    );
+
+    /// `KernelDispatch::mul_add_scatter`.
+    fn mul_add_scatter<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[Elem<F>],
+        src: &[u8],
+    );
+
+    /// `KernelDispatch::mul_add_gather`.
+    fn mul_add_gather<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Elem<F>],
+        srcs: &[&[u8]],
+    );
+
+    /// `KernelDispatch::mul_add_matrix`.
+    fn mul_add_matrix<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[Elem<F>], &[u8])],
+    );
+
+    /// `KernelDispatch::mul_add_scatter_plan`.
+    #[cfg(feature = "alloc")]
+    fn mul_add_scatter_plan<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        values: &[Elem<F>],
+        coeffs: &[Self::Prepared],
+        src: &[u8],
+    );
+
+    /// `KernelDispatch::mul_add_gather_plan`.
+    #[cfg(feature = "alloc")]
+    fn mul_add_gather_plan<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        values: &[Elem<F>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    );
+
+    /// `KernelDispatch::mul_add_matrix_plan`.
+    #[cfg(feature = "alloc")]
+    fn mul_add_matrix_plan<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        values: &[Elem<F>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    );
+
+    /// `KernelDispatch::mul_elementwise`.
+    fn mul_elementwise<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        a: &[u8],
+        b: &[u8],
+    );
+
+    /// `KernelDispatch::mul_elementwise_assign`.
+    fn mul_elementwise_assign<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        src: &[u8],
+    );
+
+    /// `KernelDispatch::add_assign_scalar`.
+    fn add_assign_scalar<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        value: &Self::Prepared,
+    );
+
+    /// `KernelDispatch::sub_assign_scalar`.
+    fn sub_assign_scalar<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        value: &Self::Prepared,
+    );
+}
+
+/// A field row whose kernels a storage `St` runs: its raw word is the
+/// storage's and its prepared coefficient the storage's.
+///
+/// The helper appears only in [`StorageDispatch`] method bounds. Its
+/// blanket impl repeats the same equalities, so any row satisfying them is
+/// a storage row for `St`; `St` itself needs no byte form.
+pub(crate) trait StorageRow<B: Field, const D: usize, St: StorageDispatch<B, D> + ?Sized>:
+    FieldBuffer
+    + Field<Raw = <St as ExtensionStorage<B, D>>::Raw>
+    + KernelDispatch<Prepared = <St as StorageDispatch<B, D>>::Prepared>
+{
+}
+
+impl<B: Field, const D: usize, St: StorageDispatch<B, D> + ?Sized, F> StorageRow<B, D, St> for F where
+    F: FieldBuffer
+        + Field<Raw = <St as ExtensionStorage<B, D>>::Raw>
+        + KernelDispatch<Prepared = <St as StorageDispatch<B, D>>::Prepared>
+{
+}
+
 /// The fixed-width byte form of one storage, for the rows that carry one.
 ///
 /// Implemented for [`Packed<W>`](Packed) — the little-endian word — and for
 /// [`Components`] over a base with a byte form — the concatenated base
 /// encodings. [`PackedPadded<W>`](PackedPadded) implements none: its
 /// coordinate word is narrower than its storage word.
-pub(crate) trait StorageBuffer<B: Field, const D: usize>: StorageRepr<B, D> {
+pub(crate) trait StorageBuffer<B: Field, const D: usize>:
+    StorageRepr<B, D> + StorageDispatch<B, D>
+{
     /// Width of one element's stable byte representation.
     const BYTES: usize;
     /// Storage bit width of one element: `8 * BYTES`.

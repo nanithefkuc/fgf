@@ -9,7 +9,7 @@
 
 use fgf::extension::QuadMersenne31;
 use fgf::prime::{Goldilocks, Mersenne31, PrimeIdentity};
-use fgf::{Elem, Field, FieldElem, FieldKernels, backend_for, ops};
+use fgf::{Elem, Field, FieldBuffer, FieldElem, backend_for, ops};
 
 /// The Mersenne31 characteristic, read through the prime identity.
 fn m31_characteristic() -> u32 {
@@ -55,7 +55,7 @@ fn main() {
     );
 }
 
-fn combine<F: FieldKernels>(a: [Elem<F>; 4], b: [Elem<F>; 4], challenge: Elem<F>) {
+fn combine<F: FieldBuffer>(a: [Elem<F>; 4], b: [Elem<F>; 4], challenge: Elem<F>) {
     let packed_a = ops::pack_to_vec::<F>(&a);
     let packed_b = ops::pack_to_vec::<F>(&b);
     let mut output = vec![0u8; packed_a.len()];

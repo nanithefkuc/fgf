@@ -56,7 +56,7 @@ pub const fn reduce_wide(x: u128) -> u64 {
 ///
 /// One canonical `u64` per element, with 128-bit products reduced by
 /// `2^64 ≡ 2^32 − 1`. Field [`NAME`](Field::NAME): `GF(2^64 - 2^32 + 1)`;
-/// this label: `goldilocks-fold`. The [`Residue`](super::Residue) row at the
+/// this label: `goldilocks-fold`. The [`Residue`](crate::prime::Residue) row at the
 /// same modulus is a distinct presentation; values move between the two by
 /// residue, never by buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
@@ -229,6 +229,7 @@ impl FieldBuffer for Goldilocks {
 
     #[inline]
     fn decode(bytes: &[u8]) -> Elem<Self> {
+        let () = Validate::<Self>::OK;
         let bytes: [u8; 8] = bytes
             .try_into()
             .expect("GF(2^64 - 2^32 + 1) element has the wrong byte width");
@@ -237,6 +238,7 @@ impl FieldBuffer for Goldilocks {
 
     #[inline]
     fn encode(bytes: &mut [u8], value: Elem<Self>) {
+        let () = Validate::<Self>::OK;
         assert_eq!(
             bytes.len(),
             8,

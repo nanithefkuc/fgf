@@ -1,5 +1,5 @@
-//! Backend and field capability queries: the process backend, the per-field
-//! routing resolution, and the vector-elementwise capability pair.
+//! Backend queries: the process backend and the per-field routing
+//! resolution.
 //!
 //! These are the trivial timings the measurement engine must not slow down:
 //! every body is one monomorphized call with black-boxed results, timed at
@@ -7,7 +7,7 @@
 
 use std::hint::black_box;
 
-use fgf::{Backend, FieldKernels};
+use fgf::Backend;
 
 use crate::fixture;
 use crate::registry::{self, Case, CaseCtx, Scope};
@@ -15,12 +15,7 @@ use crate::scalar::seed_for;
 
 const API_PROCESS: &[&str] = &["fgf::backend", "fgf::Backend::name"];
 const API_PARSE: &[&str] = &["core::str::FromStr for fgf::Backend"];
-const API_FOR_FIELD: &[&str] = &["fgf::backend_for", "fgf::FieldKernels::backend"];
-const API_VECTOR_ELEMENTWISE: &[&str] = &[
-    "fgf::FieldKernels::has_vector_elementwise",
-    "fgf::FieldKernels::vector_elementwise_min_bytes",
-];
-
+const API_FOR_FIELD: &[&str] = &["fgf::backend_for"];
 fn query_case(
     case: String,
     field: String,
@@ -73,31 +68,11 @@ fn run_parse(case: &Case, ctx: &CaseCtx) {
 }
 
 /// Per-field routing resolution over every bulk field.
-fn run_for_field<F: FieldKernels>(case: &Case, ctx: &CaseCtx) {
+fn run_for_field<F: fgf::FieldBuffer>(case: &Case, ctx: &CaseCtx) {
     let resolved = fgf::backend_for::<F>();
     let backend = resolved.name().to_string();
     registry::time(case, ctx, &backend, || {
         fixture::observe(fgf::backend_for::<F>().name());
-    });
-}
-
-/// The vector-elementwise capability pair for one field.
-fn run_vector_elementwise<F: FieldKernels>(case: &Case, ctx: &CaseCtx) {
-    let resolved = fgf::backend_for::<F>();
-    let has = <F as FieldKernels>::has_vector_elementwise();
-    if has {
-        assert!(
-            resolved != Backend::Scalar,
-            "{}: vector elementwise implies a vector-capable tier",
-            case.case
-        );
-    }
-    let backend = resolved.name().to_string();
-    registry::time(case, ctx, &backend, || {
-        fixture::observe((
-            <F as FieldKernels>::has_vector_elementwise(),
-            <F as FieldKernels>::vector_elementwise_min_bytes(),
-        ));
     });
 }
 
@@ -126,13 +101,6 @@ pub fn register() {
                 "field backend",
                 API_FOR_FIELD,
                 run_for_field::<$F>,
-            );
-            query_case(
-                format!("query/backend/vector-elementwise/{}", $label),
-                $label.to_string(),
-                "vector elementwise capability",
-                API_VECTOR_ELEMENTWISE,
-                run_vector_elementwise::<$F>,
             );
         };
     }

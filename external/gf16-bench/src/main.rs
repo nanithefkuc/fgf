@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::{Elem, FieldElem, FieldKernels, ops};
+use fgf::{Elem, FieldBuffer, FieldElem, ops};
 use reed_solomon_erasure::{Field, galois_16};
 use reed_solomon_simd::engine::{Avx2, Engine, tables};
 
@@ -107,7 +107,7 @@ impl Shape {
     }
 }
 
-struct Bank<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>> {
+struct Bank<F: FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>> {
     /// Coefficient words in the canonical tower encoding: the oracle's
     /// arithmetic and every native arm's layout map read these.
     canonical: Vec<u16>,
@@ -121,12 +121,12 @@ struct Bank<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharact
     gather: ops::CoeffVec<F>,
 }
 
-struct Plan<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>> {
+struct Plan<F: FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>> {
     shape: Shape,
     banks: Vec<Bank<F>>,
 }
 
-impl<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>> Plan<F> {
+impl<F: FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>> Plan<F> {
     fn new(
         shape: Shape,
         maps: &Representations,
@@ -191,7 +191,7 @@ pub(crate) struct Arm<'a> {
 }
 
 impl Arm<'_> {
-    fn apply<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
+    fn apply<F: FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
         &mut self,
         plan: &Plan<F>,
         bank_index: usize,
@@ -293,7 +293,7 @@ impl Oracle {
     fn result(
         &mut self,
         plan: &Plan<
-            impl FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>,
+            impl FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>,
         >,
         bank_index: usize,
         source: &[Vec<u8>],
@@ -387,7 +387,7 @@ pub(crate) fn arm_kinds(operation: Operation) -> &'static [usize] {
 }
 
 pub(crate) fn run_case<
-    F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>,
+    F: FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>,
 >(
     plan: Plan<F>,
     maps: &Representations,

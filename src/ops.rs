@@ -1,11 +1,12 @@
 //! The public vector operation surface.
 //!
-//! Every arithmetic entry is generic over [`FieldKernels`](crate::FieldKernels) and monomorphizes
-//! to that row's dispatched SIMD kernel. Encoding rows are
-//! [`FieldBuffer`](crate::FieldBuffer)-only instead: packing (`pack`, `unpack`, `pack_to_vec`)
-//! works over the stable little-endian byte form, never a kernel operand.
-//! Buffers are plain `&[u8]` holding packed elements in that representation.
-//! Canonically encoded payloads need no repacking.
+//! Every entry is generic over [`FieldBuffer`](crate::FieldBuffer) alone,
+//! which reaches both the stable little-endian byte form and the rows'
+//! dispatched kernels. Arithmetic entries monomorphize to the row's SIMD
+//! kernel; packing (`pack`, `unpack`, `pack_to_vec`) works over the stable
+//! byte form and never builds a kernel operand. Buffers are plain `&[u8]`
+//! holding packed elements in that representation. Canonically encoded
+//! payloads need no repacking.
 //!
 //! Implementations split along named axes: the operation-shape modules
 //! `single`, `scatter`, `gather`, `matrix`, `dot`, and `recip`; the

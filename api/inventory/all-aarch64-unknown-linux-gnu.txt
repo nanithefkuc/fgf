@@ -574,7 +574,7 @@ pub type fgf::extension::ComplexMersenne31::Storage = fgf::extension::Components
 pub const fgf::extension::ComplexMersenne31::NAME: &'static str
 pub const fgf::extension::ComplexMersenne31::RELATION: fgf::extension::Relation
 pub trait fgf::extension::ExtensionStorage<B: fgf::Field, const D: usize>: fgf::field::extension::private::Sealed + 'static
-pub type fgf::extension::ExtensionStorage::Raw: core::marker::Copy + core::cmp::Eq + core::cmp::Ord + core::hash::Hash + core::fmt::Debug + 'static
+pub type fgf::extension::ExtensionStorage::Raw: core::marker::Copy + core::cmp::Eq + core::cmp::Ord + core::hash::Hash + core::fmt::Debug + core::marker::Send + core::marker::Sync + 'static
 impl<B: fgf::Field, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::Components
 pub type fgf::extension::Components::Raw = [<B as fgf::Field>::Raw; D]
 impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::Packed<u16>
@@ -715,15 +715,15 @@ pub fn fgf::ops::bits::xor_assign(&mut [u8], &[u8])
 pub fn fgf::ops::bits::xor_gather(&mut [u8], usize, u64, &[&[u8]])
 pub fn fgf::ops::bits::xor_range(&mut [u8], &[u8], usize, usize, usize)
 pub fn fgf::ops::bits::xor_range_with(&mut [u8], &[u8], &fgf::ops::bits::XorRange)
-pub struct fgf::ops::Coeff<F: fgf::FieldKernels>
-impl<F: fgf::FieldKernels> fgf::ops::Coeff<F>
+pub struct fgf::ops::Coeff<F: fgf::FieldBuffer>
+impl<F: fgf::FieldBuffer> fgf::ops::Coeff<F>
 pub fn fgf::ops::Coeff<F>::new(fgf::Elem<F>) -> Self
 pub fn fgf::ops::Coeff<F>::value(&self) -> fgf::Elem<F>
-impl<F: fgf::FieldKernels> core::clone::Clone for fgf::ops::Coeff<F>
+impl<F: fgf::FieldBuffer> core::clone::Clone for fgf::ops::Coeff<F>
 pub fn fgf::ops::Coeff<F>::clone(&self) -> Self
-impl<F: fgf::FieldKernels> core::fmt::Debug for fgf::ops::Coeff<F>
+impl<F: fgf::FieldBuffer> core::fmt::Debug for fgf::ops::Coeff<F>
 pub fn fgf::ops::Coeff<F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<F: fgf::FieldKernels> fgf::ops::PreparedCoefficient<F> for fgf::ops::Coeff<F>
+impl<F: fgf::FieldBuffer> fgf::ops::PreparedCoefficient<F> for fgf::ops::Coeff<F>
 pub fn fgf::ops::Coeff<F>::value(&self) -> fgf::Elem<F>
 impl<F> core::marker::Freeze for fgf::ops::Coeff<F> where <F as KernelDispatch>::Prepared: core::marker::Freeze
 impl<F> core::marker::Send for fgf::ops::Coeff<F> where <F as KernelDispatch>::Prepared: core::marker::Send
@@ -732,8 +732,8 @@ impl<F> core::marker::Unpin for fgf::ops::Coeff<F> where <F as KernelDispatch>::
 impl<F> core::marker::UnsafeUnpin for fgf::ops::Coeff<F> where <F as KernelDispatch>::Prepared: core::marker::UnsafeUnpin
 impl<F> core::panic::unwind_safe::RefUnwindSafe for fgf::ops::Coeff<F> where <F as KernelDispatch>::Prepared: core::panic::unwind_safe::RefUnwindSafe
 impl<F> core::panic::unwind_safe::UnwindSafe for fgf::ops::Coeff<F> where <F as KernelDispatch>::Prepared: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::ops::CoeffMatrix<F: fgf::FieldKernels>
-impl<F: fgf::FieldKernels> fgf::ops::CoeffMatrix<F>
+pub struct fgf::ops::CoeffMatrix<F: fgf::FieldBuffer>
+impl<F: fgf::FieldBuffer> fgf::ops::CoeffMatrix<F>
 pub fn fgf::ops::CoeffMatrix<F>::from_source_major(usize, usize, &[fgf::Elem<F>]) -> Self
 pub fn fgf::ops::CoeffMatrix<F>::get_at(&self, usize, usize) -> core::option::Option<fgf::ops::CoeffRef<'_, F>>
 pub fn fgf::ops::CoeffMatrix<F>::is_empty(&self) -> bool
@@ -742,9 +742,9 @@ pub const fn fgf::ops::CoeffMatrix<F>::output_count(&self) -> usize
 pub fn fgf::ops::CoeffMatrix<F>::source(&self, usize) -> core::option::Option<fgf::ops::CoeffVecRef<'_, F>>
 pub const fn fgf::ops::CoeffMatrix<F>::source_count(&self) -> usize
 pub fn fgf::ops::CoeffMatrix<F>::values(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = fgf::Elem<F>> + '_
-impl<F: fgf::FieldKernels> core::clone::Clone for fgf::ops::CoeffMatrix<F>
+impl<F: fgf::FieldBuffer> core::clone::Clone for fgf::ops::CoeffMatrix<F>
 pub fn fgf::ops::CoeffMatrix<F>::clone(&self) -> Self
-impl<F: fgf::FieldKernels> core::fmt::Debug for fgf::ops::CoeffMatrix<F>
+impl<F: fgf::FieldBuffer> core::fmt::Debug for fgf::ops::CoeffMatrix<F>
 pub fn fgf::ops::CoeffMatrix<F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<F> core::marker::Freeze for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::Freeze, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::Freeze
 impl<F> core::marker::Send for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::Send, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::Send
@@ -753,15 +753,15 @@ impl<F> core::marker::Unpin for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box
 impl<F> core::marker::UnsafeUnpin for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::UnsafeUnpin, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::UnsafeUnpin
 impl<F> core::panic::unwind_safe::RefUnwindSafe for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::panic::unwind_safe::RefUnwindSafe, alloc::boxed::Box<[fgf::Elem<F>]>: core::panic::unwind_safe::RefUnwindSafe
 impl<F> core::panic::unwind_safe::UnwindSafe for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::panic::unwind_safe::UnwindSafe, alloc::boxed::Box<[fgf::Elem<F>]>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::ops::CoeffRef<'a, F: fgf::FieldKernels>
-impl<F: fgf::FieldKernels> fgf::ops::CoeffRef<'_, F>
+pub struct fgf::ops::CoeffRef<'a, F: fgf::FieldBuffer>
+impl<F: fgf::FieldBuffer> fgf::ops::CoeffRef<'_, F>
 pub fn fgf::ops::CoeffRef<'_, F>::value(self) -> fgf::Elem<F>
-impl<'a, F: core::clone::Clone + fgf::FieldKernels> core::clone::Clone for fgf::ops::CoeffRef<'a, F>
+impl<'a, F: core::clone::Clone + fgf::FieldBuffer> core::clone::Clone for fgf::ops::CoeffRef<'a, F>
 pub fn fgf::ops::CoeffRef<'a, F>::clone(&self) -> Self
-impl<'a, F: core::marker::Copy + fgf::FieldKernels> core::marker::Copy for fgf::ops::CoeffRef<'a, F>
-impl<F: fgf::FieldKernels> core::fmt::Debug for fgf::ops::CoeffRef<'_, F>
+impl<'a, F: core::marker::Copy + fgf::FieldBuffer> core::marker::Copy for fgf::ops::CoeffRef<'a, F>
+impl<F: fgf::FieldBuffer> core::fmt::Debug for fgf::ops::CoeffRef<'_, F>
 pub fn fgf::ops::CoeffRef<'_, F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<F: fgf::FieldKernels> fgf::ops::PreparedCoefficient<F> for fgf::ops::CoeffRef<'_, F>
+impl<F: fgf::FieldBuffer> fgf::ops::PreparedCoefficient<F> for fgf::ops::CoeffRef<'_, F>
 pub fn fgf::ops::CoeffRef<'_, F>::value(&self) -> fgf::Elem<F>
 impl<'a, F> core::marker::Freeze for fgf::ops::CoeffRef<'a, F> where &'a <F as KernelDispatch>::Prepared: core::marker::Freeze, core::marker::PhantomData<F>: core::marker::Freeze
 impl<'a, F> core::marker::Send for fgf::ops::CoeffRef<'a, F> where &'a <F as KernelDispatch>::Prepared: core::marker::Send, core::marker::PhantomData<F>: core::marker::Send
@@ -770,8 +770,8 @@ impl<'a, F> core::marker::Unpin for fgf::ops::CoeffRef<'a, F> where &'a <F as Ke
 impl<'a, F> core::marker::UnsafeUnpin for fgf::ops::CoeffRef<'a, F> where &'a <F as KernelDispatch>::Prepared: core::marker::UnsafeUnpin, core::marker::PhantomData<F>: core::marker::UnsafeUnpin
 impl<'a, F> core::panic::unwind_safe::RefUnwindSafe for fgf::ops::CoeffRef<'a, F> where &'a <F as KernelDispatch>::Prepared: core::panic::unwind_safe::RefUnwindSafe, core::marker::PhantomData<F>: core::panic::unwind_safe::RefUnwindSafe
 impl<'a, F> core::panic::unwind_safe::UnwindSafe for fgf::ops::CoeffRef<'a, F> where &'a <F as KernelDispatch>::Prepared: core::panic::unwind_safe::UnwindSafe, core::marker::PhantomData<F>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::ops::CoeffVec<F: fgf::FieldKernels>
-impl<F: fgf::FieldKernels> fgf::ops::CoeffVec<F>
+pub struct fgf::ops::CoeffVec<F: fgf::FieldBuffer>
+impl<F: fgf::FieldBuffer> fgf::ops::CoeffVec<F>
 pub fn fgf::ops::CoeffVec<F>::as_ref(&self) -> fgf::ops::CoeffVecRef<'_, F>
 pub fn fgf::ops::CoeffVec<F>::coeffs(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = fgf::ops::CoeffRef<'_, F>>
 pub fn fgf::ops::CoeffVec<F>::get(&self, usize) -> core::option::Option<fgf::ops::CoeffRef<'_, F>>
@@ -779,9 +779,9 @@ pub fn fgf::ops::CoeffVec<F>::is_empty(&self) -> bool
 pub fn fgf::ops::CoeffVec<F>::len(&self) -> usize
 pub fn fgf::ops::CoeffVec<F>::new(&[fgf::Elem<F>]) -> Self
 pub fn fgf::ops::CoeffVec<F>::values(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = fgf::Elem<F>> + '_
-impl<F: fgf::FieldKernels> core::clone::Clone for fgf::ops::CoeffVec<F>
+impl<F: fgf::FieldBuffer> core::clone::Clone for fgf::ops::CoeffVec<F>
 pub fn fgf::ops::CoeffVec<F>::clone(&self) -> Self
-impl<F: fgf::FieldKernels> core::fmt::Debug for fgf::ops::CoeffVec<F>
+impl<F: fgf::FieldBuffer> core::fmt::Debug for fgf::ops::CoeffVec<F>
 pub fn fgf::ops::CoeffVec<F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<F> core::marker::Freeze for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::Freeze, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::Freeze
 impl<F> core::marker::Send for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::Send, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::Send
@@ -790,17 +790,17 @@ impl<F> core::marker::Unpin for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<
 impl<F> core::marker::UnsafeUnpin for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::UnsafeUnpin, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::UnsafeUnpin
 impl<F> core::panic::unwind_safe::RefUnwindSafe for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::panic::unwind_safe::RefUnwindSafe, alloc::boxed::Box<[fgf::Elem<F>]>: core::panic::unwind_safe::RefUnwindSafe
 impl<F> core::panic::unwind_safe::UnwindSafe for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::panic::unwind_safe::UnwindSafe, alloc::boxed::Box<[fgf::Elem<F>]>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::ops::CoeffVecRef<'a, F: fgf::FieldKernels>
-impl<'a, F: fgf::FieldKernels> fgf::ops::CoeffVecRef<'a, F>
+pub struct fgf::ops::CoeffVecRef<'a, F: fgf::FieldBuffer>
+impl<'a, F: fgf::FieldBuffer> fgf::ops::CoeffVecRef<'a, F>
 pub fn fgf::ops::CoeffVecRef<'a, F>::get(self, usize) -> core::option::Option<fgf::ops::CoeffRef<'a, F>>
 pub fn fgf::ops::CoeffVecRef<'a, F>::into_coeffs(self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = fgf::ops::CoeffRef<'a, F>>
 pub fn fgf::ops::CoeffVecRef<'a, F>::is_empty(self) -> bool
 pub fn fgf::ops::CoeffVecRef<'a, F>::len(self) -> usize
 pub fn fgf::ops::CoeffVecRef<'a, F>::values(self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = fgf::Elem<F>> + 'a
-impl<'a, F: core::clone::Clone + fgf::FieldKernels> core::clone::Clone for fgf::ops::CoeffVecRef<'a, F>
+impl<'a, F: core::clone::Clone + fgf::FieldBuffer> core::clone::Clone for fgf::ops::CoeffVecRef<'a, F>
 pub fn fgf::ops::CoeffVecRef<'a, F>::clone(&self) -> Self
-impl<'a, F: core::marker::Copy + fgf::FieldKernels> core::marker::Copy for fgf::ops::CoeffVecRef<'a, F>
-impl<F: fgf::FieldKernels> core::fmt::Debug for fgf::ops::CoeffVecRef<'_, F>
+impl<'a, F: core::marker::Copy + fgf::FieldBuffer> core::marker::Copy for fgf::ops::CoeffVecRef<'a, F>
+impl<F: fgf::FieldBuffer> core::fmt::Debug for fgf::ops::CoeffVecRef<'_, F>
 pub fn fgf::ops::CoeffVecRef<'_, F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, F> core::marker::Freeze for fgf::ops::CoeffVecRef<'a, F> where &'a [<F as KernelDispatch>::Prepared]: core::marker::Freeze, &'a [fgf::Elem<F>]: core::marker::Freeze, core::marker::PhantomData<F>: core::marker::Freeze
 impl<'a, F> core::marker::Send for fgf::ops::CoeffVecRef<'a, F> where &'a [<F as KernelDispatch>::Prepared]: core::marker::Send, &'a [fgf::Elem<F>]: core::marker::Send, core::marker::PhantomData<F>: core::marker::Send
@@ -809,49 +809,49 @@ impl<'a, F> core::marker::Unpin for fgf::ops::CoeffVecRef<'a, F> where &'a [<F a
 impl<'a, F> core::marker::UnsafeUnpin for fgf::ops::CoeffVecRef<'a, F> where &'a [<F as KernelDispatch>::Prepared]: core::marker::UnsafeUnpin, &'a [fgf::Elem<F>]: core::marker::UnsafeUnpin, core::marker::PhantomData<F>: core::marker::UnsafeUnpin
 impl<'a, F> core::panic::unwind_safe::RefUnwindSafe for fgf::ops::CoeffVecRef<'a, F> where &'a [<F as KernelDispatch>::Prepared]: core::panic::unwind_safe::RefUnwindSafe, &'a [fgf::Elem<F>]: core::panic::unwind_safe::RefUnwindSafe, core::marker::PhantomData<F>: core::panic::unwind_safe::RefUnwindSafe
 impl<'a, F> core::panic::unwind_safe::UnwindSafe for fgf::ops::CoeffVecRef<'a, F> where &'a [<F as KernelDispatch>::Prepared]: core::panic::unwind_safe::UnwindSafe, &'a [fgf::Elem<F>]: core::panic::unwind_safe::UnwindSafe, core::marker::PhantomData<F>: core::panic::unwind_safe::UnwindSafe
-pub trait fgf::ops::PreparedCoefficient<F: fgf::FieldKernels>: fgf::ops::coefficient::private::Sealed + PreparedRepr<F>
+pub trait fgf::ops::PreparedCoefficient<F: fgf::FieldBuffer>: fgf::ops::coefficient::private::Sealed + PreparedRepr<F>
 pub fn fgf::ops::PreparedCoefficient::value(&self) -> fgf::Elem<F>
-impl<F: fgf::FieldKernels> fgf::ops::PreparedCoefficient<F> for fgf::ops::Coeff<F>
+impl<F: fgf::FieldBuffer> fgf::ops::PreparedCoefficient<F> for fgf::ops::Coeff<F>
 pub fn fgf::ops::Coeff<F>::value(&self) -> fgf::Elem<F>
-impl<F: fgf::FieldKernels> fgf::ops::PreparedCoefficient<F> for fgf::ops::CoeffRef<'_, F>
+impl<F: fgf::FieldBuffer> fgf::ops::PreparedCoefficient<F> for fgf::ops::CoeffRef<'_, F>
 pub fn fgf::ops::CoeffRef<'_, F>::value(&self) -> fgf::Elem<F>
-pub fn fgf::ops::add_assign<F: fgf::FieldKernels>(&mut [u8], &[u8])
-pub fn fgf::ops::add_assign_rows<F: fgf::FieldKernels>(&mut [u8], usize, &[u8])
-pub fn fgf::ops::add_assign_scalar<F: fgf::FieldKernels>(&mut [u8], fgf::Elem<F>)
-pub fn fgf::ops::add_gather_offsets<F: fgf::FieldKernels>(&mut [u8], &[u8], &[u32])
-pub fn fgf::ops::div_elementwise<F: fgf::FieldKernels>(&mut [u8], &[u8], &[u8])
-pub fn fgf::ops::div_elementwise_assign<F: fgf::FieldKernels>(&mut [u8], &[u8])
-pub fn fgf::ops::dot_product<F: fgf::FieldKernels>(&[u8], &[u8]) -> fgf::Elem<F>
-pub fn fgf::ops::inv_assign<F: fgf::FieldKernels>(&mut [u8])
-pub fn fgf::ops::inv_into<F: fgf::FieldKernels>(&mut [u8], &[u8])
-pub fn fgf::ops::mul_add<F: fgf::FieldKernels>(&mut [u8], fgf::Elem<F>, &[u8])
-pub fn fgf::ops::mul_add_gather<F: fgf::FieldKernels>(&mut [u8], &[fgf::Elem<F>], &[&[u8]])
-pub fn fgf::ops::mul_add_gather_with<F: fgf::FieldKernels>(&mut [u8], fgf::ops::CoeffVecRef<'_, F>, &[&[u8]])
-pub fn fgf::ops::mul_add_matrix<F: fgf::FieldKernels>(&mut [u8], usize, usize, &[(&[fgf::Elem<F>], &[u8])])
-pub fn fgf::ops::mul_add_matrix_at<F: fgf::FieldKernels>(&mut [u8], usize, &[usize], &[(&[fgf::Elem<F>], &[u8])])
-pub fn fgf::ops::mul_add_matrix_at_with<F: fgf::FieldKernels>(&mut [u8], usize, &[usize], &fgf::ops::CoeffMatrix<F>, &[&[u8]])
-pub fn fgf::ops::mul_add_matrix_with<F: fgf::FieldKernels>(&mut [u8], usize, &fgf::ops::CoeffMatrix<F>, &[&[u8]])
-pub fn fgf::ops::mul_add_scatter<F: fgf::FieldKernels>(&mut [u8], usize, &[fgf::Elem<F>], &[u8])
-pub fn fgf::ops::mul_add_scatter_with<F: fgf::FieldKernels>(&mut [u8], usize, fgf::ops::CoeffVecRef<'_, F>, &[u8])
-pub fn fgf::ops::mul_add_with<F: fgf::FieldKernels>(&mut [u8], &impl fgf::ops::PreparedCoefficient<F>, &[u8])
-pub fn fgf::ops::mul_assign<F: fgf::FieldKernels>(&mut [u8], fgf::Elem<F>)
-pub fn fgf::ops::mul_assign_with<F: fgf::FieldKernels>(&mut [u8], &impl fgf::ops::PreparedCoefficient<F>)
-pub fn fgf::ops::mul_elementwise<F: fgf::FieldKernels>(&mut [u8], &[u8], &[u8])
-pub fn fgf::ops::mul_elementwise_assign<F: fgf::FieldKernels>(&mut [u8], &[u8])
-pub fn fgf::ops::mul_into<F: fgf::FieldKernels>(&mut [u8], fgf::Elem<F>, &[u8])
-pub fn fgf::ops::mul_into_gather<F: fgf::FieldKernels>(&mut [u8], &[fgf::Elem<F>], &[&[u8]])
-pub fn fgf::ops::mul_into_gather_with<F: fgf::FieldKernels>(&mut [u8], fgf::ops::CoeffVecRef<'_, F>, &[&[u8]])
-pub fn fgf::ops::mul_into_matrix<F: fgf::FieldKernels>(&mut [u8], usize, usize, &[(&[fgf::Elem<F>], &[u8])])
-pub fn fgf::ops::mul_into_matrix_at<F: fgf::FieldKernels>(&mut [u8], usize, &[usize], &[(&[fgf::Elem<F>], &[u8])])
-pub fn fgf::ops::mul_into_matrix_at_with<F: fgf::FieldKernels>(&mut [u8], usize, &[usize], &fgf::ops::CoeffMatrix<F>, &[&[u8]])
-pub fn fgf::ops::mul_into_matrix_with<F: fgf::FieldKernels>(&mut [u8], usize, &fgf::ops::CoeffMatrix<F>, &[&[u8]])
-pub fn fgf::ops::mul_into_scatter<F: fgf::FieldKernels>(&mut [u8], usize, &[fgf::Elem<F>], &[u8])
-pub fn fgf::ops::mul_into_with<F: fgf::FieldKernels>(&mut [u8], &impl fgf::ops::PreparedCoefficient<F>, &[u8])
+pub fn fgf::ops::add_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::add_assign_rows<F: fgf::FieldBuffer>(&mut [u8], usize, &[u8])
+pub fn fgf::ops::add_assign_scalar<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>)
+pub fn fgf::ops::add_gather_offsets<F: fgf::FieldBuffer>(&mut [u8], &[u8], &[u32])
+pub fn fgf::ops::div_elementwise<F: fgf::FieldBuffer>(&mut [u8], &[u8], &[u8])
+pub fn fgf::ops::div_elementwise_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::dot_product<F: fgf::FieldBuffer>(&[u8], &[u8]) -> fgf::Elem<F>
+pub fn fgf::ops::inv_assign<F: fgf::FieldBuffer>(&mut [u8])
+pub fn fgf::ops::inv_into<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::mul_add<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>, &[u8])
+pub fn fgf::ops::mul_add_gather<F: fgf::FieldBuffer>(&mut [u8], &[fgf::Elem<F>], &[&[u8]])
+pub fn fgf::ops::mul_add_gather_with<F: fgf::FieldBuffer>(&mut [u8], fgf::ops::CoeffVecRef<'_, F>, &[&[u8]])
+pub fn fgf::ops::mul_add_matrix<F: fgf::FieldBuffer>(&mut [u8], usize, usize, &[(&[fgf::Elem<F>], &[u8])])
+pub fn fgf::ops::mul_add_matrix_at<F: fgf::FieldBuffer>(&mut [u8], usize, &[usize], &[(&[fgf::Elem<F>], &[u8])])
+pub fn fgf::ops::mul_add_matrix_at_with<F: fgf::FieldBuffer>(&mut [u8], usize, &[usize], &fgf::ops::CoeffMatrix<F>, &[&[u8]])
+pub fn fgf::ops::mul_add_matrix_with<F: fgf::FieldBuffer>(&mut [u8], usize, &fgf::ops::CoeffMatrix<F>, &[&[u8]])
+pub fn fgf::ops::mul_add_scatter<F: fgf::FieldBuffer>(&mut [u8], usize, &[fgf::Elem<F>], &[u8])
+pub fn fgf::ops::mul_add_scatter_with<F: fgf::FieldBuffer>(&mut [u8], usize, fgf::ops::CoeffVecRef<'_, F>, &[u8])
+pub fn fgf::ops::mul_add_with<F: fgf::FieldBuffer>(&mut [u8], &impl fgf::ops::PreparedCoefficient<F>, &[u8])
+pub fn fgf::ops::mul_assign<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>)
+pub fn fgf::ops::mul_assign_with<F: fgf::FieldBuffer>(&mut [u8], &impl fgf::ops::PreparedCoefficient<F>)
+pub fn fgf::ops::mul_elementwise<F: fgf::FieldBuffer>(&mut [u8], &[u8], &[u8])
+pub fn fgf::ops::mul_elementwise_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::mul_into<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>, &[u8])
+pub fn fgf::ops::mul_into_gather<F: fgf::FieldBuffer>(&mut [u8], &[fgf::Elem<F>], &[&[u8]])
+pub fn fgf::ops::mul_into_gather_with<F: fgf::FieldBuffer>(&mut [u8], fgf::ops::CoeffVecRef<'_, F>, &[&[u8]])
+pub fn fgf::ops::mul_into_matrix<F: fgf::FieldBuffer>(&mut [u8], usize, usize, &[(&[fgf::Elem<F>], &[u8])])
+pub fn fgf::ops::mul_into_matrix_at<F: fgf::FieldBuffer>(&mut [u8], usize, &[usize], &[(&[fgf::Elem<F>], &[u8])])
+pub fn fgf::ops::mul_into_matrix_at_with<F: fgf::FieldBuffer>(&mut [u8], usize, &[usize], &fgf::ops::CoeffMatrix<F>, &[&[u8]])
+pub fn fgf::ops::mul_into_matrix_with<F: fgf::FieldBuffer>(&mut [u8], usize, &fgf::ops::CoeffMatrix<F>, &[&[u8]])
+pub fn fgf::ops::mul_into_scatter<F: fgf::FieldBuffer>(&mut [u8], usize, &[fgf::Elem<F>], &[u8])
+pub fn fgf::ops::mul_into_with<F: fgf::FieldBuffer>(&mut [u8], &impl fgf::ops::PreparedCoefficient<F>, &[u8])
 pub fn fgf::ops::pack<F: fgf::FieldBuffer>(&mut [u8], &[fgf::Elem<F>])
 pub fn fgf::ops::pack_to_vec<F: fgf::FieldBuffer>(&[fgf::Elem<F>]) -> alloc::vec::Vec<u8>
-pub fn fgf::ops::sub_assign<F: fgf::FieldKernels>(&mut [u8], &[u8])
-pub fn fgf::ops::sub_assign_rows<F: fgf::FieldKernels>(&mut [u8], usize, &[u8])
-pub fn fgf::ops::sub_assign_scalar<F: fgf::FieldKernels>(&mut [u8], fgf::Elem<F>)
+pub fn fgf::ops::sub_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::sub_assign_rows<F: fgf::FieldBuffer>(&mut [u8], usize, &[u8])
+pub fn fgf::ops::sub_assign_scalar<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>)
 pub fn fgf::ops::unpack<F: fgf::FieldBuffer>(&mut [fgf::Elem<F>], &[u8])
 pub fn fgf::ops::unpack_to_vec<F: fgf::FieldBuffer>(&[u8]) -> alloc::vec::Vec<fgf::Elem<F>>
 pub mod fgf::prime
@@ -1369,10 +1369,6 @@ impl fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::extension::Extension<fgf:
 impl fgf::HasGenerator for fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>
 impl fgf::HasGenerator for fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>
 impl fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>
-impl<R: Gf8Data> fgf::FieldKernels for fgf::FiniteField<2, 8, R>
-pub fn fgf::FiniteField<2, 8, R>::backend() -> simdispatch::backend::Backend
-pub fn fgf::FiniteField<2, 8, R>::has_vector_elementwise() -> bool
-pub fn fgf::FiniteField<2, 8, R>::vector_elementwise_min_bytes() -> usize
 impl<R: fgf::binary::BinaryRepr<1>> fgf::Field for fgf::FiniteField<2, 1, R>
 pub type fgf::FiniteField<2, 1, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
 pub type fgf::FiniteField<2, 1, R>::Raw = u8
@@ -1450,10 +1446,6 @@ pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::BYTES: usize
 pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::STORAGE_BITS: u32
 pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::decode(&[u8]) -> fgf::Elem<Self>
 pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::encode(&mut [u8], fgf::Elem<Self>)
-impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::FieldKernels for fgf::FiniteField<P, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageKernels<<S as fgf::extension::ExtensionSpec>::Base, D>
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::backend() -> simdispatch::backend::Backend
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::has_vector_elementwise() -> bool
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::vector_elementwise_min_bytes() -> usize
 impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::extension::ExtensionField<D> for fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>
 pub type fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::Base = <S as fgf::extension::ExtensionSpec<D>>::Base
 pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::from_components([fgf::Elem<<S as fgf::extension::ExtensionSpec>::Base>; D]) -> fgf::Elem<Self>
@@ -1469,10 +1461,6 @@ pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::BYTES: usize
 pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::STORAGE_BITS: u32
 pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::decode(&[u8]) -> fgf::Elem<Self>
 pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::encode(&mut [u8], fgf::Elem<Self>)
-impl<const P: u64> fgf::FieldKernels for fgf::FiniteField<P, 1, fgf::prime::Residue>
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::backend() -> simdispatch::backend::Backend
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::has_vector_elementwise() -> bool
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::vector_elementwise_min_bytes() -> usize
 impl<const P: u64> fgf::prime::PrimeField for fgf::FiniteField<P, 1, fgf::prime::Residue>
 impl<const P: u64, const N: u32, R> core::marker::Freeze for fgf::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::marker::Freeze
 impl<const P: u64, const N: u32, R> core::marker::Send for fgf::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::marker::Send
@@ -1504,7 +1492,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for fgf::RangeError
 impl core::panic::unwind_safe::UnwindSafe for fgf::RangeError
 pub trait fgf::Field: private::RowAccess + private::RawArithmetic<<Self as fgf::Field>::Raw> + core::marker::Copy + core::fmt::Debug + 'static
 pub type fgf::Field::Characteristic: fgf::prime::PrimeIdentity
-pub type fgf::Field::Raw: core::marker::Copy + core::cmp::Eq + core::cmp::Ord + core::hash::Hash + core::fmt::Debug + 'static
+pub type fgf::Field::Raw: core::marker::Copy + core::cmp::Eq + core::cmp::Ord + core::hash::Hash + core::fmt::Debug + core::marker::Send + core::marker::Sync + 'static
 pub const fgf::Field::DEGREE: u32
 pub const fgf::Field::NAME: &'static str
 pub const fgf::Field::ORDER: u128
@@ -1556,7 +1544,7 @@ pub type fgf::FiniteField<P, 1, fgf::prime::Residue>::Raw = u64
 pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::DEGREE: u32
 pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::NAME: &'static str
 pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::ORDER: u128
-pub trait fgf::FieldBuffer: fgf::Field + fgf::field::private::FieldSeal
+pub trait fgf::FieldBuffer: fgf::Field + fgf::field::private::FieldSeal + dispatch::KernelDispatch
 pub const fgf::FieldBuffer::BYTES: usize
 pub const fgf::FieldBuffer::STORAGE_BITS: u32
 pub fn fgf::FieldBuffer::decode(&[u8]) -> fgf::Elem<Self>
@@ -1624,30 +1612,6 @@ pub fn fgf::Elem<F>::square(self) -> Self
 pub fn fgf::Elem<F>::sub(self, Self) -> Self
 pub fn fgf::Elem<F>::to_index(self) -> u128
 pub fn fgf::Elem<F>::to_residue(self) -> core::option::Option<u64>
-pub trait fgf::FieldKernels: fgf::FieldBuffer + fgf::kernel::private::Sealed + KernelDispatch
-pub fn fgf::FieldKernels::backend() -> simdispatch::backend::Backend
-pub fn fgf::FieldKernels::has_vector_elementwise() -> bool
-pub fn fgf::FieldKernels::vector_elementwise_min_bytes() -> usize
-impl fgf::FieldKernels for fgf::prime::Goldilocks
-pub fn fgf::prime::Goldilocks::backend() -> simdispatch::backend::Backend
-pub fn fgf::prime::Goldilocks::has_vector_elementwise() -> bool
-pub fn fgf::prime::Goldilocks::vector_elementwise_min_bytes() -> usize
-impl fgf::FieldKernels for fgf::prime::Mersenne31
-pub fn fgf::prime::Mersenne31::backend() -> simdispatch::backend::Backend
-pub fn fgf::prime::Mersenne31::has_vector_elementwise() -> bool
-pub fn fgf::prime::Mersenne31::vector_elementwise_min_bytes() -> usize
-impl<R: Gf8Data> fgf::FieldKernels for fgf::FiniteField<2, 8, R>
-pub fn fgf::FiniteField<2, 8, R>::backend() -> simdispatch::backend::Backend
-pub fn fgf::FiniteField<2, 8, R>::has_vector_elementwise() -> bool
-pub fn fgf::FiniteField<2, 8, R>::vector_elementwise_min_bytes() -> usize
-impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::FieldKernels for fgf::FiniteField<P, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageKernels<<S as fgf::extension::ExtensionSpec>::Base, D>
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::backend() -> simdispatch::backend::Backend
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::has_vector_elementwise() -> bool
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::vector_elementwise_min_bytes() -> usize
-impl<const P: u64> fgf::FieldKernels for fgf::FiniteField<P, 1, fgf::prime::Residue>
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::backend() -> simdispatch::backend::Backend
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::has_vector_elementwise() -> bool
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::vector_elementwise_min_bytes() -> usize
 pub trait fgf::FiniteFieldRepr<const P: u64, const N: u32>: fgf::field::private::Sealed + private::FiniteFieldReprValidation<P, N> + 'static
 pub const fgf::FiniteFieldRepr::NAME: &'static str
 impl fgf::FiniteFieldRepr<18446744069414584321, 1> for fgf::prime::GoldilocksFold
@@ -1702,6 +1666,6 @@ impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Po
 impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Polynomial<P>>
 impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Polynomial<P>>
 pub fn fgf::backend() -> simdispatch::backend::Backend
-pub fn fgf::backend_for<F: fgf::FieldKernels>() -> simdispatch::backend::Backend
+pub fn fgf::backend_for<F: fgf::FieldBuffer>() -> simdispatch::backend::Backend
 # external re-exports
 reexport fgf::Backend = simdispatch::backend::Backend

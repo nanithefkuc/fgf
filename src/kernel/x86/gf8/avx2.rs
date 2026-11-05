@@ -15,8 +15,8 @@ use super::ssse3::{
     mul_add_ssse3, mul_assign_ssse3, mul_elementwise_assign_ssse3, mul_elementwise_ssse3,
     mul_into_ssse3_impl,
 };
+use crate::field::binary::byte::ScaleTable;
 use crate::kernel::gf8::{Coeffs, Prepared};
-use crate::kernel::tables::ScaleTable;
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;

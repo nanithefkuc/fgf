@@ -16,7 +16,7 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use fgf::binary::Polynomial;
-use fgf::{Elem, FieldKernels, FiniteField, backend, ops};
+use fgf::{Elem, FieldBuffer, FiniteField, backend, ops};
 
 use fgf::binary::{AES, RS};
 
@@ -108,7 +108,7 @@ fn gf16_sweep() {
     }
 }
 
-fn gather_probe<F: FieldKernels>(name: &str, coeff: impl Fn(usize) -> Elem<F>) {
+fn gather_probe<F: FieldBuffer>(name: &str, coeff: impl Fn(usize) -> Elem<F>) {
     println!("\n== {name} overwrite gather, 16 sources: raw coefficients vs prepared CoeffVec ==");
     for &len in &[4096usize, 16384] {
         let n = 16usize;

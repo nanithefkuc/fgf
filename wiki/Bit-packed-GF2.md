@@ -5,8 +5,8 @@ explicitly; byte count alone cannot identify the final live bit.
 
 ## Scalar values and vector storage
 
-Polynomial GF(2) has scalar arithmetic but no byte-lane `FieldBuffer` or
-`FieldKernels`. Its vectors do not use `ops::pack`:
+Polynomial GF(2) has scalar arithmetic but no byte-lane `FieldBuffer`. Its
+vectors do not use `ops::pack`:
 
 ```rust
 use fgf::{FiniteField, Elem};

@@ -76,7 +76,7 @@ Import polynomial constants before using them in the const-generic position, suc
 | `field::Elem` trait | `FieldElem`; import the trait separately from the `Elem<F>` wrapper |
 | `Field::elem_count(bytes)` | Validate whole lanes, then divide by `F::BYTES` under `FieldBuffer` |
 
-A scalar-only generic algorithm uses `F: Field`. Encoding uses `F: FieldBuffer`; packed arithmetic uses `F: FieldKernels`, which implies `FieldBuffer`. Generator selection is optional rather than a universal field property.
+A scalar-only generic algorithm uses `F: Field`. Encoding and packed arithmetic use `F: FieldBuffer`, which reaches every byte operation and prepared coefficient type. `FieldKernels` no longer exists, and no other bound is needed. Generator selection is optional rather than a universal field property.
 
 Historical 2.x coefficient signature:
 
@@ -89,10 +89,10 @@ fn scale<F: fgf::FieldKernels>(dst: &mut [u8], c: F::Elem, src: &[u8]) {
 The replacement keeps the operation but changes the value type:
 
 ```rust
-use fgf::{FiniteField, Elem, FieldKernels, ops};
+use fgf::{FiniteField, Elem, FieldBuffer, ops};
 use fgf::binary::{AES, Polynomial};
 
-fn scale<F: FieldKernels>(dst: &mut [u8], c: Elem<F>, src: &[u8]) {
+fn scale<F: FieldBuffer>(dst: &mut [u8], c: Elem<F>, src: &[u8]) {
     ops::mul_into::<F>(dst, c, src);
 }
 

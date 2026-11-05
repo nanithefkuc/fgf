@@ -412,7 +412,7 @@ fn sink(canon: u128) -> u64 {
 /// The harness's own noise floor: one `fgf` body timed against itself
 /// over two distinct destinations. Anything other than 1.00x is
 /// interleaving bias.
-fn control<Fg: fgf::FieldKernels>(
+fn control<Fg: fgf::FieldBuffer>(
     c: Elem<Fg>,
     src: &Aligned<u8>,
     first: &mut Aligned<u8>,
@@ -456,7 +456,7 @@ fn run_slice_field<Fg, Fp>(
     canon_fg: impl Fn(Elem<Fg>) -> u128,
     canon_p: impl Fn(Fp) -> u128,
 ) where
-    Fg: fgf::FieldKernels,
+    Fg: fgf::FieldBuffer,
     Elem<Fg>: Copy + core::ops::Add<Output = Elem<Fg>> + core::ops::Mul<Output = Elem<Fg>>,
     Fp: P3Field,
 {
@@ -695,7 +695,7 @@ fn assert_canon<Fg, Fp>(
     n: usize,
     elem_bytes: usize,
 ) where
-    Fg: fgf::FieldKernels,
+    Fg: fgf::FieldBuffer,
     Elem<Fg>: Copy + Default,
     Fp: Copy,
 {

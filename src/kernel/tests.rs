@@ -31,10 +31,11 @@ use crate::field::{Elem, FiniteField};
 use crate::kernel::gf8::Prepared;
 use crate::kernel::scalar;
 
+use crate::field::binary::byte::ScaleTable;
+use crate::field::dispatch::{KernelDispatch, RawDispatch};
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::kernel::tables::{FpTowerTables, TowerCoeff};
-use crate::kernel::tables::{ScaleTable, TowerTables, scale_table};
-use crate::kernel::{KernelDispatch, RawDispatch};
+use crate::kernel::tables::{TowerTables, scale_table};
 
 /// Row lengths whose GFNI scatter/gather/matrix tail is 17-30 bytes past
 /// the last 32-byte window: the regression geometry for the staged
@@ -6182,14 +6183,16 @@ mod x86 {
         // A custom extension takes the scalar fallback on every tier: the
         // backend reports `Scalar` and the prepared form is the raw word.
         assert_eq!(
-            <AesExtField as crate::kernel::FieldKernels>::backend(),
+            <AesExtField as KernelDispatch>::backend(crate::field::dispatch::RawDispatch),
             crate::kernel::Backend::Scalar
         );
         assert!(matches!(
             <AesExtField as KernelDispatch>::prepare(RawDispatch, AesExtElem::from_raw(0x0104)),
             Prepared::Plain(_)
         ));
-        assert!(!<AesExtField as crate::kernel::FieldKernels>::has_vector_elementwise());
+        assert!(!<AesExtField as KernelDispatch>::has_vector_elementwise(
+            crate::field::dispatch::RawDispatch,
+        ));
 
         if !host_supports(&[Backend::V2]) {
             eprintln!("skipping: no SSSE3 on this host");
@@ -6272,7 +6275,7 @@ mod x86 {
         assert_eq!(Elem::<NormalBase>::ONE.to_raw(), 0xFF);
 
         assert_eq!(
-            <Field as crate::kernel::FieldKernels>::backend(),
+            <Field as KernelDispatch>::backend(crate::field::dispatch::RawDispatch),
             crate::kernel::Backend::Scalar
         );
 
@@ -6511,7 +6514,7 @@ fn xor_gather_rejects_a_source_past_the_region() {
 /// and reach the field-independent primitive through the trait default —
 /// against the portable byte-cyclic reference, at element counts that
 /// straddle the 16- and 32-byte lane boundaries.
-fn check_binary_broadcast_dispatch<F: KernelDispatch>(values: &[Elem<F>]) {
+fn check_binary_broadcast_dispatch<F: crate::field::FieldBuffer>(values: &[Elem<F>]) {
     const ELEMS: [usize; 4] = [0, 17, 33, 49];
     for &n in &ELEMS {
         let len = n * F::BYTES;

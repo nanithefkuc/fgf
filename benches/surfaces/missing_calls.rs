@@ -14,7 +14,7 @@ use std::hint::black_box;
 
 use fgf::maps::{Embedding, Isomorphism};
 use fgf::ops::{CoeffMatrix, CoeffVec};
-use fgf::{Elem, FieldBuffer, FieldKernels, ops};
+use fgf::{Elem, FieldBuffer, ops};
 use fgf::{Field, FieldElem};
 
 use crate::fields::{self, Gf2p8Aes, Gf2p8Rs, Gf2p16Rijndael, for_each_bulk_field};
@@ -335,7 +335,7 @@ fn run_coeffmatrix_values(case: &Case, ctx: &CaseCtx) {
 
 fn register_matrix_into_one_shot<F>(label: &'static str)
 where
-    F: FieldBuffer + FieldKernels,
+    F: FieldBuffer,
 {
     let row = row_bytes::<F>();
     let traffic = row * SOURCES * OUTPUTS;

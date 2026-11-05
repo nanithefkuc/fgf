@@ -67,8 +67,7 @@ modular. Choose only the capabilities an algorithm needs:
 | Bound | Use |
 | --- | --- |
 | `Field` | Scalar arithmetic and field identity |
-| `FieldBuffer` | Fixed-width byte encoding |
-| `FieldKernels` | Checked packed arithmetic through `ops` |
+| `FieldBuffer` | Fixed-width byte encoding, and the sole bound for packed arithmetic through `ops` |
 | `HasGenerator` | A selected multiplicative generator |
 | `BinaryField` / `BinaryDegree<N>` | Binary coordinate operations / an exact degree |
 
@@ -84,7 +83,7 @@ storage lane, which need not equal the logarithm of the order.
 
 The polynomial GF(2) row and binary degrees two and four are scalar-only.
 GF(2) vectors use [bit-packed operations](Bit-packed-GF2); byte-buffer workflows
-require `FieldBuffer` and `FieldKernels`.
+require `FieldBuffer`.
 
 Concrete shipped element families have inherent `const` arithmetic. Custom
 extensions provide `const` identities and `to_raw`, but arithmetic uses runtime

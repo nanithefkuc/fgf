@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 use fgf::binary::{AES, Cantor, FanPaar16, Normal, Polynomial, RS};
 use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
 use fgf::maps::Isomorphism;
-use fgf::{Elem, FieldElem, FieldKernels, FiniteField, ops};
+use fgf::{Elem, FieldBuffer, FieldElem, FiniteField, ops};
 use reed_solomon_simd::engine::Avx2;
 
 use crate::representation::{Representations, polynomial_mul, tower_mul};
@@ -295,7 +295,7 @@ impl Presentation {
     /// injective over all 65536 values, fixing zero and one, preserving
     /// every basis product against the independent oracle, and agreeing
     /// with the presentation's own arithmetic on the same products.
-    fn mapped<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
+    fn mapped<F: FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
         tag: Tag,
         label: &'static str,
         description: &'static str,
@@ -378,7 +378,7 @@ impl Presentation {
     }
 
     fn isomorphism<
-        F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>,
+        F: FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>,
     >(
         &self,
     ) -> Isomorphism<Gf16, F> {
@@ -892,7 +892,7 @@ fn emit_single(presentation: &Presentation, case: &RegisteredCase, samples: Body
 /// `1..=65535`, so no iteration multiplies by or into zero.
 const CHAIN_CHUNK: u64 = 4096;
 
-fn chain_chunk<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
+fn chain_chunk<F: FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
     state: &mut u64,
     x: &mut Elem<F>,
 ) {
@@ -904,7 +904,7 @@ fn chain_chunk<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeChar
 }
 
 fn run_scalar_chain<
-    F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>,
+    F: FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>,
 >(
     presentation: &Presentation,
     case: &RegisteredCase,
@@ -929,7 +929,7 @@ fn run_scalar_chain<
     emit_single(presentation, case, samples);
 }
 
-fn run_prepare<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
+fn run_prepare<F: FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
     presentation: &Presentation,
     case: &RegisteredCase,
     kind: PrepareKind,
@@ -972,7 +972,7 @@ fn run_prepare<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeChar
 /// The conversion-inclusive caller loop: per-element tower-to-presentation
 /// conversion through the public `Isomorphism`, with the packed-buffer
 /// store outside or inside the timed body, exactly labelled.
-fn run_convert<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
+fn run_convert<F: FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
     presentation: &Presentation,
     case: &RegisteredCase,
     packing_included: bool,
@@ -1029,7 +1029,7 @@ fn run_convert<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeChar
 // Campaign
 // ---------------------------------------------------------------------------
 
-fn run_all<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
+fn run_all<F: FieldBuffer<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
     presentation: &Presentation,
     check: bool,
     smoke: bool,

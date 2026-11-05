@@ -127,7 +127,7 @@ fn print_host_lines() {
 /// routes report their own answer from `backend_for`, not the process
 /// backend.
 fn print_field_backends() {
-    fn field<F: fgf::FieldKernels>(label: &str) {
+    fn field<F: fgf::FieldBuffer>(label: &str) {
         println!("FIELD_BACKEND\t{label}\t{}", backend_for::<F>().name());
     }
     field::<FiniteField<2, 8, Polynomial<AES>>>("gf8b");

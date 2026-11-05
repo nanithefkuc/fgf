@@ -71,7 +71,7 @@ ops::unpack::<F>(&mut decoded, &bytes);
 assert_eq!(decoded, values);
 ```
 
-Packing requires `FieldBuffer`; arithmetic on packed bytes requires `FieldKernels`.
+Packing and arithmetic on packed bytes both require `FieldBuffer`.
 
 ## Apply arithmetic to an unaligned payload
 

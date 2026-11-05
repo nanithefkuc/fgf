@@ -2570,8 +2570,9 @@ fn direct_avx2_wide_row_rejects_invalid_later_offset_before_mutation() {
 #[test]
 fn v4x_host_selects_v4x_backends() {
     use fgf::binary::Polynomial;
+    use fgf::internals::kernel::has_vector_elementwise;
     use fgf::prime::{Goldilocks, Mersenne31};
-    use fgf::{Backend, FieldKernels, backend, backend_for};
+    use fgf::{Backend, backend, backend_for};
 
     let downgrade = std::env::var("SIMD_BACKEND")
         .ok()
@@ -2603,8 +2604,156 @@ fn v4x_host_selects_v4x_backends() {
     // Both byte fields carry 64-byte elementwise kernels on V4x, so the
     // capability query must not steer consumers to scalar.
     assert!(
-        <FiniteField<2, 8, Polynomial<AES>> as FieldKernels>::has_vector_elementwise()
-            && <FiniteField<2, 8, Polynomial<RS>> as FieldKernels>::has_vector_elementwise(),
+        has_vector_elementwise::<FiniteField<2, 8, Polynomial<AES>>>()
+            && has_vector_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(),
         "byte fields do not report vector elementwise on a V4x host"
     );
+}
+
+/// The vector-policy queries over the `internals` free wrappers: the
+/// per-field invariants, the scalar families that never vectorize, and the
+/// x86 tiers where the vector elementwise kernels serve.
+#[test]
+fn vector_policy_reports_match_family_routes() {
+    use fgf::internals::kernel::{has_vector_elementwise, vector_elementwise_min_bytes};
+    use fgf::prime::{Goldilocks, Mersenne31};
+    use fgf::{Backend, backend, backend_for};
+
+    type Gf32 = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>;
+    type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
+    type FanPaar8Field =
+        fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>;
+    type FanPaar16Field =
+        fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>;
+    type FanPaar32Field =
+        fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>;
+    type FanPaar64Field =
+        fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>;
+
+    let process = backend();
+    let x86_tier = matches!(
+        process,
+        Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
+    );
+    let gfni = matches!(process, Backend::V4x | Backend::V3GfniCrypto);
+
+    // Query invariants for every shipped bulk field.
+    macro_rules! queries {
+        ($($field:ty),+ $(,)?) => {$(
+            let per_field = backend_for::<$field>();
+            assert!(
+                per_field >= process,
+                concat!(stringify!($field), ": field backend exceeds the process backend")
+            );
+            let vectorized = has_vector_elementwise::<$field>();
+            assert!(
+                !vectorized || per_field != Backend::Scalar,
+                concat!(stringify!($field), ": vectorized elementwise requires a vector field backend")
+            );
+            let threshold = vector_elementwise_min_bytes::<$field>();
+            assert!(
+                vectorized || threshold == 0,
+                concat!(stringify!($field), ": threshold without a vector elementwise kernel")
+            );
+        )+};
+    }
+    queries!(
+        FiniteField<2, 8, Polynomial<AES>>,
+        FiniteField<2, 8, Polynomial<RS>>,
+        FiniteField<2, 8, fgf::binary::Normal<0x11B, 0x20>>,
+        FiniteField<2, 8, fgf::binary::Cantor<0x11B, 0x20>>,
+        Gf16,
+        Gf32,
+        Gf64,
+        FanPaar8Field,
+        FanPaar16Field,
+        FanPaar32Field,
+        FanPaar64Field,
+        Mersenne31,
+        Goldilocks,
+        fgf::extension::QuadMersenne31,
+    );
+
+    // Basis rows and the Fan-Paar towers never carry vector elementwise.
+    macro_rules! scalar_fallback {
+        ($($field:ty),+ $(,)?) => {$(
+            assert!(
+                !has_vector_elementwise::<$field>(),
+                concat!(stringify!($field), " elementwise must be scalar"),
+            );
+        )+};
+    }
+    scalar_fallback!(
+        FiniteField<2, 8, fgf::binary::Normal<0x11B, 0x20>>,
+        FiniteField<2, 8, fgf::binary::Cantor<0x11B, 0x20>>,
+        FanPaar8Field,
+        FanPaar16Field,
+        FanPaar32Field,
+        FanPaar64Field,
+        Gf32,
+        Gf64,
+    );
+
+    // The byte polynomial fields and GF(2^16) follow the x86 tiers; the
+    // wider towers and the Fan-Paar family stay scalar; the prime families
+    // follow the integer-lane tiers.
+    assert_eq!(
+        has_vector_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(),
+        x86_tier,
+    );
+    assert_eq!(
+        has_vector_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(),
+        x86_tier,
+    );
+    assert_eq!(has_vector_elementwise::<Gf16>(), x86_tier,);
+    assert_eq!(has_vector_elementwise::<Mersenne31>(), x86_tier);
+    assert_eq!(has_vector_elementwise::<Goldilocks>(), x86_tier);
+    assert_eq!(
+        has_vector_elementwise::<fgf::extension::QuadMersenne31>(),
+        gfni || process == Backend::V3,
+    );
+}
+
+/// The elementwise vector threshold is a whole number of elements, and it
+/// is nonzero exactly when a vector kernel serves the elementwise product.
+#[test]
+fn quad_mersenne31_elementwise_threshold_is_consistent() {
+    use fgf::extension::QuadMersenne31;
+    use fgf::internals::kernel::{has_vector_elementwise, vector_elementwise_min_bytes};
+
+    let threshold = vector_elementwise_min_bytes::<QuadMersenne31>();
+    assert_eq!(threshold % 8, 0, "threshold {threshold} splits an element");
+    assert_eq!(
+        threshold != 0,
+        has_vector_elementwise::<QuadMersenne31>(),
+        "threshold {threshold} disagrees with elementwise eligibility"
+    );
+}
+
+/// Elementwise vectorization is available only for u32 residue rows on
+/// supported x86 hosts.
+#[test]
+fn vector_elementwise_report_matches_the_four_byte_class() {
+    use fgf::Backend;
+    use fgf::FiniteField;
+    use fgf::internals::kernel::has_vector_elementwise;
+
+    let is_vector_host = matches!(
+        fgf::backend(),
+        Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+    );
+    macro_rules! row {
+        ($field:ty, $vector_host:expr) => {
+            assert_eq!(
+                has_vector_elementwise::<$field>(),
+                <$field as fgf::FieldBuffer>::BYTES == 4 && $vector_host
+            );
+        };
+    }
+    row!(FiniteField<2, 1>, is_vector_host);
+    row!(FiniteField<251, 1>, is_vector_host);
+    row!(FiniteField<65_521, 1>, is_vector_host);
+    row!(FiniteField<1_000_000_007, 1>, is_vector_host);
+    row!(FiniteField<4_294_967_291, 1>, is_vector_host);
+    row!(FiniteField<18_446_744_073_709_551_557, 1>, is_vector_host);
 }

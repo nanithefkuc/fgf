@@ -11,8 +11,9 @@
 //! residue, and the scatter group body the offset-addressed-rows residue.
 
 use super::{check_elements, swap_mask_avx2};
+use crate::field::binary::byte::ScaleTable;
 use crate::kernel::gf16::{Coeffs, mul_add_scalar, mul_assign_scalar, mul_into_scalar};
-use crate::kernel::tables::{NibbleFactors, ScaleTable, TowerTables};
+use crate::kernel::tables::{NibbleFactors, TowerTables};
 use crate::kernel::x86::gf8;
 use crate::kernel::x86::{nt_split, peel_to_align, store_avx2};
 

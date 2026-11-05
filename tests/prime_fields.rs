@@ -18,18 +18,6 @@ const M31_P: u64 = <<Mersenne31 as Field>::Characteristic as PrimeIdentity>::CHA
 /// The Goldilocks characteristic, read through the prime identity.
 const GLD_P: u64 = <<Goldilocks as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC;
 
-/// The vector-elementwise capability query through the stable
-/// `fgf::FieldKernels` trait.
-fn has_vector_elementwise<F: fgf::FieldKernels>() -> bool {
-    <F as fgf::FieldKernels>::has_vector_elementwise()
-}
-
-/// The elementwise dispatch-threshold query through the stable
-/// `fgf::FieldKernels` trait.
-fn vector_elementwise_min_bytes<F: fgf::FieldKernels>() -> usize {
-    <F as fgf::FieldKernels>::vector_elementwise_min_bytes()
-}
-
 /// Primality by trial division up to `√n`.
 fn trial_division_prime(n: u64) -> bool {
     if n < 2 {
@@ -350,19 +338,6 @@ fn quad_mersenne31_ops_canonicalize_raw_limbs() {
             );
         }
     }
-}
-
-/// The elementwise vector threshold is a whole number of elements, and it
-/// is nonzero exactly when a vector kernel serves the elementwise product.
-#[test]
-fn quad_mersenne31_elementwise_threshold_is_consistent() {
-    let threshold = vector_elementwise_min_bytes::<QuadMersenne31>();
-    assert_eq!(threshold % 8, 0, "threshold {threshold} splits an element");
-    assert_eq!(
-        threshold != 0,
-        has_vector_elementwise::<QuadMersenne31>(),
-        "threshold {threshold} disagrees with elementwise eligibility"
-    );
 }
 
 /// The identity predicates read the canonical limbs: zero reports zero and

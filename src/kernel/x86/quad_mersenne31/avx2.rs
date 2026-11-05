@@ -471,7 +471,7 @@ pub fn sub_assign_scalar_avx2(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::{KernelDispatch, RawDispatch};
+    use crate::field::dispatch::{KernelDispatch, RawDispatch};
     use archmage::SimdToken as _;
 
     /// Lengths in bytes straddling the 32-byte vector lane: empty, one

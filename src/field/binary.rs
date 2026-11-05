@@ -6,6 +6,7 @@
 //! submodule holds one presentation family's arithmetic and validation
 //! bodies.
 
+pub(crate) mod byte;
 pub mod cantor;
 pub mod description;
 pub mod normal;
@@ -31,8 +32,8 @@ pub(crate) mod binary_private {
     pub trait Sealed {}
 
     /// Per-presentation data the byte-operation dispatch reads.
-    pub(crate) trait BinaryReprData<const N: u32> {
-        /// The opaque descriptor of this presentation.
+    pub(crate) trait BinaryReprData<const N: u32>: super::byte::ByteReprData {
+        /// The opaque descriptor of this binary presentation.
         const DESCRIPTION: &'static BinaryDescription;
         /// Discrete-logarithm tables, present only for degree-eight strategies.
         const LOG_EXP: Option<&'static ByteLogExp>;
@@ -511,6 +512,7 @@ impl<R: BinaryRepr<8>> FieldBuffer for FiniteField<2, 8, R> {
 
     #[inline]
     fn decode(bytes: &[u8]) -> Elem<Self> {
+        let () = Validate::<Self>::OK;
         let bytes: [u8; 1] = bytes
             .try_into()
             .expect("GF(2^8) element has the wrong byte width");
@@ -519,6 +521,7 @@ impl<R: BinaryRepr<8>> FieldBuffer for FiniteField<2, 8, R> {
 
     #[inline]
     fn encode(bytes: &mut [u8], value: Elem<Self>) {
+        let () = Validate::<Self>::OK;
         assert_eq!(bytes.len(), 1, "GF(2^8) element has the wrong byte width");
         bytes.copy_from_slice(&value.to_bytes());
     }

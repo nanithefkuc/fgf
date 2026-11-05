@@ -4,8 +4,8 @@
 //! one coefficient per `(source, row)` pair — contiguous rows for staging,
 //! offset-addressed rows for writes straight into a codeword buffer.
 
-use crate::field::Elem;
-use crate::kernel::{FieldKernels, RawDispatch};
+use crate::field::dispatch::RawDispatch;
+use crate::field::{Elem, FieldBuffer};
 
 use super::geometry::check_width;
 
@@ -28,7 +28,7 @@ use super::CoeffMatrix;
 /// # Panics
 /// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes, every
 /// term supplies `nrows` coefficients, and every source is `row_len` bytes.
-pub fn mul_add_matrix<F: FieldKernels>(
+pub fn mul_add_matrix<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
@@ -77,7 +77,7 @@ pub fn mul_add_matrix<F: FieldKernels>(
 /// `row_len` bytes, `coeffs.source_count() == srcs.len()`, and every source
 /// is `row_len` bytes.
 #[cfg(feature = "alloc")]
-pub fn mul_add_matrix_with<F: FieldKernels>(
+pub fn mul_add_matrix_with<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
     coeffs: &CoeffMatrix<F>,
@@ -133,7 +133,7 @@ pub fn mul_add_matrix_with<F: FieldKernels>(
 /// # Panics
 /// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes, every
 /// term supplies `nrows` coefficients, and every source is `row_len` bytes.
-pub fn mul_into_matrix<F: FieldKernels>(
+pub fn mul_into_matrix<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
@@ -184,7 +184,7 @@ pub fn mul_into_matrix<F: FieldKernels>(
 /// `row_len` bytes, `coeffs.source_count() == srcs.len()`, and every source
 /// is `row_len` bytes.
 #[cfg(feature = "alloc")]
-pub fn mul_into_matrix_with<F: FieldKernels>(
+pub fn mul_into_matrix_with<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
     coeffs: &CoeffMatrix<F>,
@@ -256,7 +256,7 @@ pub fn mul_into_matrix_with<F: FieldKernels>(
 /// is a whole number of elements, the rows are pairwise disjoint, every term
 /// supplies `row_starts.len()` coefficients, and every source is `row_len`
 /// bytes; or on a partial trailing element.
-pub fn mul_add_matrix_at<F: FieldKernels>(
+pub fn mul_add_matrix_at<F: FieldBuffer>(
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
@@ -303,7 +303,7 @@ pub fn mul_add_matrix_at<F: FieldKernels>(
 /// `coeffs.output_count() == row_starts.len()`, and every source is `row_len`
 /// bytes; or on a partial trailing element.
 #[cfg(feature = "alloc")]
-pub fn mul_add_matrix_at_with<F: FieldKernels>(
+pub fn mul_add_matrix_at_with<F: FieldBuffer>(
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
@@ -366,7 +366,7 @@ pub fn mul_add_matrix_at_with<F: FieldKernels>(
 /// is a whole number of elements, the rows are pairwise disjoint, every term
 /// supplies `row_starts.len()` coefficients, and every source is `row_len`
 /// bytes; or on a partial trailing element.
-pub fn mul_into_matrix_at<F: FieldKernels>(
+pub fn mul_into_matrix_at<F: FieldBuffer>(
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
@@ -417,7 +417,7 @@ pub fn mul_into_matrix_at<F: FieldKernels>(
 /// `coeffs.output_count() == row_starts.len()`, and every source is `row_len`
 /// bytes; or on a partial trailing element.
 #[cfg(feature = "alloc")]
-pub fn mul_into_matrix_at_with<F: FieldKernels>(
+pub fn mul_into_matrix_at_with<F: FieldBuffer>(
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
@@ -469,7 +469,7 @@ pub fn mul_into_matrix_at_with<F: FieldKernels>(
 
 /// Scattered-row geometry shared by the `_at` entries: every row in bounds,
 /// element-aligned, and pairwise disjoint.
-fn check_at<F: FieldKernels>(name: &str, dst_len: usize, row_len: usize, row_starts: &[usize]) {
+fn check_at<F: FieldBuffer>(name: &str, dst_len: usize, row_len: usize, row_starts: &[usize]) {
     check_width::<F>(name, row_len);
     for (j, &start) in row_starts.iter().enumerate() {
         let end = start

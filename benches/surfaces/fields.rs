@@ -208,7 +208,7 @@ pub type Qm31 = QuadMersenne31;
 
 /// The backend name this field's bulk operations resolve to in the running
 /// process: each field's own routing, not the process backend.
-pub fn backend_name<F: fgf::FieldKernels>() -> String {
+pub fn backend_name<F: fgf::FieldBuffer>() -> String {
     backend_for::<F>().name().to_string()
 }
 
@@ -267,8 +267,8 @@ pub(crate) use for_each_field;
 /// Iterate the seven presentation-only binary rows at degrees one, two, and
 /// four: polynomial, normal-basis, and Cantor-basis presentations with no
 /// kernel route. These rows carry the full scalar, conversion, and
-/// presentation surface but no `FieldKernels` implementation, so their
-/// records report the `scalar` backend.
+/// presentation surface but no byte form, so their records report the
+/// `scalar` backend.
 #[allow(unused_macros)]
 macro_rules! for_each_field_small {
     ($callback:ident) => {

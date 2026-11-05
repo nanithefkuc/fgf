@@ -34,4 +34,4 @@ pub mod internals;
 
 pub use crate::field::finite_field::{FiniteField, FiniteFieldRepr};
 pub use crate::field::{Elem, Field, FieldBuffer, FieldElem, HasGenerator, RangeError};
-pub use crate::kernel::{Backend, FieldKernels, backend, backend_for};
+pub use crate::kernel::{Backend, backend, backend_for};

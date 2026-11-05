@@ -4,7 +4,7 @@
 //! buffers produced here satisfy the packed-operation input contract
 //! directly.
 
-use crate::field::{Elem, FieldBuffer};
+use crate::field::{Elem, FieldBuffer, Validate};
 
 /// Pack field elements into their stable little-endian byte representation.
 ///
@@ -15,6 +15,7 @@ use crate::field::{Elem, FieldBuffer};
 /// # Panics
 /// Panics unless `dst.len() == elems.len() * F::BYTES`.
 pub fn pack<F: FieldBuffer>(dst: &mut [u8], elems: &[Elem<F>]) {
+    let () = Validate::<F>::OK;
     let expected = elems
         .len()
         .checked_mul(F::BYTES)
@@ -39,6 +40,7 @@ pub fn pack<F: FieldBuffer>(dst: &mut [u8], elems: &[Elem<F>]) {
 /// # Panics
 /// Panics unless `src.len() == dst.len() * F::BYTES`.
 pub fn unpack<F: FieldBuffer>(dst: &mut [Elem<F>], src: &[u8]) {
+    let () = Validate::<F>::OK;
     let expected = dst
         .len()
         .checked_mul(F::BYTES)
@@ -65,6 +67,7 @@ pub fn unpack<F: FieldBuffer>(dst: &mut [Elem<F>], src: &[u8]) {
 #[cfg(feature = "alloc")]
 #[must_use]
 pub fn pack_to_vec<F: FieldBuffer>(elems: &[Elem<F>]) -> alloc::vec::Vec<u8> {
+    let () = Validate::<F>::OK;
     let len = elems
         .len()
         .checked_mul(F::BYTES)
@@ -84,6 +87,7 @@ pub fn pack_to_vec<F: FieldBuffer>(elems: &[Elem<F>]) -> alloc::vec::Vec<u8> {
 #[cfg(feature = "alloc")]
 #[must_use]
 pub fn unpack_to_vec<F: FieldBuffer>(src: &[u8]) -> alloc::vec::Vec<Elem<F>> {
+    let () = Validate::<F>::OK;
     assert!(
         src.len().is_multiple_of(F::BYTES),
         "unpack_to_vec: src is {} bytes, not a whole number of {} elements",

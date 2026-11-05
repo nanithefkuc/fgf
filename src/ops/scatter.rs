@@ -3,8 +3,8 @@
 //! The systematic-encode shape: one arriving source is multiplied by one
 //! coefficient per destination row and accumulated into it.
 
-use crate::field::{Elem, FieldElem};
-use crate::kernel::{FieldKernels, RawDispatch};
+use crate::field::dispatch::RawDispatch;
+use crate::field::{Elem, FieldBuffer, FieldElem};
 
 use super::geometry::check_pair;
 
@@ -23,7 +23,7 @@ use super::CoeffVecRef;
 /// # Panics
 /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len` bytes
 /// and `row_len == src.len()`, or on a partial trailing element.
-pub fn mul_add_scatter<F: FieldKernels>(
+pub fn mul_add_scatter<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
     coeffs: &[Elem<F>],
@@ -61,7 +61,7 @@ pub fn mul_add_scatter<F: FieldKernels>(
 /// # Panics
 /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len` bytes
 /// and `row_len == src.len()`, or on a partial trailing element.
-pub fn mul_into_scatter<F: FieldKernels>(
+pub fn mul_into_scatter<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
     coeffs: &[Elem<F>],
@@ -95,7 +95,7 @@ pub fn mul_into_scatter<F: FieldKernels>(
 /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len` bytes
 /// and `row_len == src.len()`, or on a partial trailing element.
 #[cfg(feature = "alloc")]
-pub fn mul_add_scatter_with<F: FieldKernels>(
+pub fn mul_add_scatter_with<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
     coeffs: CoeffVecRef<'_, F>,

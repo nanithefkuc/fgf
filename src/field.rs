@@ -8,6 +8,10 @@
 //! the central validation block checks the characteristic identity, a
 //! positive degree, `ORDER == CHARACTERISTIC^DEGREE`, and the total degree cap
 //! of 64 before evaluating `VALID` from every generic constructor.
+//!
+//! Field-owned byte-dispatch contracts contain declarations only. The kernel
+//! engine supplies each implementation and the shared default compositions;
+//! the checked operations validate inputs before entering that engine.
 
 pub mod binary;
 pub mod embedding;
@@ -18,9 +22,11 @@ pub mod mersenne31;
 pub mod prime;
 pub mod quad_mersenne31;
 
+pub(crate) mod dispatch;
+
 pub use binary::{BinaryField, Cantor, Normal};
 pub use extension::ExtensionSpec;
-pub use finite_field::{FiniteField, FiniteFieldRepr, Residue};
+pub use finite_field::{FiniteField, FiniteFieldRepr};
 
 mod private {
     use super::Field;
@@ -370,7 +376,7 @@ pub trait Field:
     + 'static
 {
     /// The raw word of one scalar element.
-    type Raw: Copy + Eq + Ord + core::hash::Hash + core::fmt::Debug + 'static;
+    type Raw: Copy + Eq + Ord + core::hash::Hash + core::fmt::Debug + Send + Sync + 'static;
     /// The prime characteristic identity of the field.
     type Characteristic: PrimeIdentity;
     /// Human-readable field name, e.g. `"GF(2^8)"`.
@@ -871,7 +877,8 @@ impl<'a, F: Field> core::iter::Product<&'a Elem<F>> for Elem<F> {
 /// little-endian coordinates; decoders canonicalize accepted aliases.
 /// Buffers hold fixed-width coordinates, not prepared coefficients or native
 /// scratch. The trait is sealed: the crate's rows define every byte layout.
-pub trait FieldBuffer: Field + private::FieldSeal {
+#[allow(private_bounds)]
+pub trait FieldBuffer: Field + private::FieldSeal + dispatch::KernelDispatch {
     /// Width of the stable byte representation of one element.
     const BYTES: usize;
     /// Storage bit width of one element: `8 * BYTES`.
@@ -925,6 +932,7 @@ mod tests {
     use super::extension::pinned;
     use super::extension::storage::{Components, PackedPadded};
     use super::extension::{Extension, Relation};
+    use super::finite_field::Residue;
     use super::goldilocks::Goldilocks;
     use super::mersenne31::Mersenne31;
     use super::private::RowAccess as _;

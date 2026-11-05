@@ -25,7 +25,7 @@
 //!   `mul_elementwise_assign` through the narrow Barrett form on
 //!   `V4x`/`V3GfniCrypto`/`V3`, selected by [`single_row_backend`].
 //!
-//! [`FieldKernels::backend`] reports the highest implemented vector tier for
+//! the backend query reports the highest implemented vector tier for
 //! rows whose prepared fixed-coefficient operations vectorize: `V4x` with
 //! `simd512` on capable hosts, otherwise `V3` on AVX2-capable hosts. Other
 //! widths report [`Backend::Scalar`]. Short rows use the measured AVX2 or
@@ -54,12 +54,13 @@
 use crate::field::Elem;
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::field::FieldBuffer;
+use crate::field::dispatch::{KernelDispatch, RawDispatch};
 use crate::field::finite_field::{FiniteField, Residue};
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::kernel::backend;
 #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 use crate::kernel::x86::residue::avx512;
-use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, prime, scalar};
+use crate::kernel::{Backend, prime, scalar};
 
 /// The backend-ready form of one residue coefficient: exactly one `u64`
 /// word, so `Coeff<F>` costs what `Elem<F>` costs.
@@ -150,9 +151,11 @@ const fn redc64_word(t: u128, p: u64) -> u64 {
     }
 }
 
-impl<const P: u64> FieldKernels for FiniteField<P, 1, Residue> {
+impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
+    type Prepared = PreparedResidue;
+
     #[inline]
-    fn backend() -> Backend {
+    fn backend(_proof: RawDispatch) -> Backend {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             // Reports the implemented tier for nibble-table u8 rows,
@@ -170,7 +173,7 @@ impl<const P: u64> FieldKernels for FiniteField<P, 1, Residue> {
     }
 
     #[inline]
-    fn has_vector_elementwise() -> bool {
+    fn has_vector_elementwise(_proof: RawDispatch) -> bool {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             Self::BYTES == 4 && vector_backend()
@@ -179,6 +182,211 @@ impl<const P: u64> FieldKernels for FiniteField<P, 1, Residue> {
         {
             false
         }
+    }
+
+    fallback_entries!(
+        row: vector_elementwise_min_bytes, add_gather_offsets, add_assign_rows,
+        sub_assign_rows, mul_into_scatter, mul_add_scatter_with,
+        mul_add_scatter_plan, mul_add_gather_with, mul_add_gather_plan,
+        mul_into_gather, mul_into_gather_with, mul_into_gather_plan,
+        mul_add_matrix_with, mul_into_matrix, mul_add_matrix_at,
+        mul_add_matrix_at_rows, mul_add_matrix_at_plan, mul_into_matrix_at,
+        mul_into_matrix_at_plan,
+    );
+
+    #[inline]
+    fn prepare(_proof: RawDispatch, coeff: Elem<Self>) -> Self::Prepared {
+        PreparedResidue::prepare::<P>(<Self as crate::field::FieldBuffer>::BYTES, coeff.to_raw())
+    }
+
+    #[inline]
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> Elem<Self> {
+        Elem::<Self>::from_raw(prepared.coeff::<P>(<Self as crate::field::FieldBuffer>::BYTES))
+    }
+
+    fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        prime::add_assign::<Self>(dst, src);
+    }
+
+    fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        prime::sub_assign::<Self>(dst, src);
+    }
+
+    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
+        mul_add_prepared::<P>(dst, *coeff, src);
+    }
+
+    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
+        mul_into_prepared::<P>(dst, *coeff, src);
+    }
+
+    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared) {
+        mul_assign_prepared::<P>(dst, *coeff);
+    }
+
+    fn mul_add_scatter(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[Elem<Self>],
+        src: &[u8],
+    ) {
+        prime::mul_add_scatter::<Self>(rows, row_len, coeffs, src);
+    }
+
+    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem<Self>], srcs: &[&[u8]]) {
+        prime::mul_add_gather::<Self>(dst, coeffs, srcs);
+    }
+
+    fn mul_add_matrix(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[Elem<Self>], &[u8])],
+    ) {
+        prime::mul_add_matrix::<Self>(rows, row_len, nrows, terms);
+    }
+    #[cfg(feature = "alloc")]
+    #[allow(clippy::cast_possible_truncation)]
+    fn mul_add_matrix_plan(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        values: &[Elem<Self>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
+        let _ = values;
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        {
+            let selected =
+                delayed_matrix_backend(nrows, delay_depth::<P>(), row_len, srcs.len(), true);
+            if Self::BYTES == 4
+                && selected != Backend::Scalar
+                && delayed_add_matches_composition::<P>(nrows, values)
+            {
+                let terms = crate::kernel::FlatMatrix {
+                    coefficients: coeffs,
+                    nrows,
+                    sources: srcs,
+                };
+                match selected {
+                    #[cfg(feature = "simd512")]
+                    Backend::V4x => {
+                        avx512::matrix::mul_add_with::<P>(rows, row_len, nrows, &terms);
+                    }
+                    _ => crate::kernel::x86::residue::mul_add_matrix_u32_avx2_with(
+                        crate::kernel::x86_v3_token(),
+                        rows,
+                        row_len,
+                        nrows,
+                        &terms,
+                        P as u32,
+                    ),
+                }
+                return;
+            }
+        }
+        crate::kernel::fallback::mul_add_matrix_plan::<Self>(
+            rows, row_len, nrows, values, coeffs, srcs,
+        );
+    }
+
+    #[cfg(feature = "alloc")]
+    #[allow(clippy::cast_possible_truncation)]
+    fn mul_into_matrix_plan(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        values: &[Elem<Self>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        {
+            let selected =
+                delayed_matrix_backend(nrows, delay_depth::<P>(), row_len, srcs.len(), false);
+            if Self::BYTES == 4 && selected != Backend::Scalar {
+                let terms = crate::kernel::FlatMatrix {
+                    coefficients: coeffs,
+                    nrows,
+                    sources: srcs,
+                };
+                match selected {
+                    #[cfg(feature = "simd512")]
+                    Backend::V4x => {
+                        avx512::matrix::mul_into_with::<P>(rows, row_len, nrows, &terms);
+                    }
+                    _ => crate::kernel::x86::residue::mul_into_matrix_u32_avx2_with(
+                        crate::kernel::x86_v3_token(),
+                        rows,
+                        row_len,
+                        nrows,
+                        &terms,
+                        P as u32,
+                    ),
+                }
+                return;
+            }
+        }
+        for row in rows.chunks_exact_mut(row_len).take(nrows) {
+            row.fill(0);
+        }
+        Self::mul_add_matrix_plan(RawDispatch, rows, row_len, nrows, values, coeffs, srcs);
+    }
+
+    fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        match single_row_backend(Self::BYTES, P, dst.len(), VectorOp::Elementwise) {
+            #[cfg(feature = "simd512")]
+            Backend::V4x => return avx512::single::mul_elementwise::<P>(dst, a, b),
+            Backend::V3 => {
+                crate::kernel::x86::residue::mul_elementwise_u32_avx2(
+                    crate::kernel::x86_v3_token(),
+                    dst,
+                    a,
+                    b,
+                    Self::U32_PARAMS,
+                );
+                return;
+            }
+            _ => {}
+        }
+        prime::mul_elementwise::<Self>(dst, a, b);
+    }
+
+    fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        match single_row_backend(Self::BYTES, P, dst.len(), VectorOp::ElementwiseAssign) {
+            #[cfg(feature = "simd512")]
+            Backend::V4x => return avx512::single::mul_elementwise_assign::<P>(dst, src),
+            Backend::V3 => {
+                crate::kernel::x86::residue::mul_elementwise_assign_u32_avx2(
+                    crate::kernel::x86_v3_token(),
+                    dst,
+                    src,
+                    Self::U32_PARAMS,
+                );
+                return;
+            }
+            _ => {}
+        }
+        scalar::mul_elementwise_assign::<Self>(dst, src);
+    }
+
+    /// Modular broadcast addition. The explicit override keeps every
+    /// characteristic, `P = 2` included, off the binary XOR default.
+    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
+        prime::add_assign_scalar::<Self>(dst, Self::prepared_coeff(RawDispatch, value));
+    }
+
+    /// Modular broadcast subtraction, for the same reason.
+    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
+        prime::sub_assign_scalar::<Self>(dst, Self::prepared_coeff(RawDispatch, value));
     }
 }
 
@@ -428,203 +636,6 @@ pub fn delayed_matrix_backend(
         vector_tier()
     } else {
         Backend::Scalar
-    }
-}
-
-impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
-    type Prepared = PreparedResidue;
-
-    #[inline]
-    fn prepare(_proof: RawDispatch, coeff: Elem<Self>) -> Self::Prepared {
-        PreparedResidue::prepare::<P>(<Self as crate::field::FieldBuffer>::BYTES, coeff.to_raw())
-    }
-
-    #[inline]
-    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> Elem<Self> {
-        Elem::<Self>::from_raw(prepared.coeff::<P>(<Self as crate::field::FieldBuffer>::BYTES))
-    }
-
-    fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
-        prime::add_assign::<Self>(dst, src);
-    }
-
-    fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
-        prime::sub_assign::<Self>(dst, src);
-    }
-
-    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
-        mul_add_prepared::<P>(dst, *coeff, src);
-    }
-
-    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
-        mul_into_prepared::<P>(dst, *coeff, src);
-    }
-
-    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared) {
-        mul_assign_prepared::<P>(dst, *coeff);
-    }
-
-    fn mul_add_scatter(
-        _proof: RawDispatch,
-        rows: &mut [u8],
-        row_len: usize,
-        coeffs: &[Elem<Self>],
-        src: &[u8],
-    ) {
-        prime::mul_add_scatter::<Self>(rows, row_len, coeffs, src);
-    }
-
-    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem<Self>], srcs: &[&[u8]]) {
-        prime::mul_add_gather::<Self>(dst, coeffs, srcs);
-    }
-
-    fn mul_add_matrix(
-        _proof: RawDispatch,
-        rows: &mut [u8],
-        row_len: usize,
-        nrows: usize,
-        terms: &[(&[Elem<Self>], &[u8])],
-    ) {
-        prime::mul_add_matrix::<Self>(rows, row_len, nrows, terms);
-    }
-    #[cfg(feature = "alloc")]
-    #[allow(clippy::cast_possible_truncation)]
-    fn mul_add_matrix_plan(
-        _proof: RawDispatch,
-        rows: &mut [u8],
-        row_len: usize,
-        nrows: usize,
-        values: &[Elem<Self>],
-        coeffs: &[Self::Prepared],
-        srcs: &[&[u8]],
-    ) {
-        #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-        let _ = values;
-        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        {
-            let selected =
-                delayed_matrix_backend(nrows, delay_depth::<P>(), row_len, srcs.len(), true);
-            if Self::BYTES == 4
-                && selected != Backend::Scalar
-                && delayed_add_matches_composition::<P>(nrows, values)
-            {
-                let terms = crate::kernel::FlatMatrix {
-                    coefficients: coeffs,
-                    nrows,
-                    sources: srcs,
-                };
-                match selected {
-                    #[cfg(feature = "simd512")]
-                    Backend::V4x => {
-                        avx512::matrix::mul_add_with::<P>(rows, row_len, nrows, &terms);
-                    }
-                    _ => crate::kernel::x86::residue::mul_add_matrix_u32_avx2_with(
-                        crate::kernel::x86_v3_token(),
-                        rows,
-                        row_len,
-                        nrows,
-                        &terms,
-                        P as u32,
-                    ),
-                }
-                return;
-            }
-        }
-        crate::kernel::fallback::mul_add_matrix_plan::<Self>(rows, row_len, nrows, coeffs, srcs);
-    }
-
-    #[cfg(feature = "alloc")]
-    #[allow(clippy::cast_possible_truncation)]
-    fn mul_into_matrix_plan(
-        _proof: RawDispatch,
-        rows: &mut [u8],
-        row_len: usize,
-        nrows: usize,
-        values: &[Elem<Self>],
-        coeffs: &[Self::Prepared],
-        srcs: &[&[u8]],
-    ) {
-        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        {
-            let selected =
-                delayed_matrix_backend(nrows, delay_depth::<P>(), row_len, srcs.len(), false);
-            if Self::BYTES == 4 && selected != Backend::Scalar {
-                let terms = crate::kernel::FlatMatrix {
-                    coefficients: coeffs,
-                    nrows,
-                    sources: srcs,
-                };
-                match selected {
-                    #[cfg(feature = "simd512")]
-                    Backend::V4x => {
-                        avx512::matrix::mul_into_with::<P>(rows, row_len, nrows, &terms);
-                    }
-                    _ => crate::kernel::x86::residue::mul_into_matrix_u32_avx2_with(
-                        crate::kernel::x86_v3_token(),
-                        rows,
-                        row_len,
-                        nrows,
-                        &terms,
-                        P as u32,
-                    ),
-                }
-                return;
-            }
-        }
-        for row in rows.chunks_exact_mut(row_len).take(nrows) {
-            row.fill(0);
-        }
-        Self::mul_add_matrix_plan(RawDispatch, rows, row_len, nrows, values, coeffs, srcs);
-    }
-
-    fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
-        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        match single_row_backend(Self::BYTES, P, dst.len(), VectorOp::Elementwise) {
-            #[cfg(feature = "simd512")]
-            Backend::V4x => return avx512::single::mul_elementwise::<P>(dst, a, b),
-            Backend::V3 => {
-                crate::kernel::x86::residue::mul_elementwise_u32_avx2(
-                    crate::kernel::x86_v3_token(),
-                    dst,
-                    a,
-                    b,
-                    Self::U32_PARAMS,
-                );
-                return;
-            }
-            _ => {}
-        }
-        prime::mul_elementwise::<Self>(dst, a, b);
-    }
-
-    fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
-        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        match single_row_backend(Self::BYTES, P, dst.len(), VectorOp::ElementwiseAssign) {
-            #[cfg(feature = "simd512")]
-            Backend::V4x => return avx512::single::mul_elementwise_assign::<P>(dst, src),
-            Backend::V3 => {
-                crate::kernel::x86::residue::mul_elementwise_assign_u32_avx2(
-                    crate::kernel::x86_v3_token(),
-                    dst,
-                    src,
-                    Self::U32_PARAMS,
-                );
-                return;
-            }
-            _ => {}
-        }
-        scalar::mul_elementwise_assign::<Self>(dst, src);
-    }
-
-    /// Modular broadcast addition. The explicit override keeps every
-    /// characteristic, `P = 2` included, off the binary XOR default.
-    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
-        prime::add_assign_scalar::<Self>(dst, Self::prepared_coeff(RawDispatch, value));
-    }
-
-    /// Modular broadcast subtraction, for the same reason.
-    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
-        prime::sub_assign_scalar::<Self>(dst, Self::prepared_coeff(RawDispatch, value));
     }
 }
 

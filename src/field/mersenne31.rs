@@ -30,7 +30,7 @@ pub const fn reduce(x: u32) -> u32 {
 ///
 /// One canonical `u32` per element, reduced with `2^31 ≡ 1`. Field
 /// [`NAME`](Field::NAME): `GF(2^31 - 1)`; this label: `mersenne-fold`. The
-/// [`Residue`](super::Residue) row at the same modulus is a distinct
+/// [`Residue`](crate::prime::Residue) row at the same modulus is a distinct
 /// presentation with `u64` storage; values move between the two by residue,
 /// never by buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
@@ -198,6 +198,7 @@ impl FieldBuffer for Mersenne31 {
 
     #[inline]
     fn decode(bytes: &[u8]) -> Elem<Self> {
+        let () = Validate::<Self>::OK;
         let bytes: [u8; 4] = bytes
             .try_into()
             .expect("GF(2^31 - 1) element has the wrong byte width");
@@ -206,6 +207,7 @@ impl FieldBuffer for Mersenne31 {
 
     #[inline]
     fn encode(bytes: &mut [u8], value: Elem<Self>) {
+        let () = Validate::<Self>::OK;
         assert_eq!(
             bytes.len(),
             4,

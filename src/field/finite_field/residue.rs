@@ -327,6 +327,7 @@ impl<const P: u64> FieldBuffer for FiniteField<P, 1, Residue> {
 
     #[inline]
     fn decode(bytes: &[u8]) -> Elem<Self> {
+        let () = Validate::<Self>::OK;
         assert_eq!(
             bytes.len(),
             Self::BYTES,
@@ -337,6 +338,7 @@ impl<const P: u64> FieldBuffer for FiniteField<P, 1, Residue> {
 
     #[inline]
     fn encode(bytes: &mut [u8], value: Elem<Self>) {
+        let () = Validate::<Self>::OK;
         assert_eq!(
             bytes.len(),
             Self::BYTES,

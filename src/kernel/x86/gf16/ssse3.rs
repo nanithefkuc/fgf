@@ -15,12 +15,13 @@
 //! offset-addressed-rows residue.
 
 use super::{TERM_TILE, check_elements, swap_mask_ssse3};
+use crate::field::binary::byte::ScaleTable;
 use crate::kernel::Matrix;
 use crate::kernel::gf16::{
     Coeffs, mul_add_scalar, mul_assign_scalar, mul_into_scalar, tail_product,
 };
 use crate::kernel::proven_checks::check_terms;
-use crate::kernel::tables::{NibbleFactors, ScaleTable, TowerTables};
+use crate::kernel::tables::{NibbleFactors, TowerTables};
 use crate::kernel::x86::gf8;
 
 #[cfg(target_arch = "x86_64")]

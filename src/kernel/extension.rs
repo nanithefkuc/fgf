@@ -1,9 +1,9 @@
 //! Kernel dispatch for extension rows, routed by storage.
 //!
-//! One [`FieldKernels`] and one `KernelDispatch` implementation cover every
-//! extension row with a byte form; each entry forwards to the row's
-//! storage through the crate-private [`StorageKernels`]. The storage decides
-//! the prepared coefficient and the arms a row can reach:
+//! One `KernelDispatch` implementation covers every extension row with a
+//! byte form; each entry forwards to the row's storage through the field
+//! layer's `StorageDispatch` contract. The storage decides the prepared
+//! coefficient and the arms a row can reach:
 //!
 //! - `Packed<u16>`, `Packed<u32>`, and `Packed<u64>` rows run the tower
 //!   dispatch in [`super::tower`], whose vector arms serve the rows
@@ -17,275 +17,84 @@
 //! A row outside the shipped instances reports [`Backend::Scalar`], no
 //! vector elementwise capability, and a zero vector-elementwise threshold.
 
+use crate::field::dispatch::{KernelDispatch, RawDispatch};
 use crate::field::extension::pinned::{self, Instance};
-use crate::field::extension::storage::{StorageBuffer, StorageRepr};
+use crate::field::extension::storage::{StorageBuffer, StorageDispatch, StorageRepr, StorageRow};
 use crate::field::extension::{Components, Extension, ExtensionSpec, ExtensionStorage, Packed};
 use crate::field::finite_field::FiniteField;
 use crate::field::quad_mersenne31::QuadMersenne31;
 use crate::field::{Elem, Field, FieldBuffer};
-use crate::kernel::{
-    Backend, FieldKernels, KernelDispatch, RawDispatch, fallback, prime, quad_mersenne31, scalar,
-};
-
-/// A field row whose kernels a storage `St` runs: its raw word is the
-/// storage's and its prepared coefficient the storage's.
-pub(crate) trait StorageRow<B: Field, const D: usize, St: StorageKernels<B, D> + ?Sized>:
-    KernelDispatch<Prepared = St::Prepared> + Field<Raw = <St as ExtensionStorage<B, D>>::Raw>
-{
-}
-
-impl<B: Field, const D: usize, St: StorageKernels<B, D> + ?Sized, F> StorageRow<B, D, St> for F where
-    F: KernelDispatch<Prepared = St::Prepared> + Field<Raw = <St as ExtensionStorage<B, D>>::Raw>
-{
-}
-
-/// The kernel entries of one extension storage, generic over the row.
-///
-/// Each method is the row's `KernelDispatch` or [`FieldKernels`] entry of
-/// the same name; the defaults are that trait's defaults. A method
-/// reaching another entry calls it through the row `F`, so overrides and
-/// defaults compose exactly as they do on a field's own implementation.
-pub(crate) trait StorageKernels<B: Field, const D: usize>: StorageBuffer<B, D> {
-    /// The backend-ready form of one coefficient.
-    type Prepared: Clone + Send + Sync + core::fmt::Debug;
-
-    /// [`FieldKernels::backend`].
-    fn backend<F: StorageRow<B, D, Self>>() -> Backend {
-        Backend::Scalar
-    }
-
-    /// [`FieldKernels::has_vector_elementwise`].
-    fn has_vector_elementwise<F: StorageRow<B, D, Self>>() -> bool {
-        false
-    }
-
-    /// [`FieldKernels::vector_elementwise_min_bytes`].
-    fn vector_elementwise_min_bytes<F: StorageRow<B, D, Self>>() -> usize {
-        0
-    }
-
-    /// `KernelDispatch::prepare`.
-    fn prepare<F: StorageRow<B, D, Self>>(proof: RawDispatch, coeff: Elem<F>) -> Self::Prepared;
-
-    /// `KernelDispatch::prepared_coeff`.
-    fn prepared_coeff<F: StorageRow<B, D, Self>>(
-        proof: RawDispatch,
-        prepared: &Self::Prepared,
-    ) -> Elem<F>;
-
-    /// `KernelDispatch::add_assign`.
-    fn add_assign<F: StorageRow<B, D, Self>>(proof: RawDispatch, dst: &mut [u8], src: &[u8]);
-
-    /// `KernelDispatch::add_gather_offsets`.
-    fn add_gather_offsets<F: StorageRow<B, D, Self>>(
-        _proof: RawDispatch,
-        region: &[u8],
-        dst: &mut [u8],
-        offsets: &[u32],
-    ) {
-        fallback::add_gather_offsets::<F>(region, dst, offsets);
-    }
-
-    /// `KernelDispatch::sub_assign`.
-    fn sub_assign<F: StorageRow<B, D, Self>>(proof: RawDispatch, dst: &mut [u8], src: &[u8]);
-
-    /// `KernelDispatch::mul_add`.
-    fn mul_add<F: StorageRow<B, D, Self>>(
-        proof: RawDispatch,
-        dst: &mut [u8],
-        coeff: &Self::Prepared,
-        src: &[u8],
-    );
-
-    /// `KernelDispatch::mul_into`.
-    fn mul_into<F: StorageRow<B, D, Self>>(
-        _proof: RawDispatch,
-        dst: &mut [u8],
-        coeff: &Self::Prepared,
-        src: &[u8],
-    ) {
-        fallback::mul_into::<F>(dst, coeff, src);
-    }
-
-    /// `KernelDispatch::mul_assign`.
-    fn mul_assign<F: StorageRow<B, D, Self>>(
-        proof: RawDispatch,
-        dst: &mut [u8],
-        coeff: &Self::Prepared,
-    );
-
-    /// `KernelDispatch::mul_add_scatter`.
-    fn mul_add_scatter<F: StorageRow<B, D, Self>>(
-        proof: RawDispatch,
-        rows: &mut [u8],
-        row_len: usize,
-        coeffs: &[Elem<F>],
-        src: &[u8],
-    );
-
-    /// `KernelDispatch::mul_add_gather`.
-    fn mul_add_gather<F: StorageRow<B, D, Self>>(
-        proof: RawDispatch,
-        dst: &mut [u8],
-        coeffs: &[Elem<F>],
-        srcs: &[&[u8]],
-    );
-
-    /// `KernelDispatch::mul_add_matrix`.
-    fn mul_add_matrix<F: StorageRow<B, D, Self>>(
-        proof: RawDispatch,
-        rows: &mut [u8],
-        row_len: usize,
-        nrows: usize,
-        terms: &[(&[Elem<F>], &[u8])],
-    );
-
-    /// `KernelDispatch::mul_add_scatter_plan`.
-    #[cfg(feature = "alloc")]
-    fn mul_add_scatter_plan<F: StorageRow<B, D, Self>>(
-        _proof: RawDispatch,
-        rows: &mut [u8],
-        row_len: usize,
-        _values: &[Elem<F>],
-        coeffs: &[Self::Prepared],
-        src: &[u8],
-    ) {
-        F::mul_add_scatter_with(RawDispatch, rows, row_len, coeffs, src);
-    }
-
-    /// `KernelDispatch::mul_add_gather_plan`.
-    #[cfg(feature = "alloc")]
-    fn mul_add_gather_plan<F: StorageRow<B, D, Self>>(
-        _proof: RawDispatch,
-        dst: &mut [u8],
-        _values: &[Elem<F>],
-        coeffs: &[Self::Prepared],
-        srcs: &[&[u8]],
-    ) {
-        F::mul_add_gather_with(RawDispatch, dst, coeffs, srcs);
-    }
-
-    /// `KernelDispatch::mul_add_matrix_plan`.
-    #[cfg(feature = "alloc")]
-    fn mul_add_matrix_plan<F: StorageRow<B, D, Self>>(
-        _proof: RawDispatch,
-        rows: &mut [u8],
-        row_len: usize,
-        nrows: usize,
-        _values: &[Elem<F>],
-        coeffs: &[Self::Prepared],
-        srcs: &[&[u8]],
-    ) {
-        fallback::mul_add_matrix_plan::<F>(rows, row_len, nrows, coeffs, srcs);
-    }
-
-    /// `KernelDispatch::mul_elementwise`.
-    fn mul_elementwise<F: StorageRow<B, D, Self>>(
-        proof: RawDispatch,
-        dst: &mut [u8],
-        a: &[u8],
-        b: &[u8],
-    );
-
-    /// `KernelDispatch::mul_elementwise_assign`.
-    fn mul_elementwise_assign<F: StorageRow<B, D, Self>>(
-        _proof: RawDispatch,
-        dst: &mut [u8],
-        src: &[u8],
-    ) {
-        scalar::mul_elementwise_assign::<F>(dst, src);
-    }
-
-    /// `KernelDispatch::add_assign_scalar`.
-    fn add_assign_scalar<F: StorageRow<B, D, Self>>(
-        _proof: RawDispatch,
-        dst: &mut [u8],
-        value: &Self::Prepared,
-    ) {
-        fallback::add_assign_scalar::<F>(dst, value);
-    }
-
-    /// `KernelDispatch::sub_assign_scalar`.
-    fn sub_assign_scalar<F: StorageRow<B, D, Self>>(
-        _proof: RawDispatch,
-        dst: &mut [u8],
-        value: &Self::Prepared,
-    ) {
-        fallback::sub_assign_scalar::<F>(dst, value);
-    }
-}
+use crate::kernel::{Backend, prime, quad_mersenne31, scalar};
 
 /// The storage of an extension row over `S`.
 type StorageOf<S, const D: usize> = <S as ExtensionSpec<D>>::Storage;
 
-impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> FieldKernels
-    for FiniteField<P, N, Extension<S, D>>
-where
-    S::Storage: StorageKernels<S::Base, D>,
-{
-    #[inline]
-    fn backend() -> Backend {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::backend::<Self>()
-    }
-
-    #[inline]
-    fn has_vector_elementwise() -> bool {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::has_vector_elementwise::<Self>()
-    }
-
-    #[inline]
-    fn vector_elementwise_min_bytes() -> usize {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::vector_elementwise_min_bytes::<Self>()
-    }
-}
-
 impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> KernelDispatch
     for FiniteField<P, N, Extension<S, D>>
 where
-    S::Storage: StorageKernels<S::Base, D>,
+    S::Storage: StorageBuffer<S::Base, D>,
 {
-    type Prepared = <StorageOf<S, D> as StorageKernels<S::Base, D>>::Prepared;
+    type Prepared = <StorageOf<S, D> as StorageDispatch<S::Base, D>>::Prepared;
+
+    #[inline]
+    fn backend(_proof: RawDispatch) -> Backend {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::backend::<Self>(RawDispatch)
+    }
+
+    #[inline]
+    fn has_vector_elementwise(_proof: RawDispatch) -> bool {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::has_vector_elementwise::<Self>(
+            RawDispatch,
+        )
+    }
+
+    #[inline]
+    fn vector_elementwise_min_bytes(_proof: RawDispatch) -> usize {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::vector_elementwise_min_bytes::<Self>(
+            RawDispatch,
+        )
+    }
 
     #[inline]
     fn prepare(proof: RawDispatch, coeff: Elem<Self>) -> Self::Prepared {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::prepare::<Self>(proof, coeff)
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::prepare::<Self>(proof, coeff)
     }
 
     #[inline]
     fn prepared_coeff(proof: RawDispatch, prepared: &Self::Prepared) -> Elem<Self> {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::prepared_coeff::<Self>(proof, prepared)
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::prepared_coeff::<Self>(proof, prepared)
     }
 
     #[inline]
     fn add_assign(proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::add_assign::<Self>(proof, dst, src);
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::add_assign::<Self>(proof, dst, src);
     }
 
     #[inline]
     fn add_gather_offsets(proof: RawDispatch, region: &[u8], dst: &mut [u8], offsets: &[u32]) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::add_gather_offsets::<Self>(
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::add_gather_offsets::<Self>(
             proof, region, dst, offsets,
         );
     }
 
     #[inline]
     fn sub_assign(proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::sub_assign::<Self>(proof, dst, src);
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::sub_assign::<Self>(proof, dst, src);
     }
 
     #[inline]
     fn mul_add(proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_add::<Self>(proof, dst, coeff, src);
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add::<Self>(proof, dst, coeff, src);
     }
 
     #[inline]
     fn mul_into(proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_into::<Self>(proof, dst, coeff, src);
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_into::<Self>(proof, dst, coeff, src);
     }
 
     #[inline]
     fn mul_assign(proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_assign::<Self>(proof, dst, coeff);
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_assign::<Self>(proof, dst, coeff);
     }
 
     #[inline]
@@ -296,14 +105,14 @@ where
         coeffs: &[Elem<Self>],
         src: &[u8],
     ) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_add_scatter::<Self>(
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_scatter::<Self>(
             proof, rows, row_len, coeffs, src,
         );
     }
 
     #[inline]
     fn mul_add_gather(proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem<Self>], srcs: &[&[u8]]) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_add_gather::<Self>(
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_gather::<Self>(
             proof, dst, coeffs, srcs,
         );
     }
@@ -316,7 +125,7 @@ where
         nrows: usize,
         terms: &[(&[Elem<Self>], &[u8])],
     ) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_add_matrix::<Self>(
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_matrix::<Self>(
             proof, rows, row_len, nrows, terms,
         );
     }
@@ -331,7 +140,7 @@ where
         coeffs: &[Self::Prepared],
         src: &[u8],
     ) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_add_scatter_plan::<Self>(
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_scatter_plan::<Self>(
             proof, rows, row_len, values, coeffs, src,
         );
     }
@@ -345,7 +154,7 @@ where
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_add_gather_plan::<Self>(
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_gather_plan::<Self>(
             proof, dst, values, coeffs, srcs,
         );
     }
@@ -361,36 +170,43 @@ where
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_add_matrix_plan::<Self>(
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_matrix_plan::<Self>(
             proof, rows, row_len, nrows, values, coeffs, srcs,
         );
     }
 
     #[inline]
     fn mul_elementwise(proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_elementwise::<Self>(proof, dst, a, b);
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_elementwise::<Self>(proof, dst, a, b);
     }
 
     #[inline]
     fn mul_elementwise_assign(proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_elementwise_assign::<Self>(
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_elementwise_assign::<Self>(
             proof, dst, src,
         );
     }
 
     #[inline]
     fn add_assign_scalar(proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::add_assign_scalar::<Self>(
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::add_assign_scalar::<Self>(
             proof, dst, value,
         );
     }
 
     #[inline]
     fn sub_assign_scalar(proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
-        <StorageOf<S, D> as StorageKernels<S::Base, D>>::sub_assign_scalar::<Self>(
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::sub_assign_scalar::<Self>(
             proof, dst, value,
         );
     }
+    fallback_entries!(
+        row: add_assign_rows, sub_assign_rows, mul_into_scatter, mul_into_gather,
+        mul_add_scatter_with, mul_add_gather_with, mul_into_gather_with,
+        mul_into_gather_plan, mul_add_matrix_with, mul_into_matrix,
+        mul_into_matrix_plan, mul_add_matrix_at, mul_add_matrix_at_rows,
+        mul_add_matrix_at_plan, mul_into_matrix_at, mul_into_matrix_at_plan,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -399,7 +215,7 @@ where
 
 /// The scalar byte loops: XOR addition, and multiplication through the
 /// row's own arithmetic. The prepared coefficient is the raw byte.
-impl<B: crate::field::BinaryField, const D: usize> StorageKernels<B, D> for Packed<u8> {
+impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Packed<u8> {
     type Prepared = u8;
 
     #[inline]
@@ -492,6 +308,12 @@ impl<B: crate::field::BinaryField, const D: usize> StorageKernels<B, D> for Pack
     ) {
         scalar::mul_elementwise::<F>(dst, a, b);
     }
+
+    fallback_entries!(
+        storage: backend, has_vector_elementwise, vector_elementwise_min_bytes,
+        mul_add_scatter_plan, mul_add_gather_plan, mul_add_matrix_plan,
+        mul_elementwise_assign, add_assign_scalar, sub_assign_scalar,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -524,14 +346,11 @@ fn quad<B: Field, const D: usize>(
 
 /// The portable [`prime`] path, or the QM31 kernels for the shipped prime
 /// extension. The prepared coefficient is the raw component array.
-impl<B: FieldBuffer, const D: usize> StorageKernels<B, D> for Components
-where
-    B::Raw: Send + Sync,
-{
+impl<B: FieldBuffer, const D: usize> StorageDispatch<B, D> for Components {
     type Prepared = [B::Raw; D];
 
     #[inline]
-    fn backend<F: StorageRow<B, D, Self>>() -> Backend {
+    fn backend<F: StorageRow<B, D, Self>>(_proof: RawDispatch) -> Backend {
         if is_quad_mersenne::<F>() {
             return quad_mersenne31::backend_report();
         }
@@ -539,12 +358,12 @@ where
     }
 
     #[inline]
-    fn has_vector_elementwise<F: StorageRow<B, D, Self>>() -> bool {
+    fn has_vector_elementwise<F: StorageRow<B, D, Self>>(_proof: RawDispatch) -> bool {
         is_quad_mersenne::<F>() && quad_mersenne31::has_vector_elementwise()
     }
 
     #[inline]
-    fn vector_elementwise_min_bytes<F: StorageRow<B, D, Self>>() -> usize {
+    fn vector_elementwise_min_bytes<F: StorageRow<B, D, Self>>(_proof: RawDispatch) -> usize {
         if is_quad_mersenne::<F>() {
             return quad_mersenne31::vector_elementwise_min_bytes();
         }
@@ -712,4 +531,8 @@ where
         }
         prime::sub_assign_scalar::<F>(dst, Elem { raw: *value });
     }
+    fallback_entries!(
+        storage: add_gather_offsets, mul_add_scatter_plan, mul_add_gather_plan,
+        mul_add_matrix_plan,
+    );
 }

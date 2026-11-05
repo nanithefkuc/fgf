@@ -14,10 +14,12 @@
 //! Each GF(2^8) polynomial carries one nibble bank and one affine bank, built
 //! at compile time from that field's scalar multiply and promoted to rodata
 //! once per polynomial a program uses; all 256 coefficients cost 8 KiB plus
-//! 2 KiB and stay resident in L1/L2. [`ByteBanks`] exposes a
-//! representation's banks, AES nativity, AES isomorphism, and reduction byte
-//! to the dispatch layer, which resolves coefficients once and hands the
-//! kernels plain values. GF(2^16) has 65536 coefficients, so a
+//! 2 KiB and stay resident in L1/L2. The field layer's
+//! [`ByteReprData`](crate::field::binary::byte::ByteReprData) contract
+//! exposes a representation's banks, AES nativity, AES isomorphism, and
+//! reduction byte to the dispatch layer, which resolves coefficients once
+//! and hands the kernels plain values; this module implements it per
+//! presentation family. GF(2^16) has 65536 coefficients, so a
 //! full bank would be ~9 MiB and thrash cache. A GF(2^16) coefficient is
 //! instead resolved per call into its four base-field factors (two base
 //! multiplies, [`TowerCoeff::new`]) and, on shuffle backends, four table
@@ -25,10 +27,11 @@
 //! whole buffer, or hoisted out entirely with `Coeff`/`CoeffVec`.
 
 use crate::field::FiniteField;
+use crate::field::binary::byte::{ByteReprData, ScaleTable};
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::field::binary::tower::FanPaar8Field;
 use crate::field::binary::tower::{FanPaar16Field, Rijndael16Field};
-use crate::field::binary::{AES, BinaryRepr, Polynomial};
+use crate::field::binary::{AES, Polynomial};
 use crate::field::{Cantor, Elem, Normal};
 
 /// Reference shift-and-XOR multiply under the degree-eight polynomial `poly`.
@@ -51,20 +54,6 @@ const fn xtime_mul(poly: u128, mut a: u8, b: u8) -> u8 {
         i += 1;
     }
     acc
-}
-
-/// Split-nibble multiplication tables for one GF(2^8) coefficient.
-///
-/// The shuffle kernels read only `lo` and `hi`, so one type serves every
-/// polynomial; the polynomial decides which bank an entry comes from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ScaleTable {
-    /// The raw coefficient byte these tables multiply by.
-    pub coeff: u8,
-    /// `lo[i] = coeff * i` for the low nibble.
-    pub lo: [u8; 16],
-    /// `hi[i] = coeff * (i << 4)` for the high nibble.
-    pub hi: [u8; 16],
 }
 
 impl ScaleTable {
@@ -149,37 +138,12 @@ impl<const POLY: u128> Bank<POLY> {
     const AFFINE: &'static [u64; 256] = &build_affine_bank::<POLY>();
 }
 
-/// The polynomial nibble-bank facet of a byte representation: constants and
-/// `&'static` data, never per-call computation.
-///
-/// The GF(2^16) tower tables resolve their factors through this facet once
-/// per coefficient and hand the architecture kernels plain values, so no
-/// hot kernel body depends on the representation type. Only [`Polynomial`]
-/// carries it: basis presentations and towers never touch these banks —
-/// their bulk operations run the typed scalar fallback, so polynomial
-/// tables must not observe their coordinates.
-pub(crate) trait ByteBanks: BinaryRepr<8> {
-    /// The nibble tables of every coefficient, in this representation's
-    /// encoding.
-    const SCALE: &'static [ScaleTable; 256];
-    /// The reduction byte the shift-and-reduce elementwise kernels consume:
-    /// the low byte of the reference polynomial.
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const REDUCTION_LOW: u8;
-}
-
 /// The AES nibble bank, shared by the GF(2^16) elementwise dispatch arms.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(crate) const AES_BANK: &[ScaleTable; 256] = Bank::<AES>::SCALE;
 
 /// The Rijndael16 relation's constant byte, `t^2 + t + 0x20`.
 pub(crate) const RIJNDAEL16_B: u8 = 0x20;
-
-impl<const POLY: u128> ByteBanks for Polynomial<POLY> {
-    const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const REDUCTION_LOW: u8 = (POLY & 0xFF) as u8;
-}
 
 #[allow(clippy::cast_possible_truncation)]
 const fn build_bank<const POLY: u128>() -> [ScaleTable; 256] {
@@ -240,31 +204,6 @@ pub fn affine_map<const POLY: u128>(coeff: Elem<FiniteField<2, 8, Polynomial<POL
     Bank::<POLY>::AFFINE[coeff.to_raw() as usize]
 }
 
-/// What the single degree-eight dispatch needs from every representation.
-///
-/// Polynomial presentations expose their real banks; basis presentations
-/// expose placeholder banks the fallback never reads. Dispatch branches on
-/// the descriptor first, so no kernel applies polynomial tables to basis
-/// coordinates.
-pub(crate) trait Gf8Data: BinaryRepr<8> {
-    /// Whether `GF2P8MULB` multiplies in this encoding natively.
-    const AES_NATIVE: bool;
-    /// Nibble tables per coefficient, or placeholders for basis roots.
-    const SCALE: &'static [ScaleTable; 256];
-    /// Affine map words per coefficient, or placeholders for basis roots.
-    const AFFINE: &'static [u64; 256];
-    /// Isomorphism onto AES, or the identity for basis roots.
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const ISOMORPHISM: Isomorphism;
-    /// Reduction byte for shift/reduce tails, or zero for basis roots.
-    ///
-    /// Consumed only by the x86 elementwise kernels; other targets keep the
-    /// contract without reading it.
-    #[allow(dead_code)]
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const REDUCTION_LOW: u8;
-}
-
 const DUMMY_AFFINE: [u64; 256] = [0u64; 256];
 
 /// Placeholder nibble banks for basis presentations: each entry carries its
@@ -287,38 +226,52 @@ pub(crate) static DUMMY_SCALE: [ScaleTable; 256] = {
     bank
 };
 
-impl<const POLY: u128> Gf8Data for Polynomial<POLY> {
+/// The identity map's `VGF2P8AFFINEQB` matrix, both directions: the AES
+/// isomorphism placeholder of the basis presentations.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+const IDENTITY_MAP: u64 = 0x0102_0408_1020_4080;
+
+/// The byte-representation data of the polynomial presentations: the real
+/// banks, AES nativity, the computed AES isomorphism, and the reduction
+/// byte. Dispatch branches on the descriptor first, so no kernel applies
+/// polynomial tables to basis coordinates.
+impl<const POLY: u128> ByteReprData for Polynomial<POLY> {
     const AES_NATIVE: bool = POLY == AES;
     const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
     const AFFINE: &'static [u64; 256] = Bank::<POLY>::AFFINE;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const ISOMORPHISM: Isomorphism = isomorphism_to_aes::<POLY>();
+    const AES_MAP_FORWARD: u64 = isomorphism_to_aes::<POLY>().forward;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    const AES_MAP_INVERSE: u64 = isomorphism_to_aes::<POLY>().inverse;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const REDUCTION_LOW: u8 = Polynomial::<POLY>::REDUCTION_LOW;
 }
 
-impl<const P: u128, const E: u8> Gf8Data for Normal<P, E> {
+/// The byte-representation data of the ordered-basis presentations:
+/// placeholder banks the scalar fallback never reads, no AES nativity, the
+/// identity isomorphism, and no reduction byte.
+impl<const P: u128, const E: u8> ByteReprData for Normal<P, E> {
     const AES_NATIVE: bool = false;
     const SCALE: &'static [ScaleTable; 256] = &DUMMY_SCALE;
     const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const ISOMORPHISM: Isomorphism = Isomorphism {
-        forward: 0x0102_0408_1020_4080,
-        inverse: 0x0102_0408_1020_4080,
-    };
+    const AES_MAP_FORWARD: u64 = IDENTITY_MAP;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    const AES_MAP_INVERSE: u64 = IDENTITY_MAP;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const REDUCTION_LOW: u8 = 0;
 }
 
-impl<const P: u128, const SEED: u8> Gf8Data for Cantor<P, SEED> {
+/// The byte-representation data of the Cantor-basis presentations, as the
+/// ordered-basis form above.
+impl<const P: u128, const SEED: u8> ByteReprData for Cantor<P, SEED> {
     const AES_NATIVE: bool = false;
     const SCALE: &'static [ScaleTable; 256] = &DUMMY_SCALE;
     const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const ISOMORPHISM: Isomorphism = Isomorphism {
-        forward: 0x0102_0408_1020_4080,
-        inverse: 0x0102_0408_1020_4080,
-    };
+    const AES_MAP_FORWARD: u64 = IDENTITY_MAP;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    const AES_MAP_INVERSE: u64 = IDENTITY_MAP;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const REDUCTION_LOW: u8 = 0;
 }
@@ -494,7 +447,7 @@ impl TowerTables {
     pub fn new(coeff: Elem<Rijndael16Field>) -> Self {
         let compact = TowerCoeff::new(coeff);
         let [f0, f1, f2, f3] = compact.factor_bytes();
-        let bank = <Polynomial<AES> as ByteBanks>::SCALE;
+        let bank = <Polynomial<AES> as ByteReprData>::SCALE;
         Self {
             coeff: compact.coeff,
             factors: [

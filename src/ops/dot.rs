@@ -8,8 +8,7 @@
 //! [`bits::dot_product`](crate::ops::bits::dot_product), which folds an AND
 //! parity over live bits rather than a field sum over lanes.
 
-use crate::field::{Elem, FieldElem};
-use crate::kernel::FieldKernels;
+use crate::field::{Elem, FieldBuffer, FieldElem};
 
 use super::geometry::{check_pair, check_width};
 
@@ -24,7 +23,7 @@ use super::geometry::{check_pair, check_width};
 /// Panics if `a` and `b` differ in length or hold a partial trailing
 /// element.
 #[must_use]
-pub fn dot_product<F: FieldKernels>(a: &[u8], b: &[u8]) -> Elem<F> {
+pub fn dot_product<F: FieldBuffer>(a: &[u8], b: &[u8]) -> Elem<F> {
     check_pair::<F>("dot_product", "a", a.len(), "b", b.len());
     check_width::<F>("dot_product", a.len());
     let mut acc = Elem::<F>::ZERO;

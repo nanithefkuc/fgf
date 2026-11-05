@@ -1,9 +1,8 @@
 //! Detail cases for stable public callables whose timed bodies no other panel
 //! carries: the prepared overwrite gather and matrix operations across the
 //! representative routing classes, the coefficient value and prepared-view
-//! accessors, the direct vector-elementwise capability pair, the
-//! isomorphism construction/composition/image reads, and the defining-relation
-//! constructors and read.
+//! accessors, the isomorphism construction/composition/image reads, and the
+//! defining-relation constructors and read.
 //!
 //! Overwrite cases run fixed 4 KiB rows with four sources and three matrix
 //! outputs; coefficient preparation and the independent per-lane scalar oracle
@@ -17,10 +16,10 @@ use std::hint::black_box;
 use fgf::extension::Relation;
 use fgf::maps::Isomorphism;
 use fgf::ops::{CoeffMatrix, CoeffVec};
-use fgf::{Elem, FieldBuffer, FieldKernels, ops};
+use fgf::{Elem, FieldBuffer, ops};
 use fgf::{Field, FieldElem};
 
-use crate::fields::{self, Gf2p8Aes, Gf2p8Rs, Gf2p16Rijndael, Qm31};
+use crate::fields::{self, Gf2p8Aes, Gf2p8Rs, Gf2p16Rijndael};
 use crate::fixture;
 use crate::registry::{self, Case, CaseCtx, Scope};
 use crate::scalar::seed_for;
@@ -113,7 +112,6 @@ const API_COEFFVECREF_IS_EMPTY: &[&str] = &[
     "fgf::ops::CoeffVec::new",
     "fgf::ops::CoeffVec::as_ref",
 ];
-const API_HAS_VECTOR_ELEMENTWISE: &[&str] = &["fgf::FieldKernels::has_vector_elementwise"];
 const API_ISO_FROM_IMAGES: &[&str] = &[
     "fgf::maps::Isomorphism::from_images",
     "fgf::maps::Isomorphism::to_images",
@@ -132,7 +130,7 @@ const API_RELATION_FROM_COORDINATES: &[&str] = &["fgf::extension::Relation::from
 const API_RELATION_FROM_BINARY_WORDS: &[&str] = &["fgf::extension::Relation::from_binary_words"];
 const API_RELATION_TO_COORDINATES: &[&str] = &["fgf::extension::Relation::to_coordinates"];
 
-fn register_gather_into_prepared<F: FieldBuffer + FieldKernels>(label: &'static str) {
+fn register_gather_into_prepared<F: FieldBuffer>(label: &'static str) {
     let row = row_bytes::<F>();
     registry::add(Case {
         case: format!("details-maps/gather-into-prepared/{label}"),
@@ -180,7 +178,7 @@ fn register_gather_into_prepared<F: FieldBuffer + FieldKernels>(label: &'static 
     });
 }
 
-fn register_matrix_into_prepared<F: FieldBuffer + FieldKernels>(label: &'static str) {
+fn register_matrix_into_prepared<F: FieldBuffer>(label: &'static str) {
     let row = row_bytes::<F>();
     registry::add(Case {
         case: format!("details-maps/matrix-into-prepared/{label}"),
@@ -240,7 +238,7 @@ fn register_matrix_into_prepared<F: FieldBuffer + FieldKernels>(label: &'static 
     });
 }
 
-fn register_coeff_value<F: FieldKernels>(label: &'static str) {
+fn register_coeff_value<F: fgf::FieldBuffer>(label: &'static str) {
     registry::add(Case {
         case: format!("details-maps/coeff-value/{label}"),
         api: API_COEFF_VALUE,
@@ -271,7 +269,7 @@ fn register_coeff_value<F: FieldKernels>(label: &'static str) {
     });
 }
 
-fn register_coeffvecref_get<F: FieldKernels>(label: &'static str) {
+fn register_coeffvecref_get<F: fgf::FieldBuffer>(label: &'static str) {
     registry::add(Case {
         case: format!("details-maps/coeffvecref-get/{label}"),
         api: API_COEFFVECREF_GET,
@@ -299,7 +297,7 @@ fn register_coeffvecref_get<F: FieldKernels>(label: &'static str) {
     });
 }
 
-fn register_coeffvecref_len<F: FieldKernels>(label: &'static str) {
+fn register_coeffvecref_len<F: fgf::FieldBuffer>(label: &'static str) {
     registry::add(Case {
         case: format!("details-maps/coeffvecref-len/{label}"),
         api: API_COEFFVECREF_LEN,
@@ -325,7 +323,7 @@ fn register_coeffvecref_len<F: FieldKernels>(label: &'static str) {
     });
 }
 
-fn register_coeffvecref_is_empty<F: FieldKernels>(label: &'static str) {
+fn register_coeffvecref_is_empty<F: fgf::FieldBuffer>(label: &'static str) {
     registry::add(Case {
         case: format!("details-maps/coeffvecref-is-empty/{label}"),
         api: API_COEFFVECREF_IS_EMPTY,
@@ -348,34 +346,6 @@ fn register_coeffvecref_is_empty<F: FieldKernels>(label: &'static str) {
             let backend = fields::backend_name::<F>();
             registry::time(case, ctx, &backend, || {
                 fixture::observe(black_box(view).is_empty());
-            });
-        },
-    });
-}
-
-fn register_has_vector_elementwise<F: FieldKernels>(label: &'static str) {
-    registry::add(Case {
-        case: format!("details-maps/has-vector-elementwise/{label}"),
-        api: API_HAS_VECTOR_ELEMENTWISE,
-        field: label.to_string(),
-        operation: "has-vector-elementwise".to_string(),
-        scope: Scope::Query,
-        bytes: 0,
-        lanes: 1,
-        sources: 0,
-        destinations: 0,
-        control: false,
-        phase: None,
-        run: |case, ctx| {
-            let has = <F as FieldKernels>::has_vector_elementwise();
-            assert!(
-                !has || fgf::backend_for::<F>() != fgf::Backend::Scalar,
-                "{}: vector elementwise implies a vector-capable tier",
-                case.case
-            );
-            let backend = fields::backend_name::<F>();
-            registry::time(case, ctx, &backend, || {
-                fixture::observe(<F as FieldKernels>::has_vector_elementwise());
             });
         },
     });
@@ -585,7 +555,6 @@ pub fn register() {
     register_coeffvecref_get::<Gf2p16Rijndael>("gf2p16-rijndael");
     register_coeffvecref_len::<Gf2p16Rijndael>("gf2p16-rijndael");
     register_coeffvecref_is_empty::<Gf2p16Rijndael>("gf2p16-rijndael");
-    register_has_vector_elementwise::<Qm31>("qm31");
 
     iso_case(
         "iso-from-images",

@@ -6,9 +6,9 @@
 #![forbid(unsafe_code)]
 
 use fgf::binary::Polynomial;
-use fgf::{Backend, FieldKernels, FiniteField, backend, backend_for};
+use fgf::{Backend, FieldBuffer, FiniteField, backend, backend_for};
 
-fn field<F: FieldKernels>(label: &str) {
+fn field<F: FieldBuffer>(label: &str) {
     println!("backend {label}={}", backend_for::<F>().name());
 }
 

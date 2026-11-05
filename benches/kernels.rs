@@ -148,7 +148,7 @@ fn print_host_lines() {
 /// routes report their own answer from `backend_for`, not the process
 /// backend.
 fn print_field_backends() {
-    fn field<F: fgf::FieldKernels>(label: &str) {
+    fn field<F: fgf::FieldBuffer>(label: &str) {
         println!("FIELD_BACKEND\t{label}\t{}", backend_for::<F>().name());
     }
     field::<FiniteField<2, 8, Polynomial<AES>>>("gf8b");
@@ -972,7 +972,7 @@ fn bench_gf2_short_rows() {
 /// where it must not regress). Rerun under each `SIMD_BACKEND` tier for the
 /// per-backend numbers; the crossover thresholds in `kernel::xor_rows` were
 /// set from this matrix on the reference host.
-fn bench_add_assign_rows<F: fgf::FieldKernels>(name: &str, canon: Option<fn(&mut [u8])>) {
+fn bench_add_assign_rows<F: fgf::FieldBuffer>(name: &str, canon: Option<fn(&mut [u8])>) {
     println!("add_assign_rows — {name}:");
     for &row_len in &[64usize, 1024, 64 * 1024] {
         for &rows in &[1usize, 2, 4, 8, 16, 32] {
@@ -1145,7 +1145,7 @@ fn prime_direct_elementwise<F>(
     p: u64,
     assign: bool,
 ) where
-    F: fgf::FieldKernels + FieldBuffer,
+    F: FieldBuffer,
 {
     // The direct column calls the kernel's own body wherever its
     // preconditions allow (four-byte rows at any length), independent of
@@ -1408,7 +1408,7 @@ fn prime_direct_single<F>(
     p: u64,
     op: DirectOp,
 ) where
-    F: fgf::FieldKernels + FieldBuffer,
+    F: FieldBuffer,
 {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use fgf::internals::kernel::residue as selector;
@@ -1523,7 +1523,7 @@ fn direct_single_body<F>(
     takes: bool,
     op: DirectOp,
 ) where
-    F: fgf::FieldKernels + FieldBuffer,
+    F: FieldBuffer,
 {
     use fgf::internals::kernel::prime as portable;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -1614,7 +1614,7 @@ fn direct_single_body<F>(
 #[allow(clippy::cast_possible_truncation, clippy::too_many_arguments)]
 fn prime_single_row_panel<F>(row: &str, p: u64, coeff: Elem<F>, c: u64, seed: u64)
 where
-    F: fgf::FieldKernels + FieldBuffer,
+    F: FieldBuffer,
 {
     let bytes = F::BYTES;
     println!("prime row {row} — backend {}:", backend_for::<F>().name());
@@ -1928,7 +1928,7 @@ where
 #[allow(clippy::cast_possible_truncation)]
 fn prime_elementwise_panel<F>(row: &str, p: u64, seed: u64)
 where
-    F: fgf::FieldKernels + FieldBuffer,
+    F: FieldBuffer,
 {
     let bytes = F::BYTES;
     println!(

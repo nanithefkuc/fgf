@@ -12,9 +12,9 @@
 //! [`archmage::rite`] helpers with per-block proofs.
 
 use super::check_gather;
+use crate::field::binary::byte::ScaleTable;
 use crate::kernel::Matrix;
 use crate::kernel::gf8::{Coeffs, Prepared, mul_add_nibble, mul_assign_nibble, mul_into_nibble};
-use crate::kernel::tables::ScaleTable;
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;

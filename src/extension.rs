@@ -45,7 +45,7 @@
 //! custom rows carry const identities and `to_raw`, and no const element
 //! arithmetic. Rows with a byte form implement
 //! [`FieldBuffer`](crate::FieldBuffer) and the packed operation surface
-//! over [`FieldKernels`](crate::FieldKernels), reporting the scalar
+//! over the dispatch contract behind [`FieldBuffer`](crate::FieldBuffer), reporting the scalar
 //! backend.
 //!
 //! The shipped instances — the Rijndael and Fan-Paar towers in

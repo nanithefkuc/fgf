@@ -18,10 +18,11 @@ All notable changes to this project are documented here. The format follows
   release of the major version.
 - `just doc-stable` builds the default-feature rustdoc that docs.rs publishes,
   with warnings denied; `just release-accept` runs it.
-- The compile-fail recipe rejects a snippet that trips on a private module path
-  (`E0603`) and treats the unresolved-name codes `E0405`, `E0412`, `E0422`,
-  `E0423`, `E0425`, `E0432`, and `E0433` as failures, so no snippet passes by
-  naming a path that no longer exists.
+- The compile-fail recipe rejects private-module errors (`E0603`).
+  Rejection-only cases also fail on unresolved-name codes `E0405`, `E0412`,
+  `E0422`, `E0423`, `E0425`, `E0432`, and `E0433`, so a missing path cannot
+  substitute for the bound under test. Explicit item-removal cases require
+  their named diagnostic instead.
 
 ### Changed
 
@@ -48,7 +49,7 @@ All notable changes to this project are documented here. The format follows
   | Old items and module paths | New path |
   | --- | --- |
   | `fgf::field::{FiniteField, FiniteFieldRepr, Elem, Field, FieldElem, FieldBuffer, HasGenerator, RangeError}`; `fgf::field::finite_field::{FiniteField, FiniteFieldRepr}` | `fgf::{…}` |
-  | `fgf::kernel::{Backend, FieldKernels, backend, backend_for}` | `fgf::{…}` |
+  | `fgf::kernel::{Backend, backend, backend_for}` | `fgf::{…}` |
   | `Mersenne31`, `MersenneFold`, `Goldilocks`, `GoldilocksFold`, `Residue`, `PrimeField`, `PrimeIdentity`, `PrimeCharacteristic`, `is_prime`, exported at the root or under `field`, `field::finite_field`, `field::prime`, `mersenne31`, or `goldilocks` | `fgf::prime::{…}` |
   | `Polynomial`, `AES`, `RS`, `Normal`, `Cantor`, `BinaryRepr`, `BinaryField`, `BinaryDegree`, exported at the root or under `field`, `field::binary`, `poly`, `normal`, or `cantor` | `fgf::binary::{…}` |
   | `Rijndael16`, `Rijndael32`, `Rijndael64`, `FanPaar2`, `FanPaar4`, `FanPaar8`, `FanPaar16`, `FanPaar32`, `FanPaar64`, exported at the root or under `field` or `tower` | `fgf::binary::{…}` |
@@ -97,10 +98,32 @@ All notable changes to this project are documented here. The format follows
   stable replacement. `PrimeIdentity` no longer exposes `C::Row`; generic
   callers take an explicit row parameter such as
   `F: PrimeField<Characteristic = C>`, or name the intended concrete row.
-  `FieldKernels` and its members, including `backend`,
-  `has_vector_elementwise`, and `vector_elementwise_min_bytes`, remain
-  reachable from stable code in this release and change in a later
-  breaking release.
+- **Breaking:** `FieldKernels` is deleted; `FieldBuffer` is the sole bound
+  for byte-lane operations and prepared coefficient types. Migration:
+  replace every `F: FieldKernels` bound with `F: FieldBuffer` — arbitrary
+  downstream generic code needs no further bound, including generic
+  `R: BinaryRepr<8>`, custom `ExtensionSpec` component storage, and every
+  supported `Packed<W>` storage. The backend query is
+  `fgf::backend_for::<F>()`; `has_vector_elementwise` and
+  `vector_elementwise_min_bytes` have no stable replacement — they are
+  internals-only free functions under `fgf::internals::kernel`. The
+  dispatch contract, its `RawDispatch` proof, the trait default bodies,
+  and the byte-representation data carriers move in the source tree: the
+  contract declarations live in the field layer
+  (`src/field/dispatch.rs`, `src/field/binary/byte.rs`,
+  `src/field/extension/storage.rs`), the default bodies in
+  `src/kernel/fallback.rs`, and `ScaleTable` is declared in the field
+  layer's byte module with the unstable
+  `fgf::internals::kernel::tables::ScaleTable` path preserved by facade
+  re-export. `Field::Raw` and `ExtensionStorage::Raw` are `Send + Sync`.
+  Byte operations, packing, prepared-coefficient constructors, and
+  `backend_for` evaluate the row's central const validation before any
+  byte work, so an invalid row (a reducible polynomial, a non-bijective
+  basis, a composite characteristic, a reducible relation) is a compile
+  error even when no element is constructed and every buffer is empty;
+  the compile-fail fixtures under `tests/compile_fail/` pin the
+  rejections; the cases added for this change name both the diagnostic
+  fragment and `E0080`.
 - The generic extension test suite is one binary: `tests/extension.rs`
   holds the shared rows and splits into `rows` (per-field laws, encodings,
   and the packed surface) and `reference` (arithmetic against the

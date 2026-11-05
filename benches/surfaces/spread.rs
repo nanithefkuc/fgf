@@ -31,11 +31,11 @@ const ROW_TARGET: usize = 4096;
 /// Lanes in one oracle row.
 const ORACLE_ROW_LANES: usize = 4;
 
-fn row_bytes<F: FieldBuffer + fgf::FieldKernels>() -> usize {
+fn row_bytes<F: FieldBuffer>() -> usize {
     ROW_TARGET - ROW_TARGET % F::BYTES
 }
 
-fn oracle_row_bytes<F: FieldBuffer + fgf::FieldKernels>() -> usize {
+fn oracle_row_bytes<F: FieldBuffer>() -> usize {
     ORACLE_ROW_LANES * F::BYTES
 }
 
@@ -117,7 +117,7 @@ fn coeffs<F: Field>(label: &str, count: usize) -> Vec<Elem<F>> {
 }
 
 /// Schoolbook `rows[j] += coeffs[j] * src`.
-fn scatter_oracle<F: FieldBuffer + fgf::FieldKernels>(
+fn scatter_oracle<F: FieldBuffer>(
     case: &str,
     rows: &mut [u8],
     row_len: usize,
@@ -137,12 +137,7 @@ fn scatter_oracle<F: FieldBuffer + fgf::FieldKernels>(
 }
 
 /// Schoolbook `dst += sum coeffs[i] * srcs[i]`.
-fn gather_oracle<F: FieldBuffer + fgf::FieldKernels>(
-    case: &str,
-    dst: &mut [u8],
-    coeffs: &[Elem<F>],
-    srcs: &[&[u8]],
-) {
+fn gather_oracle<F: FieldBuffer>(case: &str, dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
     for (c, s) in coeffs.iter().zip(srcs) {
         let mut lanes = fixture::lanes::<F>(dst);
         let src_lanes = fixture::lanes::<F>(s);
@@ -155,7 +150,7 @@ fn gather_oracle<F: FieldBuffer + fgf::FieldKernels>(
 }
 
 #[allow(clippy::too_many_arguments)] // Fields mirror the measurement record.
-fn spread_case<F: FieldBuffer + fgf::FieldKernels>(
+fn spread_case<F: FieldBuffer>(
     op: &'static str,
     api: &'static [&'static str],
     label: &'static str,
@@ -181,7 +176,7 @@ fn spread_case<F: FieldBuffer + fgf::FieldKernels>(
     });
 }
 
-fn register_scatter<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_scatter<F: FieldBuffer>(label: &'static str) {
     let row_len = row_bytes::<F>();
     let traffic = row_len * NROWS;
     spread_case::<F>(
@@ -219,7 +214,7 @@ fn register_scatter<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
     );
 }
 
-fn register_scatter_prepared<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_scatter_prepared<F: FieldBuffer>(label: &'static str) {
     let row_len = row_bytes::<F>();
     let traffic = row_len * NROWS;
     spread_case::<F>(
@@ -271,7 +266,7 @@ fn register_scatter_prepared<F: FieldBuffer + fgf::FieldKernels>(label: &'static
     );
 }
 
-fn register_scatter_into<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_scatter_into<F: FieldBuffer>(label: &'static str) {
     let row_len = row_bytes::<F>();
     let traffic = row_len * NROWS;
     spread_case::<F>(
@@ -317,7 +312,7 @@ fn register_scatter_into<F: FieldBuffer + fgf::FieldKernels>(label: &'static str
     );
 }
 
-fn register_gather<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_gather<F: FieldBuffer>(label: &'static str) {
     let row_len = row_bytes::<F>();
     let traffic = row_len * NROWS;
     spread_case::<F>(
@@ -359,7 +354,7 @@ fn register_gather<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
     );
 }
 
-fn register_gather_prepared<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_gather_prepared<F: FieldBuffer>(label: &'static str) {
     let row_len = row_bytes::<F>();
     let traffic = row_len * NROWS;
     spread_case::<F>(
@@ -408,7 +403,7 @@ fn register_gather_prepared<F: FieldBuffer + fgf::FieldKernels>(label: &'static 
 /// The shared matrix fixture: coefficient vector per source, one packed row
 /// per source, one packed destination region of `NROWS` rows.
 #[allow(clippy::type_complexity)] // Source rows, coefficient columns, destination rows.
-fn matrix_fixtures<F: FieldBuffer + fgf::FieldKernels>(
+fn matrix_fixtures<F: FieldBuffer>(
     case: &str,
     row_len: usize,
     seed: u64,
@@ -425,7 +420,7 @@ fn matrix_fixtures<F: FieldBuffer + fgf::FieldKernels>(
 }
 
 /// Schoolbook `rows[j] += sum_t coeff_sets[t][j] * sources[t]`.
-fn matrix_oracle<F: FieldBuffer + fgf::FieldKernels>(
+fn matrix_oracle<F: FieldBuffer>(
     case: &str,
     rows: &mut [u8],
     row_len: usize,
@@ -446,7 +441,7 @@ fn matrix_oracle<F: FieldBuffer + fgf::FieldKernels>(
     let _ = case;
 }
 
-fn register_matrix<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_matrix<F: FieldBuffer>(label: &'static str) {
     let row_len = row_bytes::<F>();
     let traffic = row_len * NROWS * NSOURCES;
     spread_case::<F>(
@@ -497,7 +492,7 @@ fn register_matrix<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
     );
 }
 
-fn register_matrix_prepared<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_matrix_prepared<F: FieldBuffer>(label: &'static str) {
     let row_len = row_bytes::<F>();
     let traffic = row_len * NROWS * NSOURCES;
     spread_case::<F>(
@@ -550,7 +545,7 @@ fn register_matrix_prepared<F: FieldBuffer + fgf::FieldKernels>(label: &'static 
 }
 
 /// The offset-row route: destination rows at strided, non-contiguous starts.
-fn register_matrix_at<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_matrix_at<F: FieldBuffer>(label: &'static str) {
     let row_len = row_bytes::<F>();
     let traffic = row_len * NROWS * NSOURCES;
     spread_case::<F>(
@@ -621,7 +616,7 @@ fn register_matrix_at<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
 }
 
 /// The offset-row overwrite route: destination rows written, not accumulated.
-fn register_matrix_at_into<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_matrix_at_into<F: FieldBuffer>(label: &'static str) {
     let row_len = row_bytes::<F>();
     let traffic = row_len * NROWS * NSOURCES;
     spread_case::<F>(
@@ -689,10 +684,7 @@ fn register_matrix_at_into<F: FieldBuffer + fgf::FieldKernels>(label: &'static s
 }
 
 /// The offset-row routes over a prepared coefficient matrix.
-fn register_matrix_at_prepared<F: FieldBuffer + fgf::FieldKernels>(
-    label: &'static str,
-    overwrite: bool,
-) {
+fn register_matrix_at_prepared<F: FieldBuffer>(label: &'static str, overwrite: bool) {
     let row_len = row_bytes::<F>();
     let traffic = row_len * NROWS * NSOURCES;
     let op = if overwrite {
@@ -808,7 +800,7 @@ fn register_matrix_at_prepared<F: FieldBuffer + fgf::FieldKernels>(
 }
 
 /// The offset-source route: row-sized windows gathered out of one region.
-fn register_gather_offsets<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_gather_offsets<F: FieldBuffer>(label: &'static str) {
     let row_len = row_bytes::<F>();
     let traffic = row_len * NROWS;
     spread_case::<F>(

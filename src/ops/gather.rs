@@ -4,8 +4,8 @@
 //! for offset-addressed rows of one backing region, prepared coefficients for
 //! the repeated forms.
 
-use crate::field::{Elem, FieldElem};
-use crate::kernel::{FieldKernels, RawDispatch};
+use crate::field::dispatch::RawDispatch;
+use crate::field::{Elem, FieldBuffer, FieldElem};
 
 use super::geometry::check_width;
 use super::single::mul_into;
@@ -45,7 +45,7 @@ use super::single::mul_into_with;
 /// `region` and `dst` borrow disjoint memory by construction, as with every
 /// two-slice operation in this crate.
 #[inline]
-pub fn add_gather_offsets<F: FieldKernels>(dst: &mut [u8], region: &[u8], offsets: &[u32]) {
+pub fn add_gather_offsets<F: FieldBuffer>(dst: &mut [u8], region: &[u8], offsets: &[u32]) {
     check_width::<F>("add_gather_offsets", dst.len());
     let live = dst.len();
     for (index, &start) in offsets.iter().enumerate() {
@@ -74,7 +74,7 @@ pub fn add_gather_offsets<F: FieldKernels>(dst: &mut [u8], region: &[u8], offset
 /// # Panics
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches
 /// `dst` in length, or on a partial trailing element.
-pub fn mul_add_gather<F: FieldKernels>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
+pub fn mul_add_gather<F: FieldBuffer>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
     check_width::<F>("mul_add_gather", dst.len());
     assert_eq!(
         coeffs.len(),
@@ -107,7 +107,7 @@ pub fn mul_add_gather<F: FieldKernels>(dst: &mut [u8], coeffs: &[Elem<F>], srcs:
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches `dst`
 /// in length, or on a partial trailing element.
 #[cfg(feature = "alloc")]
-pub fn mul_add_gather_with<F: FieldKernels>(
+pub fn mul_add_gather_with<F: FieldBuffer>(
     dst: &mut [u8],
     coeffs: CoeffVecRef<'_, F>,
     srcs: &[&[u8]],
@@ -145,7 +145,7 @@ pub fn mul_add_gather_with<F: FieldKernels>(
 /// # Panics
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches
 /// `dst` in length, or on a partial trailing element.
-pub fn mul_into_gather<F: FieldKernels>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
+pub fn mul_into_gather<F: FieldBuffer>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
     check_width::<F>("mul_into_gather", dst.len());
     assert_eq!(
         coeffs.len(),
@@ -183,7 +183,7 @@ pub fn mul_into_gather<F: FieldKernels>(dst: &mut [u8], coeffs: &[Elem<F>], srcs
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches `dst`
 /// in length, or on a partial trailing element.
 #[cfg(feature = "alloc")]
-pub fn mul_into_gather_with<F: FieldKernels>(
+pub fn mul_into_gather_with<F: FieldBuffer>(
     dst: &mut [u8],
     coeffs: CoeffVecRef<'_, F>,
     srcs: &[&[u8]],

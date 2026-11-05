@@ -5,7 +5,7 @@ use fgf::binary::{Normal, Polynomial};
 use fgf::extension::{Components, Extension, ExtensionSpec, Packed, QuadMersenne31, Relation};
 use fgf::maps::{Embedding, Isomorphism};
 use fgf::prime::{Goldilocks, Mersenne31, Residue};
-use fgf::{Elem, FieldBuffer, FieldElem, FieldKernels, FiniteField, ops};
+use fgf::{Elem, FieldBuffer, FieldElem, FiniteField, ops};
 
 #[path = "common/zero_alloc.rs"]
 mod common;
@@ -34,7 +34,7 @@ type Custom32Row = FiniteField<2, 32, Extension<Custom32Spec, 2>>;
 /// Steady-state prepared application over one fallback class: preparation
 /// allocates by contract, application must not.
 #[allow(clippy::too_many_lines)]
-fn assert_fallback_steady_state_zero_alloc<F: FieldKernels>(coeffs: &[Elem<F>]) {
+fn assert_fallback_steady_state_zero_alloc<F: FieldBuffer>(coeffs: &[Elem<F>]) {
     const ROW_LEN: usize = 1024;
     let src = noise(ROW_LEN, 0xF00);
     let sources: Vec<Vec<u8>> = (0..coeffs.len())
@@ -349,7 +349,7 @@ fn coeff_matrix_reed_solomon_steady_state_allocates_nothing() {
 }
 
 /// Steady-state prime-field ops must not allocate on the hot path.
-fn assert_prime_steady_state_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
+fn assert_prime_steady_state_zero_alloc<F: FieldBuffer>(coeff: Elem<F>) {
     let len = 4096;
     let src = noise(len, 0x111);
     let b = noise(len, 0x222);
@@ -449,7 +449,7 @@ fn residue_prepared_widths_steady_state_allocate_nothing() {
     type Short = FiniteField<65_521, 1, Residue>;
     type Full = FiniteField<4_294_967_291, 1, Residue>;
     type Wide = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>;
-    fn warmed<F: FieldKernels>(coeff: Elem<F>) {
+    fn warmed<F: FieldBuffer>(coeff: Elem<F>) {
         let row_len = 64 * F::BYTES;
         let src = noise(row_len, 0x1600);
         let mut dst = noise(row_len, 0x1601);
@@ -732,7 +732,7 @@ type Packed16Row = FiniteField<2, 16, Extension<Packed16Spec, 2>>;
 /// and offset-addressed forms, the broadcast scalar forms, and the
 /// prepared coefficient and prepared collections.
 #[allow(clippy::too_many_lines)]
-fn assert_extension_packed_surface_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
+fn assert_extension_packed_surface_zero_alloc<F: FieldBuffer>(coeff: Elem<F>) {
     let row_len = 64;
     let src = noise(row_len, 0x611);
     let other = noise(row_len, 0x622);

@@ -14,7 +14,7 @@
 //!   other polynomial folds its coefficient in through `VGF2P8AFFINEQB`.
 //! - **Nibble shuffle (AVX2, SSSE3).** With no byte-wide multiply, `c * x`
 //!   splits into `c * (x & 0xf) ^ c * (x & 0xf0)`, two `PSHUFB` lookups
-//!   against a [`ScaleTable`](crate::kernel::tables::ScaleTable).
+//!   against a [`ScaleTable`](crate::field::binary::byte::ScaleTable).
 //!
 //! Buffer lengths are arbitrary, so x86 kernels descend through narrower SIMD
 //! lanes before handing only the sub-XMM remainder to the scalar nibble

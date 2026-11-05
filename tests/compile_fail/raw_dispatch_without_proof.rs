@@ -4,6 +4,6 @@
 // crate: outside code cannot name or construct it, so the call is rejected
 // with a type error (E0308) at the proof argument. The entry's private
 // visibility contributes a second diagnostic.
-fn drive<F: fgf::FieldKernels>(dst: &mut [u8], src: &[u8]) {
+fn drive<F: fgf::FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     F::add_assign((), dst, src);
 }

@@ -10,8 +10,7 @@
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 use fgf::prime::Residue;
-use fgf::{Elem, FieldKernels, FiniteField, ops};
-use fgf::{Field, FieldBuffer, FieldElem};
+use fgf::{Elem, Field, FieldBuffer, FieldElem, FiniteField, ops};
 
 type P2 = FiniteField<2, 1, Residue>;
 type P7 = FiniteField<7, 1, Residue>;
@@ -105,7 +104,7 @@ fn canon<F: FieldBuffer>(buf: &mut [u8]) {
 }
 
 /// Exercise the elementwise operation surface against the oracle.
-fn check_elementwise<F: FieldKernels>(coeffs: &[Elem<F>]) {
+fn check_elementwise<F: FieldBuffer>(coeffs: &[Elem<F>]) {
     for &len in &LENS {
         let mut src = noise(len, 0xa1);
         canon::<F>(&mut src);
@@ -187,7 +186,7 @@ fn check_elementwise<F: FieldKernels>(coeffs: &[Elem<F>]) {
 
 /// Gather, scatter, matrix, offset-addressed, and row-interleaved shapes,
 /// each against repeated single-row accumulation.
-fn check_shapes<F: FieldKernels>(coeffs: &[Elem<F>]) {
+fn check_shapes<F: FieldBuffer>(coeffs: &[Elem<F>]) {
     for &row_elems in &ROW_ELEMS {
         let row_len = row_elems * F::BYTES;
         let nsrc = coeffs.len();
@@ -338,7 +337,7 @@ fn check_shapes<F: FieldKernels>(coeffs: &[Elem<F>]) {
 
 /// Prepared forms drive the same kernels with the coefficient resolved once.
 #[cfg(feature = "alloc")]
-fn check_prepared_reuse<F: FieldKernels>(coeffs: &[Elem<F>]) {
+fn check_prepared_reuse<F: FieldBuffer>(coeffs: &[Elem<F>]) {
     let row_len = 8 * F::BYTES;
     let nsrc = coeffs.len();
     let srcs: Vec<Vec<u8>> = (0..nsrc)
@@ -446,7 +445,7 @@ fn check_prepared_reuse<F: FieldKernels>(coeffs: &[Elem<F>]) {
 /// Noncanonical lanes through the packed dispatch: arithmetic paths emit
 /// canonical lanes equal to the oracle over the reduced values, and the
 /// documented shortcuts preserve the alias bytes exactly.
-fn check_alias_lanes<F: FieldKernels>(modulus: u64, aliases: &[u64], coeff: Elem<F>) {
+fn check_alias_lanes<F: FieldBuffer>(modulus: u64, aliases: &[u64], coeff: Elem<F>) {
     let alias_buf: Vec<u8> = aliases.iter().flat_map(|a| a.to_le_bytes()).collect();
     let len = alias_buf.len();
     let mut other = noise(len, 0x500);
@@ -1126,7 +1125,7 @@ fn routed_residue_matches_portable_composition_byte_for_byte() {
         }
     }
 
-    fn check<F: FieldKernels>(coeffs: &[Elem<F>]) {
+    fn check<F: FieldBuffer>(coeffs: &[Elem<F>]) {
         assert!(F::BYTES == 4, "consistency test covers four-byte rows");
         // One lane plus rows below, across, and above the vector body:
         // the single-row floor sits at eight lanes while the elementwise
@@ -1385,7 +1384,7 @@ fn matrix_accumulate_all_zero_row_matches_portable() {
 #[cfg(feature = "alloc")]
 #[test]
 fn overwrite_gather_degenerate_coefficients_match_oracle() {
-    fn check<F: FieldKernels>(general: Elem<F>, alias: Elem<F>) {
+    fn check<F: FieldBuffer>(general: Elem<F>, alias: Elem<F>) {
         let row_len = 64 * F::BYTES;
         let srcs: Vec<Vec<u8>> = (0..3)
             .map(|i| {
@@ -1444,23 +1443,6 @@ fn overwrite_gather_degenerate_coefficients_match_oracle() {
     );
 }
 
-/// Elementwise vectorization is available only for u32 rows on supported x86 hosts.
-#[test]
-fn vector_elementwise_report_matches_the_four_byte_class() {
-    fn check<F: FieldKernels>() {
-        assert_eq!(
-            <F as FieldKernels>::has_vector_elementwise(),
-            F::BYTES == 4 && is_vector_host()
-        );
-    }
-    check::<FiniteField<2, 1>>();
-    check::<FiniteField<251, 1>>();
-    check::<FiniteField<65_521, 1>>();
-    check::<FiniteField<1_000_000_007, 1>>();
-    check::<FiniteField<4_294_967_291, 1>>();
-    check::<FiniteField<18_446_744_073_709_551_557, 1>>();
-}
-
 /// `backend_for` reports the vector tier exactly for the rows whose
 /// prepared fixed-coefficient operations vectorize: byte rows at
 /// `P <= 127`, every four-byte row, eight-byte rows at odd `P`. Byte
@@ -1494,13 +1476,6 @@ fn backend_report_matches_the_vectorized_width_classes() {
 }
 
 /// Whether this host can serve the x86 vector tier at all.
-fn is_vector_host() -> bool {
-    matches!(
-        fgf::backend(),
-        fgf::Backend::V4x | fgf::Backend::V3GfniCrypto | fgf::Backend::V3
-    )
-}
-
 /// Byte primes above the lookup boundary stay on the portable path: the
 /// packed operations match the shortcut-modeling integer oracle on raw
 /// lanes at 131 and 251.

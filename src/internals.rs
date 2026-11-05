@@ -66,6 +66,9 @@ pub mod kernel {
     }
     /// Coefficient tables shared by field and architecture kernels.
     pub mod tables {
+        // `ScaleTable` is declared in the field layer's byte module; the
+        // unstable `tables` path keeps serving it by re-export.
+        pub use crate::field::binary::byte::ScaleTable;
         pub use crate::kernel::tables::*;
     }
 

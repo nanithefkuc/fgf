@@ -7,8 +7,7 @@
 //! prefix skips zero lanes, the single inverted product only touches
 //! nonzero lanes, and zero lanes are written as zero on the way out.
 
-use crate::field::{Elem, FieldElem};
-use crate::kernel::FieldKernels;
+use crate::field::{Elem, FieldBuffer, FieldElem};
 
 use super::geometry::{check_pair, check_width};
 
@@ -22,7 +21,7 @@ const CHUNK_ELEMS: usize = 64;
 const SCRATCH_BYTES: usize = CHUNK_ELEMS * 8;
 
 /// Lanes per chunk that fit both the prefix array and the byte scratch.
-fn chunk_elems<F: FieldKernels>() -> usize {
+fn chunk_elems<F: FieldBuffer>() -> usize {
     assert!(
         F::BYTES <= SCRATCH_BYTES,
         "element width exceeds the batch scratch"
@@ -35,7 +34,7 @@ fn chunk_elems<F: FieldKernels>() -> usize {
 /// # Panics
 ///
 /// Panics on a length mismatch or a partial trailing element.
-pub fn inv_into<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
+pub fn inv_into<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     check_pair::<F>("inv_into", "dst", dst.len(), "src", src.len());
     // The single-chunk kernel stages one prefix element per lane in a
     // 64-slot stack array; longer rows run chunk by chunk.
@@ -53,7 +52,7 @@ pub fn inv_into<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// # Panics
 ///
 /// Panics if `dst` holds a partial trailing element.
-pub fn inv_assign<F: FieldKernels>(dst: &mut [u8]) {
+pub fn inv_assign<F: FieldBuffer>(dst: &mut [u8]) {
     check_width::<F>("inv_assign", dst.len());
     // The backward pass reads prefix products staged ahead of the write
     // cursor; an in-place run would clobber lanes it still needs. Work
@@ -74,7 +73,7 @@ pub fn inv_assign<F: FieldKernels>(dst: &mut [u8]) {
 /// # Panics
 ///
 /// Panics on a length mismatch or a partial trailing element.
-pub fn div_elementwise<F: FieldKernels>(dst: &mut [u8], a: &[u8], b: &[u8]) {
+pub fn div_elementwise<F: FieldBuffer>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     check_pair::<F>("div_elementwise", "dst", dst.len(), "a", a.len());
     check_pair::<F>("div_elementwise", "dst", dst.len(), "b", b.len());
     batch_divide_into::<F>(dst, a, b);
@@ -85,7 +84,7 @@ pub fn div_elementwise<F: FieldKernels>(dst: &mut [u8], a: &[u8], b: &[u8]) {
 /// # Panics
 ///
 /// Panics on a length mismatch or a partial trailing element.
-pub fn div_elementwise_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
+pub fn div_elementwise_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     check_pair::<F>("div_elementwise_assign", "dst", dst.len(), "src", src.len());
     // `dst` is both the dividend and the output while `src` is the
     // divisor: stage both chunks on the stack first so the kernel never
@@ -107,7 +106,7 @@ pub fn div_elementwise_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// chunk: prefix products as `Elem`s on the stack, one scalar inversion,
 /// then a backward pass writing reciprocals. Zero lanes hold the running
 /// product unchanged and read back zero.
-fn batch_invert_into<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
+fn batch_invert_into<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     let bytes = F::BYTES;
     let elems = src.len() / bytes;
     // `Elem<F>` is `Copy`; the prefix array costs one element per lane
@@ -141,7 +140,7 @@ fn batch_invert_into<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 }
 
 /// Elementwise division via one batch inversion of the divisor per chunk.
-fn batch_divide_into<F: FieldKernels>(dst: &mut [u8], num: &[u8], den: &[u8]) {
+fn batch_divide_into<F: FieldBuffer>(dst: &mut [u8], num: &[u8], den: &[u8]) {
     let bytes = F::BYTES;
     let elems = dst.len() / bytes;
     let mut recip = [0u8; SCRATCH_BYTES];
