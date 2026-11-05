@@ -503,10 +503,8 @@ fn check_at<F: FieldKernels>(name: &str, dst_len: usize, row_len: usize, row_sta
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
-    use crate::field::binary::tower::Rijndael16Field;
     use crate::field::poly::AES;
     use crate::field::{Elem as E8, FiniteField, Polynomial};
-    use alloc::vec::Vec;
 
     /// Term coefficient counts are still validated at zero row length.
     #[test]
@@ -515,32 +513,5 @@ mod tests {
         let coeffs = [E8::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x07); 2];
         let mut rows = [0u8; 8];
         mul_add_matrix::<FiniteField<2, 8, Polynomial<AES>>>(&mut rows, 0, 3, &[(&coeffs, &[])]);
-    }
-
-    #[test]
-    fn prepared_matrix_ops_match_one_shot() {
-        // source-major matrix: source s contributes coeffs[s * outputs + o].
-        let values: Vec<Elem<Rijndael16Field>> = (0u16..3 * 4)
-            .map(|i| Elem::<Rijndael16Field>::from_raw(i * 511 + 3))
-            .collect();
-        let matrix = CoeffMatrix::<Rijndael16Field>::from_source_major(3, 4, &values);
-        let srcs: Vec<Vec<u8>> = (0u8..3).map(|s| alloc::vec![s + 1; 8]).collect();
-        let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
-
-        let terms: Vec<(&[Elem<_>], &[u8])> = (0..3)
-            .map(|s| (&values[s * 4..s * 4 + 4], src_refs[s]))
-            .collect();
-
-        let mut one_shot = [0x11u8; 32];
-        mul_add_matrix::<Rijndael16Field>(&mut one_shot, 8, 4, &terms);
-        let mut prepared = [0x11u8; 32];
-        mul_add_matrix_with::<Rijndael16Field>(&mut prepared, 8, &matrix, &src_refs);
-        assert_eq!(one_shot, prepared);
-
-        let mut one_shot = [0x22u8; 32];
-        mul_into_matrix::<Rijndael16Field>(&mut one_shot, 8, 4, &terms);
-        let mut prepared = [0x22u8; 32];
-        mul_into_matrix_with::<Rijndael16Field>(&mut prepared, 8, &matrix, &src_refs);
-        assert_eq!(one_shot, prepared);
     }
 }

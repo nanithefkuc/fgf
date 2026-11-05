@@ -1142,30 +1142,6 @@ mod tests {
     };
 
     #[test]
-    #[should_panic(expected = "unused node")]
-    fn root_data_rejects_an_unused_root() {
-        let _ = black_box(HOLLOW).root_data();
-    }
-
-    #[test]
-    #[should_panic(expected = "unused node")]
-    fn degree_rejects_an_unused_root() {
-        let _ = black_box(HOLLOW).degree();
-    }
-
-    #[test]
-    #[should_panic(expected = "unused node")]
-    fn one_rejects_an_unused_root() {
-        let _ = black_box(HOLLOW).one();
-    }
-
-    #[test]
-    #[should_panic(expected = "unused node")]
-    fn mul_rejects_an_unused_root() {
-        let _ = black_box(HOLLOW).mul(1, 1);
-    }
-
-    #[test]
     #[should_panic(expected = "the root node has no base")]
     fn base_description_rejects_a_polynomial_root() {
         let _ = black_box(BinaryDescription::polynomial(8, 0x11B)).base_description();

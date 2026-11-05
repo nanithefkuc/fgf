@@ -10,6 +10,7 @@
 //! and an odd depth-two tower included — and deterministic samples cover
 //! the full-width prime rows.
 
+use super::{Gf49, Gf343, Sample};
 use fgf::field::mersenne31::Mersenne31;
 use fgf::{
     AES, Elem, Embedding, Extension, ExtensionField, ExtensionSpec, Field, FieldElem, FiniteField,
@@ -19,16 +20,6 @@ use fgf::{
 // ---------------------------------------------------------------------------
 // Rows under test
 // ---------------------------------------------------------------------------
-
-/// GF(49) as `t^2 - 3` over the residue row at seven.
-struct Gf49Spec;
-impl ExtensionSpec<2> for Gf49Spec {
-    type Base = FiniteField<7, 1>;
-    type Storage = fgf::Components;
-    const NAME: &'static str = "GF(49)";
-    const RELATION: Relation = Relation::from_coordinates(&[4, 0]);
-}
-type Gf49 = FiniteField<7, 2, Extension<Gf49Spec, 2>>;
 
 /// GF(4) as `t^2 + t + 1` over the residue row at two, which is not a
 /// binary presentation.
@@ -136,17 +127,6 @@ impl ExtensionSpec<3> for Gf125Spec {
     const RELATION: Relation = Relation::from_coordinates(&[1, 1, 0]);
 }
 type Gf125 = FiniteField<5, 3, Extension<Gf125Spec, 3>>;
-
-/// GF(343) as `t^3 - 2` over the residue row at seven: the odd cubic
-/// Euclid inversion path.
-struct Gf343Spec;
-impl ExtensionSpec<3> for Gf343Spec {
-    type Base = FiniteField<7, 1>;
-    type Storage = fgf::Components;
-    const NAME: &'static str = "GF(343)";
-    const RELATION: Relation = Relation::from_coordinates(&[5, 0, 0]);
-}
-type Gf343 = FiniteField<7, 3, Extension<Gf343Spec, 3>>;
 
 /// GF(625) as `t^4 + t^3 + t^2 + t + 3` over the residue row at five: a
 /// quartic with every middle coefficient nonzero.
@@ -705,21 +685,6 @@ fn gf81_odd_depth_two_tower_matches_the_reference_exhaustively() {
 // ---------------------------------------------------------------------------
 // Full-width prime samples
 // ---------------------------------------------------------------------------
-
-/// A deterministic word generator for the sample sweeps.
-struct Sample {
-    state: u64,
-}
-
-impl Sample {
-    fn next(&mut self) -> u64 {
-        self.state = self
-            .state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        self.state
-    }
-}
 
 /// Sample one extension row against `reference`: products, inverses,
 /// distributivity, the relation, and component round trips.

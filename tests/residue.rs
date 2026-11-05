@@ -485,7 +485,6 @@ fn encode_emits_the_frozen_lanes() {
 
     assert_eq!(lane::<2>(0), [0u8; 8]);
     assert_eq!(lane::<2>(1), [1, 0, 0, 0, 0, 0, 0, 0]);
-    assert_eq!(lane::<2>(2 - 1), [1, 0, 0, 0, 0, 0, 0, 0]);
 
     assert_eq!(lane::<3>(0), [0]);
     assert_eq!(lane::<3>(1), [1]);

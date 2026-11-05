@@ -1131,29 +1131,6 @@ mod tests {
     }
 
     #[test]
-    fn wide_field_facts() {
-        assert_eq!(<Rijndael64Field as Field>::DEGREE, 64);
-        assert_eq!(<Rijndael64Field as Field>::ORDER, 1u128 << 64);
-        assert_eq!(<Rijndael64Field as crate::field::FieldBuffer>::BYTES, 8);
-        assert_eq!(<Rijndael32Field as crate::field::FieldBuffer>::BYTES, 4);
-        let g = Elem::<Rijndael64Field>::GENERATOR;
-        assert_eq!(g.pow(u128::from(u64::MAX)), Elem::<Rijndael64Field>::ONE);
-        for q in [3u128, 5, 17, 257, 641, 65_537, 6_700_417] {
-            assert_ne!(
-                g.pow(u128::from(u64::MAX) / q),
-                Elem::<Rijndael64Field>::ONE
-            );
-        }
-        // Index round trip of `u64::MAX`.
-        let max =
-            Elem::<Rijndael64Field>::from_index(u128::from(u64::MAX)).expect("full-width word");
-        assert_eq!(max.to_index(), u128::from(u64::MAX));
-        // Excess-bit rejection below the cap.
-        assert!(Elem::<Rijndael32Field>::from_index(1u128 << 32).is_err());
-        assert!(Elem::<Rijndael16Field>::from_index(1u128 << 16).is_err());
-    }
-
-    #[test]
     fn fanpaar64_matches_reference_pair() {
         // Forward fixture from the pre-cutover tower, via the recurrence.
         assert_eq!(

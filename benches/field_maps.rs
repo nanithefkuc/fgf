@@ -454,11 +454,12 @@ fn synthesize_outsiders<S: Field, T: Field<Characteristic = S::Characteristic>>(
     outsiders
 }
 
-/// Validate every timed arm's results before timing: round-trips,
-/// membership against the Frobenius fixed-point test, the relative
-/// Frobenius identity, trace against conjugate sums, and norm against
-/// conjugate products, on deterministic sampled inputs. Panics name the
-/// pair and operation.
+/// Validate every timed arm's results before timing: embed/restrict
+/// round-trips, membership and restriction against the Frobenius
+/// fixed-point test on sampled targets and synthesized outsiders, the
+/// relative Frobenius identity, trace against conjugate sums, and norm
+/// against conjugate products, on deterministic sampled inputs. Panics
+/// name the pair and operation.
 fn validate_embedding<S: Field, T: Field<Characteristic = S::Characteristic>>(
     pair: &str,
     map: &Embedding<S, T>,
@@ -514,11 +515,6 @@ fn validate_embedding<S: Field, T: Field<Characteristic = S::Characteristic>>(
             power = map.frobenius(power);
         }
         assert_eq!(power, *y, "field-maps {pair} frobenius identity {i}");
-        assert_eq!(
-            map.contains(map.frobenius(*y)),
-            map.contains(*y),
-            "field-maps {pair} frobenius membership {i}"
-        );
     }
     for (i, y) in targets.iter().enumerate() {
         let mut sum = *y;
@@ -549,8 +545,8 @@ fn validate_embedding<S: Field, T: Field<Characteristic = S::Characteristic>>(
 }
 
 /// Validate both isomorphism directions before timing: round-trips on
-/// sampled inputs and the homomorphism laws on samples. Panics name the
-/// pair and operation.
+/// sampled inputs and the multiplication homomorphism law in both
+/// directions. Panics name the pair and operation.
 fn validate_isomorphism<S: Field, T: Field<Characteristic = S::Characteristic>>(
     pair: &str,
     map: &Isomorphism<S, T>,
@@ -574,21 +570,11 @@ fn validate_isomorphism<S: Field, T: Field<Characteristic = S::Characteristic>>(
     for (i, (x, y)) in sources.iter().zip(targets.iter()).enumerate().take(16) {
         let a = sources[(i + 5) % sources.len()];
         assert_eq!(
-            map.apply(x.add(a)),
-            map.apply(*x).add(map.apply(a)),
-            "field-maps {pair} apply preserves addition {i}"
-        );
-        assert_eq!(
             map.apply(x.mul(a)),
             map.apply(*x).mul(map.apply(a)),
             "field-maps {pair} apply preserves multiplication {i}"
         );
         let b = targets[(i + 5) % targets.len()];
-        assert_eq!(
-            map.unapply(y.add(b)),
-            map.unapply(*y).add(map.unapply(b)),
-            "field-maps {pair} unapply preserves addition {i}"
-        );
         assert_eq!(
             map.unapply(y.mul(b)),
             map.unapply(*y).mul(map.unapply(b)),

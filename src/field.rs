@@ -1369,7 +1369,10 @@ mod tests {
             type Row = $row;
             assert_eq!(Row::DESCRIPTOR.degree(), Row::DEGREE);
             assert_eq!(
-                Row::DESCRIPTOR.characteristic(),
+                crate::field::extension::arithmetic::characteristic_of(
+                    &Row::DESCRIPTOR,
+                    Row::DESCRIPTOR.root_index()
+                ),
                 <Row as Field>::Characteristic::CHARACTERISTIC
             );
             $(

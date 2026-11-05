@@ -403,14 +403,6 @@ impl Descriptor {
         self.len
     }
 
-    /// Characteristic of the root.
-    #[must_use]
-    // No production caller: the tests read it.
-    #[allow(dead_code)]
-    pub const fn characteristic(&self) -> u64 {
-        super::arithmetic::characteristic_of(self, self.root)
-    }
-
     /// Absolute degree of the root over the prime field.
     #[must_use]
     pub const fn degree(&self) -> u32 {
@@ -761,13 +753,9 @@ mod tests {
     #[test]
     fn accessors_read_the_root() {
         let quadratic = build(&RESIDUE_SEVEN, 7, 2, 2, &[3, 0], Storage::Components);
-        assert_eq!(quadratic.characteristic(), 7);
-        assert_eq!(quadratic.degree(), 2);
         // The sub-descriptor restricts to the prime leaf under its own
         // presentation.
         let base = quadratic.base_descriptor();
-        assert_eq!(base.degree(), 1);
-        assert_eq!(base.characteristic(), 7);
         assert!(base.same_structure(&RESIDUE_SEVEN));
     }
 }

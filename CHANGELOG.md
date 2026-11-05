@@ -25,6 +25,11 @@ All notable changes to this project are documented here. The format follows
   because bit-packed GF(2) has no competitor harness.
 - `just examples` runs every example in each feature configuration and
   replaces `examples-portable`; `just example NAME [ARGS]` runs one.
+- The generic extension test suite is one binary: `tests/extension.rs`
+  holds the shared rows and splits into `rows` (per-field laws, encodings,
+  and the packed surface) and `reference` (arithmetic against the
+  independent schoolbook and brute-force references), replacing the
+  separate `tests/extension_reference.rs` binary.
 
 ### Removed
 

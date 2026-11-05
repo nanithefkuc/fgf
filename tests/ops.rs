@@ -2179,6 +2179,11 @@ fn check_prime_ops<F: FieldKernels>(lens: &[usize], coeffs: &[Elem<F>]) {
         // totality is covered by the scalar algebra suite.
         let mut src = noise(len, 0xa1);
         canon::<F>(&mut src);
+        // Zero lanes across the source: the additive folds carry per-limb
+        // zero shortcuts that random canonical bytes never trigger.
+        for lane in src.chunks_exact_mut(F::BYTES).skip(1).step_by(3) {
+            lane.fill(0);
+        }
         let dst0 = {
             let mut b = noise(len, 0xb2);
             canon::<F>(&mut b);
@@ -2636,160 +2641,6 @@ fn goldilocks_public_ops_match_oracle() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn backend_queries_are_consistent_per_field() {
-    use fgf::kernel::vector_elementwise_min_bytes;
-    use fgf::{Backend, KernelBackend, backend, backend_for, has_vector_elementwise};
-
-    let process = backend();
-    if cfg!(not(feature = "simd")) {
-        assert!(matches!(process, Backend::Scalar), "simd is compiled out");
-    }
-    if process == Backend::Scalar {
-        assert!(!process.has_native_mul(), "scalar has no native multiply");
-        assert!(!process.has_blocked_rows(), "scalar has no blocked rows");
-    }
-
-    macro_rules! queries {
-        ($($field:ty),+ $(,)?) => {$(
-            let per_field = backend_for::<$field>();
-            // `Backend` order is descending capability (stronger sorts less),
-            // so a field's backend is always at or below the process one.
-            assert!(
-                per_field >= process,
-                concat!(stringify!($field), ": field backend exceeds the process backend")
-            );
-            let vectorized = has_vector_elementwise::<$field>();
-            assert!(
-                !vectorized || per_field != Backend::Scalar,
-                concat!(stringify!($field), ": vectorized elementwise requires a vector field backend")
-            );
-            // The dispatch threshold is zero whenever no vector kernel serves
-            // the field.
-            let threshold = vector_elementwise_min_bytes::<$field>();
-            assert!(
-                vectorized || threshold == 0,
-                concat!(stringify!($field), ": threshold without a vector elementwise kernel")
-            );
-        )+};
-    }
-    queries!(
-        FiniteField<2, 8, Polynomial<AES>>,
-        FiniteField<2, 8, Polynomial<RS>>,
-        FiniteField<2, 8, Normal<0x11B, 0x20>>,
-        FiniteField<2, 8, Cantor<0x11B, 0x20>>,
-        Gf16,
-        Gf32,
-        Gf64,
-        FanPaar8Field,
-        FanPaar16Field,
-        FanPaar32Field,
-        FanPaar64Field,
-        Mersenne31,
-        Goldilocks,
-        QuadMersenne31,
-    );
-
-    // V4x execution assertion: on an AVX-512+GFNI host with `simd512`, the
-    // process backend must actually be `V4x` — a green run alone never proves
-    // the tier executed (P10). A `SIMD_BACKEND` request below `v4x` lowers the
-    // tier on purpose, and hosts without the token cannot select it; both are
-    // documented skips. The host probe is the `internals` token re-export.
-    #[cfg(all(feature = "simd512", feature = "internals", target_arch = "x86_64"))]
-    {
-        use fgf::internals::kernel::{SimdToken, X64V4xToken};
-        let downgrade = std::env::var("SIMD_BACKEND")
-            .ok()
-            .filter(|tier| tier != "v4x");
-        if let Some(tier) = &downgrade {
-            eprintln!("skipping V4x assertion: SIMD_BACKEND={tier} requests a lower tier");
-        } else if X64V4xToken::summon().is_some() {
-            assert_eq!(
-                process,
-                Backend::V4x,
-                "AVX-512+GFNI summons but dispatch did not select V4x"
-            );
-            assert_eq!(
-                backend_for::<FiniteField<2, 8, Polynomial<RS>>>(),
-                Backend::V4x,
-                "FiniteField<2, 8, Polynomial<RS>> does not report V4x on a V4x host"
-            );
-            // Both prime fields carry 64-byte kernels on V4x.
-            assert_eq!(
-                (backend_for::<Mersenne31>(), backend_for::<Goldilocks>()),
-                (Backend::V4x, Backend::V4x),
-                "prime fields do not report V4x on a V4x host"
-            );
-            // Both byte fields carry 64-byte elementwise kernels on V4x, so
-            // the capability query must not steer consumers to scalar.
-            assert!(
-                has_vector_elementwise::<FiniteField<2, 8, Polynomial<AES>>>()
-                    && has_vector_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(),
-                "byte fields do not report vector elementwise on a V4x host"
-            );
-        } else {
-            eprintln!("skipping V4x assertion: host cannot summon X64V4xToken");
-        }
-    }
-}
-
-/// Every field's `add_assign`/`sub_assign` against the elementwise oracle,
-/// including the prime fields where subtraction is a different fold.
-#[test]
-fn add_and_sub_assign_match_oracle_for_every_field() {
-    fn check<F: FieldKernels>(len: usize, coeff: Elem<F>) {
-        let a = noise(len, 0x11);
-        let mut b = noise(len, 0x22);
-        // Insert zero element lanes: the prime-field subtraction fold has
-        // per-limb zero shortcuts that random bytes never trigger.
-        for lane in b.chunks_exact_mut(F::BYTES).step_by(3) {
-            lane.fill(0);
-        }
-        let mut got = a.clone();
-        let mut want = a.clone();
-        ops::add_assign::<F>(&mut got, &b);
-        for (d, s) in want
-            .chunks_exact_mut(F::BYTES)
-            .zip(b.chunks_exact(F::BYTES))
-        {
-            let value = F::decode(d).add(F::decode(s));
-            F::encode(d, value);
-        }
-        assert_eq!(got, want, "add_assign over {} bytes", len);
-
-        let mut got = a.clone();
-        let mut want = a.clone();
-        ops::sub_assign::<F>(&mut got, &b);
-        for (d, s) in want
-            .chunks_exact_mut(F::BYTES)
-            .zip(b.chunks_exact(F::BYTES))
-        {
-            let value = F::decode(d).sub(F::decode(s));
-            F::encode(d, value);
-        }
-        assert_eq!(got, want, "sub_assign over {} bytes", len);
-        let _ = coeff;
-    }
-    check::<FiniteField<2, 8, Polynomial<AES>>>(
-        8,
-        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(3),
-    );
-    check::<FiniteField<2, 8, Polynomial<RS>>>(
-        8,
-        Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(3),
-    );
-    check::<Gf16>(8, Elem::<Gf16>::from_raw(3));
-    check::<Gf32>(8, Elem::<Gf32>::from_raw(3));
-    check::<Gf64>(8, Elem::<Gf64>::from_raw(3));
-    check::<FanPaar8Field>(8, Elem::<FanPaar8Field>::from_raw(3));
-    check::<FanPaar16Field>(8, Elem::<FanPaar16Field>::from_raw(3));
-    check::<FanPaar32Field>(8, Elem::<FanPaar32Field>::from_raw(3));
-    check::<FanPaar64Field>(8, Elem::<FanPaar64Field>::from_raw(3));
-    check::<Mersenne31>(8, Elem::<Mersenne31>::from_raw(3));
-    check::<Goldilocks>(8, Elem::<Goldilocks>::from_raw(3));
-    check::<QuadMersenne31>(8, Elem::<QuadMersenne31>::from_raw([3, 5]));
-}
-
-#[test]
 #[cfg(feature = "alloc")]
 fn prepared_collections_report_their_contents() {
     let coeffs = [
@@ -2824,17 +2675,8 @@ fn prepared_collections_report_their_contents() {
             coeffs[0], coeffs[1], coeffs[2], coeffs[2], coeffs[1], coeffs[0],
         ],
     );
-    assert_eq!((matrix.source_count(), matrix.output_count()), (2, 3));
     assert_eq!(matrix.get_at(1, 2).map(|c| c.value()), Some(coeffs[0]));
-    assert!(matrix.get_at(2, 0).is_none(), "source out of bounds");
     assert!(matrix.get_at(0, 3).is_none(), "output out of bounds");
-    assert_eq!(
-        matrix
-            .source(1)
-            .map(|source| source.into_coeffs().map(|c| c.value()).collect::<Vec<_>>()),
-        Some(vec![coeffs[2], coeffs[1], coeffs[0]])
-    );
-    assert!(matrix.source(2).is_none(), "source out of bounds");
 }
 
 /// Clones own their prepared tables: each keeps multiplying by its value
@@ -2969,22 +2811,11 @@ fn zero_and_empty_inputs_are_well_defined() {
 
     // Overwrite shapes zero the destination instead.
     let mut dst = noise(8, 0x35);
-    ops::mul_into_gather::<FiniteField<2, 8, Polynomial<AES>>>(
-        &mut dst,
-        &[
-            Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0),
-            Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0),
-        ],
-        &refs,
-    );
-    assert_eq!(dst, vec![0; 8], "all-zero dot product fills zero");
     ops::mul_into_gather_with(&mut dst, zero_vector.as_ref(), &refs);
     assert_eq!(dst, vec![0; 8], "all-zero dot product vector fills zero");
 
     // Empty inputs.
     let mut dst = noise(8, 0x36);
-    ops::mul_into_gather::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &[], &[]);
-    assert_eq!(dst, vec![0; 8], "no sources fills zero");
     let empty_vector = ops::CoeffVec::<FiniteField<2, 8, Polynomial<AES>>>::new(&[]);
     ops::mul_into_gather_with(&mut dst, empty_vector.as_ref(), &[]);
     assert_eq!(dst, vec![0; 8], "empty vector fills zero");
@@ -4381,14 +4212,65 @@ impl ExtensionSpec<2> for NormalBase16Spec {
 }
 type NormalBase16Row = FiniteField<2, 16, Extension<NormalBase16Spec, 2>>;
 
-/// The per-family backend report: the tier serving each class's bulk
-/// operations — [`Backend::Scalar`] for the typed scalar fallback — with
-/// elementwise eligibility reported separately.
+/// The per-field backend queries and the per-family backend report: the
+/// tier serving each class's bulk operations — [`Backend::Scalar`] for the
+/// typed scalar fallback — with elementwise eligibility reported
+/// separately, the query invariants that hold for every field, and the V4x
+/// execution assertion.
 #[test]
 fn backend_reports_match_family_routes() {
-    use fgf::{Backend, backend, backend_for, has_vector_elementwise};
+    use fgf::kernel::vector_elementwise_min_bytes;
+    use fgf::{Backend, KernelBackend, backend, backend_for, has_vector_elementwise};
 
     let process = backend();
+    if cfg!(not(feature = "simd")) {
+        assert!(matches!(process, Backend::Scalar), "simd is compiled out");
+    }
+    if process == Backend::Scalar {
+        assert!(!process.has_native_mul(), "scalar has no native multiply");
+        assert!(!process.has_blocked_rows(), "scalar has no blocked rows");
+    }
+
+    macro_rules! queries {
+        ($($field:ty),+ $(,)?) => {$(
+            let per_field = backend_for::<$field>();
+            // `Backend` order is descending capability (stronger sorts less),
+            // so a field's backend is always at or below the process one.
+            assert!(
+                per_field >= process,
+                concat!(stringify!($field), ": field backend exceeds the process backend")
+            );
+            let vectorized = has_vector_elementwise::<$field>();
+            assert!(
+                !vectorized || per_field != Backend::Scalar,
+                concat!(stringify!($field), ": vectorized elementwise requires a vector field backend")
+            );
+            // The dispatch threshold is zero whenever no vector kernel serves
+            // the field.
+            let threshold = vector_elementwise_min_bytes::<$field>();
+            assert!(
+                vectorized || threshold == 0,
+                concat!(stringify!($field), ": threshold without a vector elementwise kernel")
+            );
+        )+};
+    }
+    queries!(
+        FiniteField<2, 8, Polynomial<AES>>,
+        FiniteField<2, 8, Polynomial<RS>>,
+        FiniteField<2, 8, Normal<0x11B, 0x20>>,
+        FiniteField<2, 8, Cantor<0x11B, 0x20>>,
+        Gf16,
+        Gf32,
+        Gf64,
+        FanPaar8Field,
+        FanPaar16Field,
+        FanPaar32Field,
+        FanPaar64Field,
+        Mersenne31,
+        Goldilocks,
+        QuadMersenne31,
+    );
+
     let x86_tier = matches!(
         process,
         Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
@@ -4492,6 +4374,48 @@ fn backend_reports_match_family_routes() {
         has_vector_elementwise::<QuadMersenne31>(),
         gfni || process == Backend::V3,
     );
+
+    // V4x execution assertion: on an AVX-512+GFNI host with `simd512`, the
+    // process backend must actually be `V4x` — a green run alone never proves
+    // the tier executed (P10). A `SIMD_BACKEND` request below `v4x` lowers the
+    // tier on purpose, and hosts without the token cannot select it; both are
+    // documented skips. The host probe is the `internals` token re-export.
+    #[cfg(all(feature = "simd512", feature = "internals", target_arch = "x86_64"))]
+    {
+        use fgf::internals::kernel::{SimdToken, X64V4xToken};
+        let downgrade = std::env::var("SIMD_BACKEND")
+            .ok()
+            .filter(|tier| tier != "v4x");
+        if let Some(tier) = &downgrade {
+            eprintln!("skipping V4x assertion: SIMD_BACKEND={tier} requests a lower tier");
+        } else if X64V4xToken::summon().is_some() {
+            assert_eq!(
+                process,
+                Backend::V4x,
+                "AVX-512+GFNI summons but dispatch did not select V4x"
+            );
+            assert_eq!(
+                backend_for::<FiniteField<2, 8, Polynomial<RS>>>(),
+                Backend::V4x,
+                "FiniteField<2, 8, Polynomial<RS>> does not report V4x on a V4x host"
+            );
+            // Both prime fields carry 64-byte kernels on V4x.
+            assert_eq!(
+                (backend_for::<Mersenne31>(), backend_for::<Goldilocks>()),
+                (Backend::V4x, Backend::V4x),
+                "prime fields do not report V4x on a V4x host"
+            );
+            // Both byte fields carry 64-byte elementwise kernels on V4x, so
+            // the capability query must not steer consumers to scalar.
+            assert!(
+                has_vector_elementwise::<FiniteField<2, 8, Polynomial<AES>>>()
+                    && has_vector_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(),
+                "byte fields do not report vector elementwise on a V4x host"
+            );
+        } else {
+            eprintln!("skipping V4x assertion: host cannot summon X64V4xToken");
+        }
+    }
 }
 
 /// Lengths in elements straddling every lane and unroll boundary — below

@@ -292,7 +292,7 @@ impl<const POLY: u128> Gf8Data for Polynomial<POLY> {
     const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
     const AFFINE: &'static [u64; 256] = Bank::<POLY>::AFFINE;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const ISOMORPHISM: Isomorphism = isomorphism::<POLY>();
+    const ISOMORPHISM: Isomorphism = isomorphism_to_aes::<POLY>();
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const REDUCTION_LOW: u8 = Polynomial::<POLY>::REDUCTION_LOW;
 }
@@ -339,21 +339,15 @@ pub struct Isomorphism {
 }
 
 /// Return the isomorphism between `FiniteField<2, 8, Polynomial<POLY>>` and `FiniteField<2, 8, Polynomial<AES>>`.
-#[allow(dead_code)]
-#[inline]
-#[must_use]
-pub const fn isomorphism_to_aes<const POLY: u128>() -> Isomorphism {
-    isomorphism::<POLY>()
-}
-
-/// Derive the isomorphism onto the AES field.
 ///
 /// `φ(x) = r` for the smallest `r` in GF(2^8)/`0x11B` that is a root of
 /// `POLY`; the images of the powers of `x` are the powers of `r`.
 /// The inverse columns are the preimages of the AES polynomial basis under
 /// that selected map; a separately chosen root need not give its inverse.
 #[allow(dead_code)]
-const fn isomorphism<const POLY: u128>() -> Isomorphism {
+#[inline]
+#[must_use]
+pub const fn isomorphism_to_aes<const POLY: u128>() -> Isomorphism {
     let to_aes = root_powers::<AES>(POLY);
     let from_aes = inverse_columns(to_aes);
     Isomorphism {
@@ -802,25 +796,24 @@ mod tests {
                 }
             }
         }
-        for iso in [isomorphism_to_aes::<P>(), isomorphism::<P>()] {
-            for a in 0..=u8::MAX {
-                assert_eq!(
-                    apply(iso.inverse, apply(iso.forward, a)),
-                    a,
-                    "φ⁻¹φ at {a:#04x}"
+        let iso = isomorphism_to_aes::<P>();
+        for a in 0..=u8::MAX {
+            assert_eq!(
+                apply(iso.inverse, apply(iso.forward, a)),
+                a,
+                "φ⁻¹φ at {a:#04x}"
+            );
+            for b in 0..=u8::MAX {
+                let product = Elem::<FiniteField<2, 8, Polynomial<P>>>::from_raw(a)
+                    .mul(Elem::<FiniteField<2, 8, Polynomial<P>>>::from_raw(b))
+                    .to_raw();
+                let conjugated = apply(
+                    iso.inverse,
+                    E8::from_raw(apply(iso.forward, a))
+                        .mul(E8::from_raw(apply(iso.forward, b)))
+                        .to_raw(),
                 );
-                for b in 0..=u8::MAX {
-                    let product = Elem::<FiniteField<2, 8, Polynomial<P>>>::from_raw(a)
-                        .mul(Elem::<FiniteField<2, 8, Polynomial<P>>>::from_raw(b))
-                        .to_raw();
-                    let conjugated = apply(
-                        iso.inverse,
-                        E8::from_raw(apply(iso.forward, a))
-                            .mul(E8::from_raw(apply(iso.forward, b)))
-                            .to_raw(),
-                    );
-                    assert_eq!(conjugated, product, "φ-conjugated {a:#04x} * {b:#04x}");
-                }
+                assert_eq!(conjugated, product, "φ-conjugated {a:#04x} * {b:#04x}");
             }
         }
     }

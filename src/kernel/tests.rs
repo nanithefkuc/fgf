@@ -16,12 +16,14 @@ extern crate std;
 use std::vec;
 use std::vec::Vec;
 
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+use crate::field::FieldElem as _;
 use crate::field::binary::tower::{
     FanPaar8Field, FanPaar16Field, FanPaar32Field, FanPaar64Field, Rijndael16Field,
     Rijndael32Field, Rijndael64Field,
 };
 use crate::field::binary::{AES, RS};
-use crate::field::{Elem, FieldElem as _, FiniteField, Polynomial};
+use crate::field::{Elem, FiniteField, Polynomial};
 use crate::field::{Goldilocks, quad_mersenne31};
 use crate::field::{Packed, Relation};
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -632,8 +634,11 @@ fn check_tower_mul_into<E: Copy + core::fmt::Debug>(
     for &len in lengths {
         for (ci, &coeff) in coeffs.iter().enumerate() {
             let src = noise(len, 0x90 ^ (ci as u64).wrapping_mul(7));
+            // Noise in the destination: an overwriting kernel must replace
+            // it, not accumulate. `want` starts at zero, so an accumulating
+            // reference yields the product an overwriting kernel must produce.
             let mut want = vec![0; len];
-            let mut got = vec![0; len];
+            let mut got = noise(len, 0x95);
             reference(&mut want, coeff, &src);
             kernel(&mut got, coeff, &src);
             assert_eq!(got, want, "{name}: len {len} coeff {coeff:?}");
@@ -970,43 +975,6 @@ fn gf64_into_reference(dst: &mut [u8], coeff: Elem<Rijndael64Field>, src: &[u8])
 // ---------------------------------------------------------------------------
 // Backend-independent
 // ---------------------------------------------------------------------------
-
-/// A custom extension is not a pinned presentation: every tier routes it to
-/// the typed scalar fallback, `backend_for` reports `Scalar`, and
-/// elementwise stays on the scalar path.
-#[test]
-fn rs_extension_routing_reports_serving_tiers() {
-    use crate::kernel::FieldKernels;
-
-    assert_eq!(
-        <RsExtField as FieldKernels>::backend(),
-        crate::kernel::Backend::Scalar,
-        "a custom extension routes to the typed scalar fallback"
-    );
-    assert!(
-        !<RsExtField as FieldKernels>::has_vector_elementwise(),
-        "a custom extension keeps elementwise scalar"
-    );
-    assert!(
-        <Rijndael16Field as FieldKernels>::has_vector_elementwise()
-            || matches!(crate::kernel::backend(), crate::kernel::Backend::Scalar),
-        "the Rijndael tower keeps its vector elementwise"
-    );
-}
-
-/// A prepared GF(2^16) coefficient for a custom tower carries the raw word
-/// on every host: the scalar fallback is the only route.
-#[test]
-fn rs_extension_prepared_form_matches_serving_route() {
-    use crate::kernel::tower::gf16::Prepared;
-
-    let prepared =
-        <RsExtField as KernelDispatch>::prepare(RawDispatch, Elem::<RsExtField>::from_raw(0x0100));
-    assert!(
-        matches!(prepared, Prepared::Plain(_)),
-        "a custom extension prepares the raw coefficient word"
-    );
-}
 
 #[test]
 fn scalar_nibble_paths_match_the_generic_reference() {
@@ -3254,6 +3222,42 @@ mod x86 {
                 scalar::xor(&mut want, src);
                 x86::bytes::xor_avx2(token, dst, src);
                 assert_eq!(&*dst, want, "xor_avx2: len {len}, offset {offset}");
+            }
+        }
+    }
+
+    /// The gathered byte XOR against offset-addressed sources: the fused
+    /// lane loop, the per-source tail fallback, and the wide fallback,
+    /// over empty, single-source, unaligned, and region-end source lists.
+    #[test]
+    fn xor_gather_avx2_matches_scalar() {
+        if !host_supports(&[Backend::V3]) {
+            eprintln!("skipping: no AVX2 on this host");
+            return;
+        }
+        let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
+        // 32 and 256 bytes take the fused loop, 100 the sub-vector tail
+        // fallback, and 288 the wide fallback.
+        for live in [32usize, 100, 256, 288] {
+            // The last source of `[0, 32, 412]` ends exactly at the region end.
+            let region = noise(live + 412, 0x2d1);
+            for offsets in [
+                vec![0u32],
+                vec![0u32, 32, 412],
+                vec![7u32, 131, 260, 411],
+                vec![],
+            ] {
+                let mut got = noise(live, 0x2d2);
+                let mut want = got.clone();
+                x86::xor_gather_avx2(token, &region, &mut got, &offsets);
+                for &start in &offsets {
+                    let start = start as usize;
+                    scalar::xor(&mut want, &region[start..start + live]);
+                }
+                assert_eq!(
+                    got, want,
+                    "xor_gather_avx2: live {live}, offsets {offsets:?}"
+                );
             }
         }
     }
@@ -6475,14 +6479,19 @@ mod x86 {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn default_kernels_handle_empty_terms() {
+fn default_gather_kernels_zero_the_destination_on_empty_terms() {
     // The defaulted `KernelDispatch::mul_into_gather` (used by the prime and
-    // Fan-Paar fields) zeroes the destination when there are no terms.
+    // Fan-Paar fields) zeroes the destination when there are no terms, and
+    // the defaulted prepared `mul_into_gather_with` empty arm (the scalar
+    // and Fan-Paar fields) does the same.
     let mut dst = noise(16, 0x5a);
     <Goldilocks as KernelDispatch>::mul_into_gather(RawDispatch, &mut dst, &[], &[]);
     assert!(dst.iter().all(|&b| b == 0), "empty terms must zero dst");
     let mut dst = noise(16, 0x5b);
     <FanPaar32Field as KernelDispatch>::mul_into_gather(RawDispatch, &mut dst, &[], &[]);
+    assert!(dst.iter().all(|&b| b == 0), "empty terms must zero dst");
+    let mut dst = noise(16, 0x66);
+    <FanPaar8Field as KernelDispatch>::mul_into_gather_with(RawDispatch, &mut dst, &[], &[]);
     assert!(dst.iter().all(|&b| b == 0), "empty terms must zero dst");
 }
 
@@ -6731,15 +6740,6 @@ fn macro_kernels_matrix_with_matches_per_row_application() {
         }
     }
     assert_eq!(got, want, "prepared matrix");
-}
-
-#[test]
-fn default_prepared_kernels_handle_empty_inputs() {
-    // `KernelDispatch::mul_into_gather_with`'s defaulted empty arm (the scalar and
-    // Fan-Paar fields): no terms zeroes the destination.
-    let mut dst = noise(16, 0x66);
-    <FanPaar8Field as KernelDispatch>::mul_into_gather_with(RawDispatch, &mut dst, &[], &[]);
-    assert!(dst.iter().all(|&b| b == 0), "empty terms must zero dst");
 }
 
 #[test]

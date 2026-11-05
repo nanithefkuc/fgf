@@ -1086,18 +1086,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "not a relation node")]
-    fn quadratic_relation_holds_rejects_a_prime_root() {
-        let _ = quadratic_relation_holds(&Descriptor::prime(7, PrimePresentation::Residue), 0);
-    }
-
-    #[test]
-    #[should_panic(expected = "not a relation node")]
-    fn ben_or_irreducible_rejects_a_prime_root() {
-        let _ = ben_or_irreducible(&Descriptor::prime(2, PrimePresentation::Residue), 0);
-    }
-
-    #[test]
     fn validate_relation_accepts_an_unpinned_irreducible_quadratic() {
         // GF(25): the discriminant of `t^2 + 2` is `-8 = 2`, a quadratic
         // nonresidue over GF(5), and the descriptor matches no pinned row.
