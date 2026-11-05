@@ -1,5 +1,6 @@
 // expect-rejection
-use fgf::{FieldKernels, FiniteField, Polynomial};
+use fgf::{FieldKernels, FiniteField};
+use fgf::binary::Polynomial;
 
 // Binary rows below degree eight have no packed kernels.
 fn requires_kernels<F: FieldKernels>() {}

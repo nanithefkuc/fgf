@@ -405,15 +405,16 @@ pub(crate) const fn extract_bits(word: u64, offset: usize, bits: usize) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::field::binary::poly::{AES, Polynomial};
+    use crate::field::binary::tower::{FanPaar4, FanPaar8, Rijndael16, Rijndael32};
     use crate::field::finite_field::FiniteField;
-    use crate::field::{AES, Polynomial};
 
     type Aes8 = FiniteField<2, 8, Polynomial<AES>>;
     type Gf4 = FiniteField<2, 2, Polynomial<7>>;
-    type FanPaar4Row = FiniteField<2, 4, crate::field::Extension<crate::field::FanPaar4, 2>>;
-    type FanPaar8Row = FiniteField<2, 8, crate::field::Extension<crate::field::FanPaar8, 2>>;
-    type Rijndael16Row = FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>;
-    type Rijndael32Row = FiniteField<2, 32, crate::field::Extension<crate::field::Rijndael32, 2>>;
+    type FanPaar4Row = FiniteField<2, 4, crate::field::extension::Extension<FanPaar4, 2>>;
+    type FanPaar8Row = FiniteField<2, 8, crate::field::extension::Extension<FanPaar8, 2>>;
+    type Rijndael16Row = FiniteField<2, 16, crate::field::extension::Extension<Rijndael16, 2>>;
+    type Rijndael32Row = FiniteField<2, 32, crate::field::extension::Extension<Rijndael32, 2>>;
 
     /// One packed storage joins its components, splits back, canonicalizes
     /// padding, and carries the base identity in component zero.

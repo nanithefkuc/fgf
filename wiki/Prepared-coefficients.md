@@ -7,7 +7,9 @@ Preparation does not relax [row validation](Linear-operations-and-row-geometry).
 ## Prepare one coefficient
 
 ```rust
-use fgf::{Elem, Extension, FiniteField, Rijndael16, ops};
+use fgf::{Elem, FiniteField, ops};
+use fgf::binary::Rijndael16;
+use fgf::extension::Extension;
 
 type F = FiniteField<2, 16, Extension<Rijndael16, 2>>;
 let value = Elem::<F>::from_raw(0x0108);
@@ -43,7 +45,8 @@ block application and incremental scatter without cloning its entries:
 
 <!-- requires: alloc -->
 ```rust
-use fgf::{AES, FiniteField, Elem, Polynomial, ops};
+use fgf::{FiniteField, Elem, ops};
+use fgf::binary::{AES, Polynomial};
 
 type F = FiniteField<2, 8, Polynomial<AES>>;
 let coefficients = [1u8, 2, 3, 4, 5, 6].map(Elem::<F>::from_raw);

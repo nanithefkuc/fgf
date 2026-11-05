@@ -1,6 +1,8 @@
 // expect: packed storage width differs from the field degree
 //! `Packed<u16>` over a degree-four row: the packed word must fill exactly.
-use fgf::{Elem, Extension, ExtensionSpec, FiniteField, Packed, Polynomial, Relation};
+use fgf::{Elem, FiniteField};
+use fgf::binary::Polynomial;
+use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
 
 type Gf4 = FiniteField<2, 2, Polynomial<7>>;
 

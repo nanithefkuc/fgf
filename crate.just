@@ -8,14 +8,14 @@ API_NIGHTLY := 'nightly-2026-09-30'
 
 # Stable public-surface gate. The inventory tools are external development
 # tools pinned here and in the CI installer; both read the rustdoc JSON format
-# `API_NIGHTLY` emits. `API_PATHS_MODE` is `report` until every stable item
-# has one path, then `enforce`. `API_MAJOR` is the major version whose
-# published releases form the semver baseline.
+# `API_NIGHTLY` emits. `API_PATHS_MODE` is `enforce`: every stable item has
+# exactly one path. `API_MAJOR` is the major version whose published releases
+# form the semver baseline.
 API_PUBLIC_API := '0.52.0'
 API_SEMVER_CHECKS := '0.51.0'
 API_FORMAT := '61'
 API_TARGETS := 'x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu wasm32-unknown-unknown'
-API_PATHS_MODE := 'report'
+API_PATHS_MODE := 'enforce'
 API_MAJOR := '4'
 
 # Every Cargo feature except `default` and `internals`; `_api-generate` fails
@@ -191,8 +191,11 @@ isa-accept EXPECTED:
 # crate-owned panic fragment (`expect:`) that must appear in the error, or
 # `expect-rejection` for trait-bound and privacy rejections, where only the
 # failure itself is the contract. A rejection case fails when stderr holds
-# an unresolved-name error (`E0412`, `E0425`, `E0432`, `E0433`): such a
-# snippet was rejected for a missing import, not the bound under test.
+# an unresolved-name error (`E0405`, `E0412`, `E0422`, `E0423`, `E0425`,
+# `E0432`, `E0433`): such a snippet was rejected for a missing import, not the
+# bound under test. Every case also fails when it trips on a private module
+# path (`E0603`), because a privatized module is not the contract the snippet
+# names.
 # Cargo does not treat that directory as test targets, so these run only
 # through this recipe.
 [group('test')]
@@ -220,10 +223,13 @@ compile-fail:
         if err=$(rustc +{{MSRV}} --edition 2024 --crate-type lib --extern fgf="${rlib}" -L dependency=target/debug/deps --out-dir "${scratch}" "${snippet}" 2>&1); then
             echo "compile-fail: FAIL ${snippet} compiled successfully" >&2
             failures=$((failures + 1))
+        elif grep -qE -- 'error\[E0603\]: module `[^`]+` is private' <<< "${err}"; then
+            echo "compile-fail: FAIL ${snippet}: rejected for a private module path" >&2
+            failures=$((failures + 1))
         elif [[ -n "${fragment}" ]] && ! grep -qF -- "${fragment}" <<< "${err}"; then
             echo "compile-fail: FAIL ${snippet} expected fragment: ${fragment}" >&2
             failures=$((failures + 1))
-        elif [[ -z "${fragment}" ]] && grep -qE -- 'error\[E(0412|0425|0432|0433)\]' <<< "${err}"; then
+        elif [[ -z "${fragment}" ]] && grep -qE -- 'error\[E(0405|0412|0422|0423|0425|0432|0433)\]' <<< "${err}"; then
             echo "compile-fail: FAIL ${snippet}: rejected for an unresolved name" >&2
             failures=$((failures + 1))
         else
@@ -422,6 +428,12 @@ benchmark-check-native: gf16-build
     external/gf16-bench/target/release/fgf-gf16-bench --presentations --check
     just gf16-check
 
+# Documentation in the published default-feature configuration, the one
+# docs.rs builds.
+[group('doc')]
+doc-stable:
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+
 # The full release gate: the shared pull-request gate, the promoted GFNI
 # Miri residue that CI runs as a separate job, and every crate-specific
 # acceptance recipe. Cross-compilation needs the aarch64 and wasm32 targets
@@ -439,6 +451,7 @@ release-accept:
     just msrv-locked
     just msrv-accept
     just cross-check
+    just doc-stable
     just external-check
     just test-gather-validation-32
     just examples

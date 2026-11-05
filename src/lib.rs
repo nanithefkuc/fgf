@@ -20,25 +20,18 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-pub mod bits;
-pub mod field;
-pub mod kernel;
+mod field;
+mod kernel;
+
+pub mod binary;
+pub mod extension;
+pub mod maps;
 pub mod ops;
+pub mod prime;
 
 #[cfg(feature = "internals")]
 pub mod internals;
 
-pub use field::{
-    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor,
-    ComplexMersenne31, Components, Elem, Embedding, EmbeddingError, Extension, ExtensionField,
-    ExtensionSpec, ExtensionStorage, FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64,
-    Field, FieldBuffer, FieldElem, FiniteField, FiniteFieldRepr, Goldilocks, GoldilocksFold,
-    HasGenerator, Isomorphism, Mersenne31, MersenneFold, Normal, Packed, PackedPadded, PackedWord,
-    Polynomial, Postcompose, PrimeCharacteristic, PrimeField, PrimeIdentity, QuadMersenne31, RS,
-    RangeError, Relation, Residue, Rijndael16, Rijndael32, Rijndael64, cantor, description,
-    embedding, extension, goldilocks, mersenne31, normal, poly, quad_mersenne31, tower,
-};
-pub use kernel::{
-    Backend, FGF_TIERS, FieldKernels, KernelBackend, ParseBackendError, backend, backend_for,
-    has_vector_elementwise,
-};
+pub use crate::field::finite_field::{FiniteField, FiniteFieldRepr};
+pub use crate::field::{Elem, Field, FieldBuffer, FieldElem, HasGenerator, RangeError};
+pub use crate::kernel::{Backend, FieldKernels, backend, backend_for};

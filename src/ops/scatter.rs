@@ -6,7 +6,7 @@
 use crate::field::{Elem, FieldElem};
 use crate::kernel::{FieldKernels, RawDispatch};
 
-use super::check_pair;
+use super::geometry::check_pair;
 
 #[cfg(feature = "alloc")]
 use super::CoeffVecRef;
@@ -128,8 +128,9 @@ pub fn mul_add_scatter_with<F: FieldKernels>(
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
-    use crate::field::poly::AES;
-    use crate::field::{Elem as E8, FiniteField, Polynomial};
+    use crate::field::binary::Polynomial;
+    use crate::field::binary::poly::AES;
+    use crate::field::{Elem as E8, FiniteField};
 
     /// Zero-work shapes still validate structure: a non-empty source with a
     /// zero row length is a geometry error, not a silent skip.

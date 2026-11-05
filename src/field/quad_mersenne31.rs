@@ -1,56 +1,18 @@
-//! The quadratic extension GF((2^31 − 1)^2), the QM31 field.
+//! The QM31 row and its scalar body.
 //!
-//! [`QuadMersenne31`] is the extension row
-//! `FiniteField<0x7FFF_FFFF, 2, Extension<ComplexMersenne31, 2>>`: pairs
-//! `[re, im]` of [`Mersenne31`] limbs with `i² = −1`, under the relation
-//! `t^2 + 1` that [`ComplexMersenne31`] names. Since `p = 2³¹ − 1 ≡ 3
-//! (mod 4)`, `−1` is a quadratic non-residue, so `Fₚ[i]/(i²+1)` is a field.
-//! The raw word is `[u32; 2]`, real limb first, and the stable byte form is
-//! the interleaved little-endian pair `[re: u32, im: u32]`, 8 bytes per
-//! element.
-//!
-//! # Totality and canonicalization
-//!
-//! As with the prime fields, every raw limb bit pattern is a legal input and
-//! [`Elem::from_raw`](crate::field::Elem) reduces each limb into canonical
-//! storage on the way in. Every arithmetic output is canonical (`< p` per
-//! limb). Storage is always canonical, so equality, hashing, and ordering
-//! compare raw words directly. Inspect the stored limbs with
-//! [`Elem::to_raw`](crate::field::Elem::to_raw).
-//!
-//! Arithmetic is variable-time and not for secret data.
-//!
-//! ```
-//! use fgf::{Elem, QuadMersenne31};
-//!
-//! // i² = −1  →  (0 + i)² = (−1 + 0·i)
-//! const I: Elem<QuadMersenne31> = Elem::<QuadMersenne31>::from_raw([0, 1]);
-//! const _: () = assert!(I.square().to_raw()[0] == 0x7FFF_FFFE);
-//! const _: () = assert!(I.square().to_raw()[1] == 0);
-//!
-//! // Known product, pinned against the frozen M31 known answer
-//! // a² = 0x71C7_1C71: (a + a·i)² = 0 + 2a²·i with 2a² mod p = 0x638E_38E3.
-//! const A: Elem<QuadMersenne31> = Elem::<QuadMersenne31>::from_raw([0x5555_5555, 0x5555_5555]);
-//! const _: () = assert!(A.mul(A).to_raw()[0] == 0);
-//! const _: () = assert!(A.mul(A).to_raw()[1] == 0x638E_38E3);
-//!
-//! // Division total
-//! const _: () = assert!(A.div(Elem::<QuadMersenne31>::ZERO).is_zero());
-//!
-//! // Generator has full order p²−1
-//! assert_eq!(
-//!     Elem::<QuadMersenne31>::GENERATOR.pow(0x3FFF_FFFF_0000_0000),
-//!     Elem::<QuadMersenne31>::ONE
-//! );
-//! ```
+//! `QuadMersenne31` is
+//! `FiniteField<0x7FFF_FFFF, 2, Extension<ComplexMersenne31, 2>>` over the
+//! relation `t^2 + 1`. The public contract for this field lives on the
+//! [`extension`](crate::extension) facade.
 
 use super::extension::{Components, Extension, ExtensionSpec, Relation};
 use super::finite_field::FiniteField;
 use super::mersenne31;
-use super::{Elem, HasGenerator, Mersenne31, Validate};
+use super::mersenne31::Mersenne31;
+use super::{Elem, HasGenerator, Validate};
 
 /// The base modulus `p = 2³¹ − 1`.
-pub const MODULUS: u32 = mersenne31::MODULUS;
+pub(crate) const MODULUS: u32 = mersenne31::MODULUS;
 
 /// The defining data of QM31: [`Mersenne31`] extended by `t^2 + 1`, with
 /// one base limb per component.

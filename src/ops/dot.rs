@@ -5,13 +5,13 @@
 //! single [`Elem`]. The name keeps the short scalar-noun spelling
 //! (`dot_product`, like `pack` and `mul_elementwise`, overwrites without an
 //! `_into` suffix) and stays distinct from bit-packed
-//! [`bits::dot_product`](crate::bits::dot_product), which folds an AND
+//! [`bits::dot_product`](crate::ops::bits::dot_product), which folds an AND
 //! parity over live bits rather than a field sum over lanes.
 
 use crate::field::{Elem, FieldElem};
 use crate::kernel::FieldKernels;
 
-use super::{check_pair, check_width};
+use super::geometry::{check_pair, check_width};
 
 /// The field inner product `sum(a[i] * b[i])` of two packed rows.
 ///

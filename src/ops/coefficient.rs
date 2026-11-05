@@ -9,7 +9,36 @@
 use crate::field::Elem;
 use crate::kernel::{FieldKernels, KernelDispatch, RawDispatch};
 
-use super::{PreparedCoefficient, PreparedRepr, private};
+mod private {
+    pub trait Sealed {}
+}
+
+/// A borrowed or owned backend-prepared coefficient.
+///
+/// This trait is sealed: values come from [`Coeff`] or, with `alloc`, a
+/// `CoeffVec` or `CoeffMatrix`.
+/// It exists so the `_with` operations can consume either without cloning the
+/// prepared tables. It exposes the coefficient's field value only — the
+/// backend representation stays crate-private, so no consumer can extract or
+/// depend on a preparation format.
+// The private supertrait seals access to backend preparation.
+#[allow(private_bounds)]
+pub trait PreparedCoefficient<F: FieldKernels>: private::Sealed + PreparedRepr<F> {
+    /// The field element this prepared representation multiplies by.
+    fn value(&self) -> Elem<F>;
+}
+
+/// Crate-private access to the backend representation behind
+/// [`PreparedCoefficient`].
+///
+/// A supertrait with an unnameable proof argument: external generic code
+/// bound on `PreparedCoefficient` can see the method through bound
+/// elaboration but cannot construct the [`RawDispatch`] it takes, so the
+/// representation is unreachable outside the crate.
+pub(crate) trait PreparedRepr<F: FieldKernels>: private::Sealed {
+    /// Borrow the backend-private representation.
+    fn repr(&self, _proof: RawDispatch) -> &<F as KernelDispatch>::Prepared;
+}
 
 /// A coefficient already resolved into the host backend's preferred form.
 ///
@@ -443,8 +472,9 @@ fn prepare_all<F: FieldKernels>(
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
-    use crate::field::poly::AES;
-    use crate::field::{Elem as E8, FiniteField, Polynomial};
+    use crate::field::binary::Polynomial;
+    use crate::field::binary::poly::AES;
+    use crate::field::{Elem as E8, FiniteField};
     use alloc::vec::Vec;
 
     #[test]

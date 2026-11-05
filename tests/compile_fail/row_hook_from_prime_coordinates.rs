@@ -1,5 +1,5 @@
 // expect: is private
-use fgf::field::Field;
+use fgf::Field;
 
 // The coordinate constructor hook sits in the crate-private supertrait:
 // generic downstream code bounded by `Field` cannot call it.

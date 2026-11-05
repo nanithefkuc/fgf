@@ -11,10 +11,17 @@ All notable changes to this project are documented here. The format follows
 - A committed stable API inventory under `api/`, generated for the portable,
   alloc-only, default, and all-feature builds on x86_64, aarch64, and wasm32.
   `just api` checks it in CI and `just release-accept`, requires every target
-  to expose the same stable surface, and reports every stable item reachable
-  through more than one public path. `just api-update` regenerates it inside
-  an authorized API change, and `just api-semver` checks the stable feature
-  sets against the latest published release of the major version.
+  to expose the same stable surface, and fails on every stable item reachable
+  through more than one public path (its one-path checker runs in `enforce`
+  mode). `just api-update` regenerates it inside an authorized API change, and
+  `just api-semver` checks the stable feature sets against the latest published
+  release of the major version.
+- `just doc-stable` builds the default-feature rustdoc that docs.rs publishes,
+  with warnings denied; `just release-accept` runs it.
+- The compile-fail recipe rejects a snippet that trips on a private module path
+  (`E0603`) and treats the unresolved-name codes `E0405`, `E0412`, `E0422`,
+  `E0423`, `E0425`, `E0432`, and `E0433` as failures, so no snippet passes by
+  naming a path that no longer exists.
 
 ### Changed
 
@@ -25,6 +32,60 @@ All notable changes to this project are documented here. The format follows
   because bit-packed GF(2) has no competitor harness.
 - `just examples` runs every example in each feature configuration and
   replaces `examples-portable`; `just example NAME [ARGS]` runs one.
+- **Breaking:** Public modules are facades over private implementation
+  modules, and every stable item has one public path. The 3.x root re-exports,
+  implementation-module paths, and `fgf::bits` module migrate as follows.
+
+  Each row applies to every former export of its listed items, including
+  aliases under `fgf::field` and its submodules. For example,
+  `fgf::field::Polynomial`, `fgf::poly::Polynomial`,
+  `fgf::field::poly::Polynomial`, and
+  `fgf::field::binary::poly::Polynomial` all become
+  `fgf::binary::Polynomial`. Destinations are selected by item, not by
+  replacing a whole module prefix: descriptor, reduction, and recurrence
+  helpers have separate destinations.
+
+  | Old items and module paths | New path |
+  | --- | --- |
+  | `fgf::field::{FiniteField, FiniteFieldRepr, Elem, Field, FieldElem, FieldBuffer, HasGenerator, RangeError}`; `fgf::field::finite_field::{FiniteField, FiniteFieldRepr}` | `fgf::{…}` |
+  | `fgf::kernel::{Backend, FieldKernels, backend, backend_for}` | `fgf::{…}` |
+  | `Mersenne31`, `MersenneFold`, `Goldilocks`, `GoldilocksFold`, `Residue`, `PrimeField`, `PrimeIdentity`, `PrimeCharacteristic`, `is_prime`, exported at the root or under `field`, `field::finite_field`, `field::prime`, `mersenne31`, or `goldilocks` | `fgf::prime::{…}` |
+  | `Polynomial`, `AES`, `RS`, `Normal`, `Cantor`, `BinaryRepr`, `BinaryField`, `BinaryDegree`, exported at the root or under `field`, `field::binary`, `poly`, `normal`, or `cantor` | `fgf::binary::{…}` |
+  | `Rijndael16`, `Rijndael32`, `Rijndael64`, `FanPaar2`, `FanPaar4`, `FanPaar8`, `FanPaar16`, `FanPaar32`, `FanPaar64`, exported at the root or under `field` or `tower` | `fgf::binary::{…}` |
+  | `Extension`, `ExtensionSpec`, `ExtensionField`, `ExtensionStorage`, `Relation`, `Components`, `Packed`, `PackedPadded`, `PackedWord`, exported at the root or under `field` or `field::extension` | `fgf::extension::{…}` |
+  | `QuadMersenne31`, `ComplexMersenne31`, exported at the root or under `field` or `quad_mersenne31` | `fgf::extension::{…}` |
+  | `Embedding`, `Isomorphism`, `Postcompose`, `EmbeddingError`, exported at the root or under `field`, `embedding`, or `field::embedding` | `fgf::maps::{…}` |
+  | `fgf::bits::{bytes_for, xor_assign, xor_range, XorRange, xor_range_with, xor_gather, and_into, and_assign, andnot_assign, clear_range, set_range, weight, dot_product}` | `fgf::ops::bits::{…}` |
+  | `KernelBackend`, `FGF_TIERS`, `has_vector_elementwise`, `ParseBackendError`, exported at the root or under `fgf::kernel`; `fgf::kernel::vector_elementwise_min_bytes` | `fgf::internals::kernel::{…}` |
+  | `BinaryDescription`, `ByteLogExp`, exported at the root or under `field`, `description`, `field::description`, `field::binary`, or `field::binary::description` | `fgf::internals::field::description::{…}` |
+  | `fp_mul_alpha`, `fp_multiply`, `fp_square`, `fp_invert`, exported under `tower`, `field::tower`, or `field::binary::tower` | `fgf::internals::field::fan_paar::{…}` |
+  | `fgf::field::prime::{reduce, reduce_wide}` | `fgf::internals::field::prime::{…}` |
+  | `fgf::mersenne31::reduce`, `fgf::field::mersenne31::reduce` | `fgf::internals::field::mersenne31::reduce` |
+  | `fgf::goldilocks::{reduce, reduce_wide}`, `fgf::field::goldilocks::{reduce, reduce_wide}` | `fgf::internals::field::goldilocks::{…}` |
+  | `MODULUS` under `goldilocks`, `mersenne31`, `quad_mersenne31`, or their `fgf::field` aliases | deleted; use `<<F as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC` |
+
+  Binary presentation submodules also have the equivalent `fgf::field`
+  and `fgf::field::binary` prefixes; named prime and quadratic modules also
+  have `fgf::field` prefixes. All of these aliases follow the item-specific
+  rows above. Existing items already at their listed destination retain
+  that path.
+
+  The removed modules are `fgf::field` with every submodule, `fgf::kernel`,
+  `fgf::bits`, `fgf::embedding`, `fgf::cantor`, `fgf::normal`, `fgf::poly`,
+  `fgf::tower`, `fgf::description`, `fgf::goldilocks`, `fgf::mersenne31`, and
+  `fgf::quad_mersenne31`. `fgf::extension` remains as a facade. The source
+  tree moves `src/bits.rs` to the facade `src/ops/bits.rs` and its private
+  submodules `src/ops/bits/{logic,range,gather,count,geometry}.rs`, and adds
+  the private `src/ops/geometry.rs` and `src/ops/tests.rs`. The new facade
+  files `src/prime.rs`, `src/binary.rs`, `src/extension.rs`, and `src/maps.rs`
+  carry the public module documentation.
+
+  `FieldKernels` and its members, including `backend`,
+  `has_vector_elementwise`, and `vector_elementwise_min_bytes`, remain
+  reachable from stable code in this release and change in a later breaking
+  release. `BinaryRepr::{DESCRIPTION, LOG_EXP}` and
+  `BinaryField::DESCRIPTION` likewise remain reachable in this release and
+  change in a later breaking release.
 - The generic extension test suite is one binary: `tests/extension.rs`
   holds the shared rows and splits into `rows` (per-field laws, encodings,
   and the packed surface) and `reference` (arithmetic against the

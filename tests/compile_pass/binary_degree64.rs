@@ -1,9 +1,8 @@
 //! Degree-64 relations over GF(2), compiled with the default const-eval lint.
 
-use fgf::{
-    Elem, Extension, ExtensionSpec, Field, FieldElem, FiniteField, Packed, Polynomial, Relation,
-    ops,
-};
+use fgf::binary::Polynomial;
+use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
+use fgf::{Elem, Field, FieldElem, FiniteField, ops};
 
 type Gf2 = FiniteField<2, 1, Polynomial<3>>;
 

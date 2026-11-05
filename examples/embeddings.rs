@@ -11,14 +11,16 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::poly::{AES, RS};
-use fgf::{Elem, Embedding, EmbeddingError, FiniteField, Isomorphism, Polynomial};
+use fgf::binary::Polynomial;
+use fgf::binary::{AES, RS};
+use fgf::maps::{Embedding, EmbeddingError, Isomorphism};
+use fgf::{Elem, FiniteField};
 
 // Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
-type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
+type Gf1 = fgf::FiniteField<2, 1, fgf::binary::Polynomial<3>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>;
 
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
 type Nibble = FiniteField<2, 4, Polynomial<0x13>>;

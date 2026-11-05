@@ -9,8 +9,9 @@
 
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
-use fgf::field::{Field, FieldBuffer, FieldElem};
-use fgf::{Elem, FieldKernels, FiniteField, Residue, ops};
+use fgf::prime::Residue;
+use fgf::{Elem, FieldKernels, FiniteField, ops};
+use fgf::{Field, FieldBuffer, FieldElem};
 
 type P2 = FiniteField<2, 1, Residue>;
 type P7 = FiniteField<7, 1, Residue>;
@@ -1448,7 +1449,7 @@ fn overwrite_gather_degenerate_coefficients_match_oracle() {
 fn vector_elementwise_report_matches_the_four_byte_class() {
     fn check<F: FieldKernels>() {
         assert_eq!(
-            fgf::has_vector_elementwise::<F>(),
+            <F as FieldKernels>::has_vector_elementwise(),
             F::BYTES == 4 && is_vector_host()
         );
     }

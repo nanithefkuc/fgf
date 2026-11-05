@@ -1,5 +1,7 @@
 // expect-rejection
-use fgf::{BinaryField, FiniteField, Residue};
+use fgf::FiniteField;
+use fgf::binary::BinaryField;
+use fgf::prime::Residue;
 
 // The residue row at characteristic two is a prime presentation, not a
 // binary one: it has no coordinate descriptor.

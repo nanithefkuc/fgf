@@ -57,9 +57,14 @@ scaling preserves it; unit overwrite scaling copies the source. These shortcuts
 can retain noncanonical byte spellings. Normalize explicitly at a format boundary:
 
 ```rust
-use fgf::{Elem, Mersenne31, mersenne31, ops};
+use fgf::{Elem, Field, ops};
+use fgf::prime::{Mersenne31, PrimeIdentity};
 
-let original = (mersenne31::MODULUS + 7).to_le_bytes();
+let modulus = u32::try_from(
+    <<Mersenne31 as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC,
+)
+.expect("Mersenne31 characteristic fits u32");
+let original = (modulus + 7).to_le_bytes();
 let mut copied = [0u8; 4];
 ops::mul_into::<Mersenne31>(&mut copied, Elem::<Mersenne31>::ONE, &original);
 assert_eq!(copied, original);
@@ -78,7 +83,8 @@ does not validate a proof, codeword, or evaluation vector.
 This computes `out[i] = a[i]*b[i] + challenge*a[i] - a[i]`:
 
 ```rust
-use fgf::{Elem, Mersenne31, ops};
+use fgf::{Elem, ops};
+use fgf::prime::Mersenne31;
 
 let a = [1u32, 2, 3].map(Elem::<Mersenne31>::from_raw);
 let b = [4u32, 5, 6].map(Elem::<Mersenne31>::from_raw);
@@ -105,7 +111,9 @@ field arithmetic, not the transform or evaluation schedule.
 the imaginary component; the norm returns `re² + im²` in `Mersenne31`:
 
 ```rust
-use fgf::{Elem, Mersenne31, QuadMersenne31};
+use fgf::Elem;
+use fgf::prime::Mersenne31;
+use fgf::extension::QuadMersenne31;
 
 let z = Elem::<QuadMersenne31>::from_components([
     Elem::<Mersenne31>::from_raw(7), Elem::<Mersenne31>::from_raw(11),

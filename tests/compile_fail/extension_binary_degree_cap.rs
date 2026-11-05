@@ -2,7 +2,9 @@
 //! A quadratic over the shipped GF(2^64) extension row: the absolute degree
 //! one hundred twenty-eight sits above the binary degree cap, so the field's
 //! metadata rejects the row before the relation is read.
-use fgf::{Components, Elem, Extension, ExtensionSpec, FiniteField, Relation, Rijndael64};
+use fgf::{Elem, FiniteField};
+use fgf::binary::Rijndael64;
+use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
 
 type Base = FiniteField<2, 64, Extension<Rijndael64, 2>>;
 

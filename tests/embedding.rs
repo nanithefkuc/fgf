@@ -2,19 +2,19 @@
 //! commuting triangles, membership, trace and norm, against independent
 //! shift-reduce oracles computed inside this file.
 
-use fgf::{
-    AES, BinaryField, Cantor, Elem, Embedding, EmbeddingError, Extension, ExtensionSpec, FieldElem,
-    FiniteField, Isomorphism, Normal, Packed, Polynomial, RS, Relation,
-};
+use fgf::binary::{AES, BinaryField, Cantor, Normal, Polynomial, RS};
+use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
+use fgf::maps::{Embedding, EmbeddingError, Isomorphism};
+use fgf::{Elem, FieldElem, FiniteField};
 
-type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
-type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Extension<fgf::FanPaar8, 2>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
-type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Extension<fgf::FanPaar32, 2>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
+type Gf1 = fgf::FiniteField<2, 1, fgf::binary::Polynomial<3>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
+type FanPaar8Field = fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>;
 
 /// Reference GF(2) at the bottom of the ladder.
 type Ref2 = FiniteField<2, 2, Polynomial<0x7>>;
@@ -759,16 +759,18 @@ fn degree8_maps_preserve_the_selected_aes_conventions() {
 // ---------------------------------------------------------------------------
 
 mod extension_rows {
-    use fgf::{Extension, ExtensionSpec, FiniteField, PackedPadded, Relation};
+    use fgf::FiniteField;
+    use fgf::extension::{Extension, ExtensionSpec, PackedPadded, Relation};
 
     /// GF(8) as `x^3 + x + 1` over GF(2): a degree outside the ladder.
     pub struct Gf8Spec;
     impl ExtensionSpec<3> for Gf8Spec {
-        type Base = FiniteField<2, 1, fgf::Polynomial<3>>;
+        type Base = FiniteField<2, 1, fgf::binary::Polynomial<3>>;
         type Storage = PackedPadded<u8>;
         const NAME: &'static str = "GF(8) cubic";
-        const RELATION: Relation =
-            Relation::from_binary_words::<FiniteField<2, 1, fgf::Polynomial<3>>>(&[1, 1, 0]);
+        const RELATION: Relation = Relation::from_binary_words::<
+            FiniteField<2, 1, fgf::binary::Polynomial<3>>,
+        >(&[1, 1, 0]);
     }
     pub type Gf8Cubic = FiniteField<2, 3, Extension<Gf8Spec, 3>>;
 
@@ -776,11 +778,11 @@ mod extension_rows {
     /// whose presentation shares no tower level with the cubic source.
     pub struct Gf64SexticSpec;
     impl ExtensionSpec<6> for Gf64SexticSpec {
-        type Base = FiniteField<2, 1, fgf::Polynomial<3>>;
+        type Base = FiniteField<2, 1, fgf::binary::Polynomial<3>>;
         type Storage = PackedPadded<u8>;
         const NAME: &'static str = "GF(64) sextic";
         const RELATION: Relation = Relation::from_binary_words::<
-            FiniteField<2, 1, fgf::Polynomial<3>>,
+            FiniteField<2, 1, fgf::binary::Polynomial<3>>,
         >(&[1, 1, 0, 0, 0, 0]);
     }
     pub type Gf64Sextic = FiniteField<2, 6, Extension<Gf64SexticSpec, 6>>;
@@ -789,11 +791,12 @@ mod extension_rows {
     /// relation node the ladder covers.
     pub struct Gf16QuarticSpec;
     impl ExtensionSpec<4> for Gf16QuarticSpec {
-        type Base = FiniteField<2, 1, fgf::Polynomial<3>>;
+        type Base = FiniteField<2, 1, fgf::binary::Polynomial<3>>;
         type Storage = PackedPadded<u8>;
         const NAME: &'static str = "GF(2^4) quartic";
-        const RELATION: Relation =
-            Relation::from_binary_words::<FiniteField<2, 1, fgf::Polynomial<3>>>(&[1, 1, 0, 0]);
+        const RELATION: Relation = Relation::from_binary_words::<
+            FiniteField<2, 1, fgf::binary::Polynomial<3>>,
+        >(&[1, 1, 0, 0]);
     }
     pub type Gf16Quartic = FiniteField<2, 4, Extension<Gf16QuarticSpec, 4>>;
 }

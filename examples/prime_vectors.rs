@@ -7,22 +7,32 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::field::FieldElem;
-use fgf::{
-    Elem, FieldKernels, Goldilocks, Mersenne31, QuadMersenne31, backend_for, mersenne31, ops,
-};
+use fgf::extension::QuadMersenne31;
+use fgf::prime::{Goldilocks, Mersenne31, PrimeIdentity};
+use fgf::{Elem, Field, FieldElem, FieldKernels, backend_for, ops};
+
+/// The Mersenne31 characteristic, read through the prime identity.
+fn m31_characteristic() -> u32 {
+    u32::try_from(<<Mersenne31 as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC)
+        .expect("the Mersenne31 characteristic fits its lane")
+}
+
+/// The Goldilocks characteristic, read through the prime identity.
+fn gld_characteristic() -> u64 {
+    <<Goldilocks as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC
+}
 
 fn main() {
     // from_raw reduces the stored lane; noncanonical aliases such as the
     // modulus itself land on the same element as zero.
-    let m = [0, 1, mersenne31::MODULUS + 7, u32::MAX].map(Elem::<Mersenne31>::from_raw);
+    let m = [0, 1, m31_characteristic() + 7, u32::MAX].map(Elem::<Mersenne31>::from_raw);
     combine::<Mersenne31>(
         m,
         [2, 3, 5, 8].map(Elem::<Mersenne31>::from_raw),
         Elem::<Mersenne31>::from_raw(13),
     );
 
-    let g = [0, 1, fgf::goldilocks::MODULUS + 7, u64::MAX].map(Elem::<Goldilocks>::from_raw);
+    let g = [0, 1, gld_characteristic() + 7, u64::MAX].map(Elem::<Goldilocks>::from_raw);
     combine::<Goldilocks>(
         g,
         [2, 3, 5, 8].map(Elem::<Goldilocks>::from_raw),
@@ -34,7 +44,7 @@ fn main() {
     let q = [
         [0, 0],
         [1, 2],
-        [mersenne31::MODULUS + 7, 11],
+        [m31_characteristic() + 7, 11],
         [u32::MAX, u32::MAX],
     ]
     .map(Elem::<QuadMersenne31>::from_raw);

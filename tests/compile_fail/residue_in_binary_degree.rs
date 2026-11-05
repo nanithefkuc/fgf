@@ -1,5 +1,7 @@
 // expect-rejection
-use fgf::{BinaryDegree, FiniteField, Residue};
+use fgf::FiniteField;
+use fgf::binary::BinaryDegree;
+use fgf::prime::Residue;
 
 // Extension bases name an exact binary degree; the residue row is not a binary
 // degree row even at characteristic two.

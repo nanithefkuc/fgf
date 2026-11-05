@@ -16,8 +16,9 @@
 
 use std::hint::black_box;
 
-use fgf::field::{Field, FieldElem};
-use fgf::{Elem, Embedding, EmbeddingError, Isomorphism};
+use fgf::Elem;
+use fgf::maps::{Embedding, EmbeddingError, Isomorphism};
+use fgf::{Field, FieldElem};
 
 use crate::fixture;
 use crate::registry::{self, Case, CaseCtx, Scope};
@@ -26,46 +27,55 @@ use crate::scalar::seed_for;
 /// The alternate GF(7²) presentation uses `t² + 1`; `-1` is nonsquare in GF(7).
 struct Alternate49;
 
-impl fgf::ExtensionSpec<2> for Alternate49 {
+impl fgf::extension::ExtensionSpec<2> for Alternate49 {
     type Base = fgf::FiniteField<7, 1>;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "GF(7^2)/alternate";
-    const RELATION: fgf::Relation = fgf::Relation::from_coordinates(&[1, 0]);
+    const RELATION: fgf::extension::Relation = fgf::extension::Relation::from_coordinates(&[1, 0]);
 }
 
-const API_BUILD: &[&str] = &["fgf::Embedding::new"];
-const API_FROM_IMAGES: &[&str] = &["fgf::Embedding::from_images", "fgf::Embedding::to_images"];
-const API_APPLY: &[&str] = &["fgf::Embedding::embed"];
-const API_ISO_APPLY: &[&str] = &[
-    "fgf::Isomorphism::new",
-    "fgf::Isomorphism::apply",
-    "fgf::Isomorphism::unapply",
+const API_BUILD: &[&str] = &["fgf::maps::Embedding::new"];
+const API_FROM_IMAGES: &[&str] = &[
+    "fgf::maps::Embedding::from_images",
+    "fgf::maps::Embedding::to_images",
 ];
-const API_ISO_INVERSE: &[&str] = &["fgf::Isomorphism::inverse"];
-const API_RESTRICT: &[&str] = &["fgf::Embedding::restrict", "fgf::Embedding::contains"];
-const API_CONTAINS: &[&str] = &["fgf::Embedding::contains"];
-const API_FROBENIUS: &[&str] = &["fgf::Embedding::frobenius"];
-const API_TRACE: &[&str] = &["fgf::Embedding::trace"];
-const API_NORM: &[&str] = &["fgf::Embedding::norm"];
-const API_THEN: &[&str] = &["fgf::Embedding::then"];
+const API_APPLY: &[&str] = &["fgf::maps::Embedding::embed"];
+const API_ISO_APPLY: &[&str] = &[
+    "fgf::maps::Isomorphism::new",
+    "fgf::maps::Isomorphism::apply",
+    "fgf::maps::Isomorphism::unapply",
+];
+const API_ISO_INVERSE: &[&str] = &["fgf::maps::Isomorphism::inverse"];
+const API_RESTRICT: &[&str] = &[
+    "fgf::maps::Embedding::restrict",
+    "fgf::maps::Embedding::contains",
+];
+const API_CONTAINS: &[&str] = &["fgf::maps::Embedding::contains"];
+const API_FROBENIUS: &[&str] = &["fgf::maps::Embedding::frobenius"];
+const API_TRACE: &[&str] = &["fgf::maps::Embedding::trace"];
+const API_NORM: &[&str] = &["fgf::maps::Embedding::norm"];
+const API_THEN: &[&str] = &["fgf::maps::Embedding::then"];
 const API_THEN_EMBEDDING: &[&str] = &[
-    "fgf::Isomorphism::then_embedding",
-    "fgf::Isomorphism::new",
-    "fgf::Embedding::new",
+    "fgf::maps::Isomorphism::then_embedding",
+    "fgf::maps::Isomorphism::new",
+    "fgf::maps::Embedding::new",
 ];
 const API_GENERATORS: &[&str] = &[
-    "fgf::Embedding::generator_count",
-    "fgf::Embedding::generator",
+    "fgf::maps::Embedding::generator_count",
+    "fgf::maps::Embedding::generator",
 ];
-const API_RELATIVE_DEGREE: &[&str] = &["fgf::Embedding::relative_degree"];
+const API_RELATIVE_DEGREE: &[&str] = &["fgf::maps::Embedding::relative_degree"];
 const API_FAIL_DEGREE: &[&str] = &[
-    "fgf::Embedding::new",
-    "fgf::EmbeddingError::IncompatibleDegree",
+    "fgf::maps::Embedding::new",
+    "fgf::maps::EmbeddingError::IncompatibleDegree",
 ];
-const API_FAIL_EQUAL_DEGREE: &[&str] = &["fgf::Embedding::new", "fgf::EmbeddingError::EqualDegree"];
+const API_FAIL_EQUAL_DEGREE: &[&str] = &[
+    "fgf::maps::Embedding::new",
+    "fgf::maps::EmbeddingError::EqualDegree",
+];
 const API_FAIL_IMAGES: &[&str] = &[
-    "fgf::Embedding::from_images",
-    "fgf::EmbeddingError::InvalidImages",
+    "fgf::maps::Embedding::from_images",
+    "fgf::maps::EmbeddingError::InvalidImages",
 ];
 
 /// The degree-one rows that only appear as map sources.
@@ -944,7 +954,7 @@ pub fn register() {
         0,
         run_fail_equal_degree::<
             crate::fields::Gf49,
-            fgf::FiniteField<7, 2, fgf::Extension<Alternate49, 2>>,
+            fgf::FiniteField<7, 2, fgf::extension::Extension<Alternate49, 2>>,
         >,
     );
     pair_case(

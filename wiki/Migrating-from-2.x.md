@@ -3,7 +3,7 @@
 Migration replaces field-specific element wrappers with `Elem<F>`, separates
 scalar, encoding, and generator capabilities, and canonicalizes named prime
 elements at construction. Historical snippets below are text; Rust snippets
-use 3.0.1. The [changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.1/CHANGELOG.md)
+use the current facade paths. The [changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.1/CHANGELOG.md)
 records the release changes.
 
 The `3.0.0` once published to crates.io went out by accident and was yanked;
@@ -48,10 +48,12 @@ const B: gf16::Elem = gf16::Elem::from_raw(0x0108);
 const PRODUCT: gf16::Elem = A.mul(B);
 ```
 
-The replacement in 3.0.1:
+The replacement with current paths:
 
 ```rust
-use fgf::{Elem, Extension, FiniteField, Rijndael16};
+use fgf::{Elem, FiniteField};
+use fgf::binary::Rijndael16;
+use fgf::extension::Extension;
 
 type F = FiniteField<2, 16, Extension<Rijndael16, 2>>;
 const A: Elem<F> = Elem::<F>::from_raw(0x1234);
@@ -87,7 +89,8 @@ fn scale<F: fgf::FieldKernels>(dst: &mut [u8], c: F::Elem, src: &[u8]) {
 The replacement keeps the operation but changes the value type:
 
 ```rust
-use fgf::{AES, FiniteField, Elem, FieldKernels, Polynomial, ops};
+use fgf::{FiniteField, Elem, FieldKernels, ops};
+use fgf::binary::{AES, Polynomial};
 
 fn scale<F: FieldKernels>(dst: &mut [u8], c: Elem<F>, src: &[u8]) {
     ops::mul_into::<F>(dst, c, src);
@@ -127,9 +130,14 @@ Named prime elements reduce input words during construction and decoding.
 Remove their explicit `canonical()` calls; `to_raw()` returns reduced storage.
 
 ```rust
-use fgf::{Elem, FieldBuffer, Mersenne31, mersenne31};
+use fgf::{Elem, Field, FieldBuffer};
+use fgf::prime::{Mersenne31, PrimeIdentity};
 
-let input = mersenne31::MODULUS + 7;
+let modulus = u32::try_from(
+    <<Mersenne31 as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC,
+)
+.expect("Mersenne31 characteristic fits u32");
+let input = modulus + 7;
 let value = Elem::<Mersenne31>::from_raw(input);
 assert_eq!(value.to_raw(), 7);
 assert_eq!(Mersenne31::decode(&input.to_le_bytes()), value);
@@ -144,7 +152,7 @@ rather than an identity multiplication.
 
 ## Replace constants and tower paths
 
-The `gf16`, `gf32`, `gf64`, and concrete Fan–Paar element modules are removed. The binary presentations live under `field::binary`; root re-exports provide the usual imports.
+The `gf16`, `gf32`, `gf64`, and concrete Fan–Paar element modules are removed. The binary presentations live under `binary`; the facades provide the usual imports.
 
 Module generator constants become `Elem::<F>::GENERATOR` under `HasGenerator`. A tower relation is the specification's `RELATION`, its coefficients listed constant term first; the tower indeterminate is not necessarily its multiplicative generator.
 
@@ -152,10 +160,12 @@ A custom tower implements `ExtensionSpec<2>` over a binary base, with `Packed` o
 
 ## Keep GF(2) on its bit-packed surface
 
-`bits::dot_product` returns `Elem<FiniteField<2, 1, Polynomial<3>>>`. Scalar GF(2) is a `Field`, but its vectors remain bit-packed and do not implement the `FieldBuffer` contract.
+`ops::bits::dot_product` returns `Elem<FiniteField<2, 1, Polynomial<3>>>`. Scalar GF(2) is a `Field`, but its vectors remain bit-packed and do not implement the `FieldBuffer` contract.
 
 ```rust
-use fgf::{FiniteField, Elem, Polynomial, bits};
+use fgf::{FiniteField, Elem};
+use fgf::binary::Polynomial;
+use fgf::ops::bits;
 
 type F = FiniteField<2, 1, Polynomial<3>>;
 let parity: Elem<F> = bits::dot_product(&[0b101], &[0b001], 3);

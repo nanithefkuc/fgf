@@ -9,7 +9,8 @@
 use crate::field::{Elem, FieldElem};
 use crate::kernel::{FieldKernels, RawDispatch};
 
-use super::{PreparedCoefficient, check_pair, check_width};
+use super::coefficient::PreparedCoefficient;
+use super::geometry::{check_pair, check_width};
 
 /// `dst += src`, field addition.
 ///
@@ -32,7 +33,7 @@ pub fn add_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// should use this form.
 ///
 /// ```
-/// use fgf::{FiniteField, Polynomial, poly::AES, ops};
+/// use fgf::{FiniteField, binary::{AES, Polynomial}, ops};
 ///
 /// let src = [0x01u8, 0x02, 0x03, 0x04];
 /// let mut dst = [0x10u8, 0x20, 0x30, 0x40];

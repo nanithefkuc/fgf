@@ -1,43 +1,8 @@
-//! The prime field GF(2^31 − 1), the Mersenne31 field.
+//! The Mersenne31 row and its scalar body.
 //!
-//! Elements are 32-bit lanes reduced modulo the Mersenne prime
-//! `p = 2^31 − 1 = 0x7FFF_FFFF`. The reduction exploits `2^31 ≡ 1 (mod p)`, so
-//! folding the high bit back into the low 31 bits (`lo + hi`) plus a single
-//! conditional subtract canonicalizes any 32-bit value.
-//!
-//! # Totality and canonicalization
-//!
-//! Every raw 32-bit lane is a legal input: [`Elem::from_raw`](crate::field::Elem)
-//! and [`FieldBuffer::decode`](crate::field::FieldBuffer) reduce it into the
-//! canonical range `0..p` on the way in. Every arithmetic output is canonical
-//! with no branch and no panic on out-of-range operands, the prime-field
-//! analogue of the crate-wide `inv(0) == 0` convention. Storage is always
-//! canonical, so equality, hashing, and ordering compare raw words directly.
-//! Inspect the stored bits with [`Elem::to_raw`](crate::field::Elem::to_raw).
-//!
-//! Arithmetic is variable-time and not intended for secret data.
-//!
-//! ```
-//! use fgf::{Elem, Mersenne31};
-//!
-//! // Known-answer product, pinned against the modular reduction.
-//! const X: Elem<Mersenne31> = Elem::<Mersenne31>::from_raw(0x5555_5555);
-//! const _: () = assert!(X.mul(X).to_raw() == 0x71C7_1C71);
-//!
-//! // `inv` is `const`, so a reciprocal table can be a `const` item.
-//! const HALF: Elem<Mersenne31> = Elem::<Mersenne31>::from_raw(2).inv();
-//! const _: () = assert!(HALF.to_raw() == 0x4000_0000);
-//! const _: () = assert!(Elem::<Mersenne31>::from_raw(2).mul(HALF).to_raw() == 1);
-//!
-//! // Division is total: `x / 0` is zero, in `const` context too.
-//! const _: () = assert!(X.div(Elem::<Mersenne31>::ZERO).to_raw() == 0);
-//!
-//! // The generator has full multiplicative order p − 1.
-//! assert_eq!(
-//!     Elem::<Mersenne31>::GENERATOR.pow(0x7FFF_FFFE),
-//!     Elem::<Mersenne31>::ONE
-//! );
-//! ```
+//! Reduction exploits `2^31 ≡ 1 (mod p)`: the high bit folds back into the
+//! low 31 bits, followed by one conditional subtract. The public contract for
+//! this field lives on the [`prime`](crate::prime) facade.
 
 use super::extension::Descriptor;
 use super::extension::descriptor::PrimePresentation;
@@ -45,7 +10,7 @@ use super::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
 use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, RangeError, Validate};
 
 /// The field modulus, the Mersenne prime `2^31 − 1`.
-pub const MODULUS: u32 = 0x7FFF_FFFF;
+pub(crate) const MODULUS: u32 = 0x7FFF_FFFF;
 
 /// Reduce an arbitrary 32-bit lane to the canonical range `0..p`.
 ///
@@ -391,7 +356,15 @@ impl core::fmt::Display for Elem<Mersenne31> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Elem, HasGenerator, MODULUS, Mersenne31, is_primitive};
+    use super::{Elem, HasGenerator, MODULUS, Mersenne31, is_primitive, reduce};
+
+    /// The Mersenne fold reduces every non-canonical lane branchlessly.
+    #[test]
+    fn fold_reduces_noncanonical_lanes() {
+        assert_eq!(reduce(0x8000_0000), 1);
+        assert_eq!(reduce(0xFFFF_FFFF), 1);
+        assert_eq!(reduce(0x7FFF_FFFF), 0);
+    }
 
     const fn gcd(mut a: u64, mut b: u64) -> u64 {
         while b != 0 {

@@ -27,10 +27,10 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::{
-    AES, Cantor, Elem, Extension, ExtensionSpec, FanPaar16, FieldElem, FieldKernels, FiniteField,
-    Isomorphism, Normal, Packed, Polynomial, RS, Relation, ops,
-};
+use fgf::binary::{AES, Cantor, FanPaar16, Normal, Polynomial, RS};
+use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
+use fgf::maps::Isomorphism;
+use fgf::{Elem, FieldElem, FieldKernels, FiniteField, ops};
 use reed_solomon_simd::engine::Avx2;
 
 use crate::representation::{Representations, polynomial_mul, tower_mul};
@@ -295,7 +295,7 @@ impl Presentation {
     /// injective over all 65536 values, fixing zero and one, preserving
     /// every basis product against the independent oracle, and agreeing
     /// with the presentation's own arithmetic on the same products.
-    fn mapped<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>(
+    fn mapped<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
         tag: Tag,
         label: &'static str,
         description: &'static str,
@@ -377,7 +377,9 @@ impl Presentation {
         &self.map
     }
 
-    fn isomorphism<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>(
+    fn isomorphism<
+        F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>,
+    >(
         &self,
     ) -> Isomorphism<Gf16, F> {
         Isomorphism::from_images(&[
@@ -687,11 +689,11 @@ fn arm_backend(presentation: &Presentation, kind: usize) -> &str {
 /// The public callable path of a single-body record.
 fn single_api(case: &RegisteredCase) -> &'static str {
     match case.kind {
-        Kind::ScalarChain => "fgf::field::FieldElem::mul",
+        Kind::ScalarChain => "fgf::FieldElem::mul",
         Kind::Prepare(PrepareKind::Coeff) => "fgf::ops::Coeff::new",
         Kind::Prepare(PrepareKind::Gather) => "fgf::ops::CoeffVec::new",
         Kind::Prepare(PrepareKind::Matrix) => "fgf::ops::CoeffMatrix::from_source_major",
-        Kind::Convert { .. } => "fgf::Isomorphism::apply",
+        Kind::Convert { .. } => "fgf::maps::Isomorphism::apply",
         Kind::Native => unreachable!("native cases emit through run_case"),
     }
 }
@@ -890,7 +892,7 @@ fn emit_single(presentation: &Presentation, case: &RegisteredCase, samples: Body
 /// `1..=65535`, so no iteration multiplies by or into zero.
 const CHAIN_CHUNK: u64 = 4096;
 
-fn chain_chunk<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>(
+fn chain_chunk<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
     state: &mut u64,
     x: &mut Elem<F>,
 ) {
@@ -901,7 +903,9 @@ fn chain_chunk<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteris
     }
 }
 
-fn run_scalar_chain<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>(
+fn run_scalar_chain<
+    F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>,
+>(
     presentation: &Presentation,
     case: &RegisteredCase,
     check: bool,
@@ -925,7 +929,7 @@ fn run_scalar_chain<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharac
     emit_single(presentation, case, samples);
 }
 
-fn run_prepare<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>(
+fn run_prepare<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
     presentation: &Presentation,
     case: &RegisteredCase,
     kind: PrepareKind,
@@ -968,7 +972,7 @@ fn run_prepare<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteris
 /// The conversion-inclusive caller loop: per-element tower-to-presentation
 /// conversion through the public `Isomorphism`, with the packed-buffer
 /// store outside or inside the timed body, exactly labelled.
-fn run_convert<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>(
+fn run_convert<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
     presentation: &Presentation,
     case: &RegisteredCase,
     packing_included: bool,
@@ -1025,7 +1029,7 @@ fn run_convert<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteris
 // Campaign
 // ---------------------------------------------------------------------------
 
-fn run_all<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>(
+fn run_all<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
     presentation: &Presentation,
     check: bool,
     smoke: bool,
@@ -1157,7 +1161,7 @@ pub(crate) fn run(check: bool, smoke: bool, native: &Native, simd: &Avx2) {
          field-multiplication operand bytes (row bytes x sources x destinations; zero for \
          scalar and preparation queries); lanes counts operand pairs. Native cases interleave fgf, the duplicate fgf-control, and \
          every applicable native arm under fixed or cycling16 coefficient schedules; \
-         conversion records call fgf::Isomorphism per element with packing outside or inside \
+         conversion records call fgf::maps::Isomorphism per element with packing outside or inside \
          the timed body. Maps validate over all 65536 values and all 256 basis products \
          outside timing; no ratios across unmatched shapes."
     );

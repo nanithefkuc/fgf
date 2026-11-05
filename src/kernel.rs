@@ -84,9 +84,9 @@ where
 }
 
 // The backend ladder is owned by `simdispatch` (the Level 0 single source for
-// detection and ordering); FGF re-exports it so downstream consumers keep
-// compiling, and builds its own `Selection` over the tiers it implements.
-pub use simdispatch::{Backend, ParseBackendError};
+// detection and ordering); FGF re-exports `Backend` for its public query
+// surface and builds its own `Selection` over the tiers it implements.
+pub use simdispatch::Backend;
 
 /// The tiers FGF implements kernels for, in detection-preference order: the
 /// common ladder minus the x86 `V1` floor (FGF's 16-byte multiply kernels
@@ -97,13 +97,17 @@ pub use simdispatch::{Backend, ParseBackendError};
 /// modules and `simdispatch/avx512` detection. Without `simd512` the variant
 /// exists in the ladder but no `FGF_TIERS` entry can select it, so detection
 /// falls through to `V3GfniCrypto` on AVX-512 hosts.
+// Re-exported through `internals`; the scalar-only configurations have no
+// other reader.
 #[cfg(not(feature = "simd512"))]
+#[cfg_attr(not(feature = "simd"), allow(dead_code))]
 pub const FGF_TIERS: &[Backend] = &[
     Backend::V3GfniCrypto,
     Backend::V3,
     Backend::V2,
     Backend::Scalar,
 ];
+
 /// The tiers FGF implements kernels for, with the 64-byte AVX-512 byte-field,
 /// GF(2^16) tower, prime-field, and byte-XOR kernels first. See the
 /// non-`simd512` form for the rest.
@@ -116,12 +120,14 @@ pub const FGF_TIERS: &[Backend] = &[
     Backend::Scalar,
 ];
 
+// Re-exported through `internals`; production dispatch never calls it.
 /// FGF's kernel-policy questions over the shared ladder.
 ///
 /// `simdispatch::Backend` is capability; these two derive from the kernels
 /// this crate actually implements, so they stay here (field-kernel policy,
 /// not hardware facts). The ladder is owned upstream, so `Backend` gets these
 /// only through this trait.
+#[allow(dead_code)]
 pub trait KernelBackend {
     /// Whether this backend has a native byte-wide field multiply (GFNI).
     fn has_native_mul(self) -> bool;
@@ -145,7 +151,7 @@ impl KernelBackend for Backend {
 
 /// The backend these kernels use, resolved once per process.
 ///
-/// Runs [`simdispatch::Selection`] over [`FGF_TIERS`] — every tier this crate implements
+/// Runs [`simdispatch::Selection`] over `FGF_TIERS` — every tier this crate implements
 /// kernels for, or [`Backend::Scalar`] when SIMD is compiled out — then
 /// adjusted by the downgrade-only `SIMD_BACKEND` override. May be downgraded
 /// at startup via `SIMD_BACKEND` (`v4x`, `v3_gfni_crypto`, `v3`, `v2`,
@@ -300,7 +306,10 @@ pub fn backend_for<F: FieldKernels>() -> Backend {
     F::backend()
 }
 
+// The free wrappers are re-exported through `internals`; stable consumers
+// call the `FieldKernels` methods.
 /// Whether elementwise multiplication is vectorized for `F` on this host.
+#[allow(dead_code)]
 #[inline]
 #[must_use]
 pub fn has_vector_elementwise<F: FieldKernels>() -> bool {
@@ -312,11 +321,13 @@ pub fn has_vector_elementwise<F: FieldKernels>() -> bool {
 /// dispatches or no vector kernel serves `F`. Consumers choosing between
 /// schedules use this beside [`has_vector_elementwise`] rather than
 /// assuming the vector path serves sub-vector rows.
+#[allow(dead_code)]
 #[inline]
 #[must_use]
 pub fn vector_elementwise_min_bytes<F: FieldKernels>() -> usize {
     F::vector_elementwise_min_bytes()
 }
+
 /// The per-field vector kernel contract, as a public bound.
 ///
 /// This trait is the *nameable* half of the kernel surface: generic code

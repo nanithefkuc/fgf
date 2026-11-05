@@ -2,7 +2,8 @@
 //! A degree-65 row over GF(7): the total degree cap rejects the row at
 //! first value use, before the descriptor is read. The relation stays a
 //! well-formed five-coordinate value so the degree check is the failure.
-use fgf::{Components, Elem, Extension, ExtensionSpec, FiniteField, Relation};
+use fgf::{Elem, FiniteField};
+use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
 
 type R7 = FiniteField<7, 1>;
 

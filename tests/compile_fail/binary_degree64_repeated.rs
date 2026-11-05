@@ -1,6 +1,8 @@
 // expect: extension relation is reducible
 //! The relation t^64 + t^32 + 1 is the square of t^32 + t^16 + 1.
-use fgf::{Elem, Extension, ExtensionSpec, FiniteField, Packed, Polynomial, Relation, ops};
+use fgf::{Elem, FiniteField, ops};
+use fgf::binary::Polynomial;
+use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
 
 type Gf2 = FiniteField<2, 1, Polynomial<3>>;
 struct Spec;

@@ -4,7 +4,9 @@
 //! These tests instead call each direct architecture entry as an external
 //! `internals` consumer would: summon the exact capability token, skip a tier
 //! when the host cannot prove it, and compare every observable byte against an
-//! independent scalar oracle or per-lane field arithmetic.
+//! independent scalar oracle or per-lane field arithmetic. The file also holds
+//! the direct gather-offset validation cases and the tier capability queries
+//! that read `internals` state.
 //!
 //! Destinations are seeded with nonzero noise before every overwrite
 //! operation so an accumulation-into-destination bug cannot agree with the
@@ -14,6 +16,7 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
+use fgf::binary::{AES, Polynomial, RS};
 #[cfg(feature = "simd512")]
 use fgf::internals::kernel::X64V4xToken;
 use fgf::internals::kernel::gf8::Prepared;
@@ -22,10 +25,9 @@ use fgf::internals::kernel::tables::{TowerCoeff, TowerTables, isomorphism_to_aes
 use fgf::internals::kernel::{
     FlatMatrix, SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token, x86,
 };
-use fgf::poly::{AES, RS};
-use fgf::{Elem, FiniteField, Polynomial};
+use fgf::{Elem, FiniteField};
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
 
 /// Deterministic LCG noise, the crate's shared convention.
 fn noise(len: usize, seed: u64) -> Vec<u8> {
@@ -1315,7 +1317,7 @@ fn proven_gf16_kernels_match_scalar() {
     );
 
     let delta_byte: u8 = 0x20;
-    let reduction = fgf::poly::Polynomial::<AES>::POLY.to_le_bytes()[0];
+    let reduction = fgf::binary::Polynomial::<AES>::POLY.to_le_bytes()[0];
     let delta_table = scale_table(fgf::Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
         0x20,
     ));
@@ -2507,4 +2509,102 @@ fn proven_residue_delayed_matrix_rejects_overflowing_geometry() {
             );
         }
     });
+}
+
+/// The scalar fallback carries neither a native multiply nor blocked rows.
+#[test]
+fn kernel_backend_capability_bits_of_scalar() {
+    use fgf::internals::kernel::KernelBackend;
+
+    assert!(!fgf::Backend::Scalar.has_native_mul());
+    assert!(!fgf::Backend::Scalar.has_blocked_rows());
+}
+
+/// Asserts `body` panics on `dst` and that `dst` still holds `sentinel` bytes
+/// afterwards, proving the rejection preceded every write.
+fn rejects_without_mutating(sentinel: &[u8], body: impl FnOnce(&mut [u8])) {
+    let mut got = sentinel.to_vec();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(&mut got)));
+    assert!(outcome.is_err(), "invalid gather offsets must panic");
+    assert_eq!(
+        got, sentinel,
+        "a rejected gather must not write any destination byte",
+    );
+}
+
+/// 33 bytes is one whole 32-byte lane plus a 1-byte tail: the shape that
+/// falls back to the per-source fold.
+#[test]
+fn direct_avx2_tail_row_rejects_invalid_later_offset_before_mutation() {
+    let Some(token) = X64V3Token::summon() else {
+        eprintln!("skipping: no AVX2 on this host");
+        return;
+    };
+    let region = noise(128, 0x61);
+    let dst = noise(33, 0x62);
+    rejects_without_mutating(&dst, |got| {
+        x86::bytes::xor_gather_avx2(token, &region, got, &[0, 96]);
+    });
+}
+
+/// 288 bytes is nine whole lanes: wider than eight vectors, the other shape
+/// that falls back to the per-source fold.
+#[test]
+fn direct_avx2_wide_row_rejects_invalid_later_offset_before_mutation() {
+    let Some(token) = X64V3Token::summon() else {
+        eprintln!("skipping: no AVX2 on this host");
+        return;
+    };
+    let region = noise(512, 0x63);
+    let dst = noise(288, 0x64);
+    rejects_without_mutating(&dst, |got| {
+        x86::bytes::xor_gather_avx2(token, &region, got, &[0, 32, 480]);
+    });
+}
+
+/// On an AVX-512+GFNI host the process and field backends must actually
+/// report `V4x`; a green run alone never proves the tier executed. A
+/// `SIMD_BACKEND` request below `v4x` lowers the tier on purpose, and hosts
+/// without the token cannot select it; both report a skip and return.
+#[cfg(feature = "simd512")]
+#[test]
+fn v4x_host_selects_v4x_backends() {
+    use fgf::binary::Polynomial;
+    use fgf::prime::{Goldilocks, Mersenne31};
+    use fgf::{Backend, FieldKernels, backend, backend_for};
+
+    let downgrade = std::env::var("SIMD_BACKEND")
+        .ok()
+        .filter(|tier| tier != "v4x");
+    if let Some(tier) = &downgrade {
+        eprintln!("skipping V4x assertion: SIMD_BACKEND={tier} requests a lower tier");
+        return;
+    }
+    if X64V4xToken::summon().is_none() {
+        eprintln!("skipping V4x assertion: host cannot summon X64V4xToken");
+        return;
+    }
+    assert_eq!(
+        backend(),
+        Backend::V4x,
+        "AVX-512+GFNI summons but dispatch did not select V4x"
+    );
+    assert_eq!(
+        backend_for::<FiniteField<2, 8, Polynomial<RS>>>(),
+        Backend::V4x,
+        "FiniteField<2, 8, Polynomial<RS>> does not report V4x on a V4x host"
+    );
+    // Both prime fields carry 64-byte kernels on V4x.
+    assert_eq!(
+        (backend_for::<Mersenne31>(), backend_for::<Goldilocks>()),
+        (Backend::V4x, Backend::V4x),
+        "prime fields do not report V4x on a V4x host"
+    );
+    // Both byte fields carry 64-byte elementwise kernels on V4x, so the
+    // capability query must not steer consumers to scalar.
+    assert!(
+        <FiniteField<2, 8, Polynomial<AES>> as FieldKernels>::has_vector_elementwise()
+            && <FiniteField<2, 8, Polynomial<RS>> as FieldKernels>::has_vector_elementwise(),
+        "byte fields do not report vector elementwise on a V4x host"
+    );
 }

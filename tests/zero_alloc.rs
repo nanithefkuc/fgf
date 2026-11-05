@@ -1,21 +1,21 @@
 #![cfg(feature = "std")]
 
-use fgf::poly::{AES, RS};
-use fgf::{
-    Components, Elem, Embedding, Extension, ExtensionSpec, FieldBuffer, FieldElem, FieldKernels,
-    FiniteField, Goldilocks, Isomorphism, Mersenne31, Normal, Packed, Polynomial, QuadMersenne31,
-    Relation, Residue, ops,
-};
+use fgf::binary::{AES, RS};
+use fgf::binary::{Normal, Polynomial};
+use fgf::extension::{Components, Extension, ExtensionSpec, Packed, QuadMersenne31, Relation};
+use fgf::maps::{Embedding, Isomorphism};
+use fgf::prime::{Goldilocks, Mersenne31, Residue};
+use fgf::{Elem, FieldBuffer, FieldElem, FieldKernels, FiniteField, ops};
 
 #[path = "common/zero_alloc.rs"]
 mod common;
 use common::{TEST_LOCK, count_allocations, noise};
 
-type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
-type FanPaar8Row = fgf::FiniteField<2, 8, fgf::Extension<fgf::FanPaar8, 2>>;
+type Gf1 = fgf::FiniteField<2, 1, fgf::binary::Polynomial<3>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>;
+type FanPaar8Row = fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>;
 type ResiduePrime = FiniteField<1_000_000_007, 1, Residue>;
 type ResidueTwo = FiniteField<2, 1, Residue>;
 
@@ -553,7 +553,7 @@ fn bits_steady_state_allocates_nothing() {
         .lock()
         .expect("zero-allocation test lock poisoned");
     let bits = 4096;
-    let len = fgf::bits::bytes_for(bits);
+    let len = fgf::ops::bits::bytes_for(bits);
     let a = noise(len, 0x100);
     let b = noise(len, 0x200);
     let mut dst = noise(len, 0x300);
@@ -561,28 +561,28 @@ fn bits_steady_state_allocates_nothing() {
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
 
     // Warm dispatch before counting.
-    fgf::bits::xor_assign(&mut dst, &a);
-    fgf::bits::xor_range(&mut dst, &a, bits, 100, 4000);
-    fgf::bits::and_into(&mut dst, &a, &b);
-    fgf::bits::and_assign(&mut dst, &a);
-    fgf::bits::andnot_assign(&mut dst, &a);
-    fgf::bits::clear_range(&mut dst, bits, 0, 64);
-    fgf::bits::set_range(&mut dst, bits, 0, 64);
-    let _ = fgf::bits::weight(&dst, bits);
-    let _ = fgf::bits::dot_product(&dst, &a, bits);
-    fgf::bits::xor_gather(&mut dst, bits, 0b0101, &refs);
+    fgf::ops::bits::xor_assign(&mut dst, &a);
+    fgf::ops::bits::xor_range(&mut dst, &a, bits, 100, 4000);
+    fgf::ops::bits::and_into(&mut dst, &a, &b);
+    fgf::ops::bits::and_assign(&mut dst, &a);
+    fgf::ops::bits::andnot_assign(&mut dst, &a);
+    fgf::ops::bits::clear_range(&mut dst, bits, 0, 64);
+    fgf::ops::bits::set_range(&mut dst, bits, 0, 64);
+    let _ = fgf::ops::bits::weight(&dst, bits);
+    let _ = fgf::ops::bits::dot_product(&dst, &a, bits);
+    fgf::ops::bits::xor_gather(&mut dst, bits, 0b0101, &refs);
 
     let allocations = count_allocations(|| {
-        fgf::bits::xor_assign(&mut dst, &a);
-        fgf::bits::xor_range(&mut dst, &a, bits, 100, 4000);
-        fgf::bits::and_into(&mut dst, &a, &b);
-        fgf::bits::and_assign(&mut dst, &a);
-        fgf::bits::andnot_assign(&mut dst, &a);
-        fgf::bits::clear_range(&mut dst, bits, 0, 64);
-        fgf::bits::set_range(&mut dst, bits, 0, 64);
-        let _ = fgf::bits::weight(&dst, bits);
-        let _ = fgf::bits::dot_product(&dst, &a, bits);
-        fgf::bits::xor_gather(&mut dst, bits, 0b0101, &refs);
+        fgf::ops::bits::xor_assign(&mut dst, &a);
+        fgf::ops::bits::xor_range(&mut dst, &a, bits, 100, 4000);
+        fgf::ops::bits::and_into(&mut dst, &a, &b);
+        fgf::ops::bits::and_assign(&mut dst, &a);
+        fgf::ops::bits::andnot_assign(&mut dst, &a);
+        fgf::ops::bits::clear_range(&mut dst, bits, 0, 64);
+        fgf::ops::bits::set_range(&mut dst, bits, 0, 64);
+        let _ = fgf::ops::bits::weight(&dst, bits);
+        let _ = fgf::ops::bits::dot_product(&dst, &a, bits);
+        fgf::ops::bits::xor_gather(&mut dst, bits, 0b0101, &refs);
     });
     assert_eq!(allocations, 0, "bits steady-state op allocated");
 }
@@ -851,8 +851,8 @@ fn generic_extension_rows_steady_state_allocate_nothing() {
 #[test]
 fn bulk_dot_product_steady_state_allocates_nothing() {
     use fgf::FiniteField;
-    use fgf::Polynomial;
-    use fgf::poly::AES;
+    use fgf::binary::AES;
+    use fgf::binary::Polynomial;
 
     let _guard = TEST_LOCK
         .lock()
@@ -881,8 +881,8 @@ fn bulk_dot_product_steady_state_allocates_nothing() {
 #[test]
 fn inv_div_rows_steady_state_allocate_nothing() {
     use fgf::FiniteField;
-    use fgf::Polynomial;
-    use fgf::poly::AES;
+    use fgf::binary::AES;
+    use fgf::binary::Polynomial;
 
     let _guard = TEST_LOCK
         .lock()

@@ -33,7 +33,8 @@ second. The index is `source * outputs + output`, not the output-major
 order often written on paper.
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Polynomial, ops};
+use fgf::{FiniteField, Elem, ops};
+use fgf::binary::{AES, Polynomial};
 
 type F = FiniteField<2, 8, Polynomial<AES>>;
 let a = [1u8, 2];
@@ -56,7 +57,8 @@ Each output occupies a complete row. Prior destination bytes are ignored.
 Start at zero and scatter each source as it arrives to obtain the same result:
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Polynomial, ops};
+use fgf::{FiniteField, Elem, ops};
+use fgf::binary::{AES, Polynomial};
 
 type F = FiniteField<2, 8, Polynomial<AES>>;
 let a = [1u8, 2];
@@ -79,7 +81,8 @@ uses this update with wider lanes.
 `_at` addresses destination rows by byte offsets within one mutable region. Named rows must be in bounds, start on field-element boundaries relative to that region, and be pairwise disjoint. Unnamed bytes remain outside the operation.
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Polynomial, ops};
+use fgf::{FiniteField, Elem, ops};
+use fgf::binary::{AES, Polynomial};
 
 type F = FiniteField<2, 8, Polynomial<AES>>;
 let coefficients = [Elem::<F>::ONE, Elem::<F>::from_raw(2)];

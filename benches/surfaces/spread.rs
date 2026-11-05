@@ -13,9 +13,9 @@
 
 use std::hint::black_box;
 
-use fgf::field::{Field, FieldElem};
 use fgf::ops::{CoeffMatrix, CoeffVec};
 use fgf::{Elem, FieldBuffer, ops};
+use fgf::{Field, FieldElem};
 
 use crate::fields::{self, for_each_bulk_field};
 use crate::fixture;

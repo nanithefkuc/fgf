@@ -25,7 +25,8 @@ mod representation;
 use native::Native;
 use representation::{Layout, Representations, tower_mul};
 
-pub(crate) type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+pub(crate) type Gf16 =
+    fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
 
 const ALIGN: usize = 4096;
 pub(crate) const NAMES: [&str; 6] = [
@@ -106,7 +107,7 @@ impl Shape {
     }
 }
 
-struct Bank<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>> {
+struct Bank<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>> {
     /// Coefficient words in the canonical tower encoding: the oracle's
     /// arithmetic and every native arm's layout map read these.
     canonical: Vec<u16>,
@@ -120,12 +121,12 @@ struct Bank<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic
     gather: ops::CoeffVec<F>,
 }
 
-struct Plan<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>> {
+struct Plan<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>> {
     shape: Shape,
     banks: Vec<Bank<F>>,
 }
 
-impl<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>> Plan<F> {
+impl<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>> Plan<F> {
     fn new(
         shape: Shape,
         maps: &Representations,
@@ -190,7 +191,7 @@ pub(crate) struct Arm<'a> {
 }
 
 impl Arm<'_> {
-    fn apply<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>(
+    fn apply<F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>>(
         &mut self,
         plan: &Plan<F>,
         bank_index: usize,
@@ -291,7 +292,9 @@ impl Oracle {
 
     fn result(
         &mut self,
-        plan: &Plan<impl FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>,
+        plan: &Plan<
+            impl FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>,
+        >,
         bank_index: usize,
         source: &[Vec<u8>],
         initial: &[u8],
@@ -383,7 +386,9 @@ pub(crate) fn arm_kinds(operation: Operation) -> &'static [usize] {
     }
 }
 
-pub(crate) fn run_case<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>(
+pub(crate) fn run_case<
+    F: FieldKernels<Raw = u16, Characteristic = fgf::prime::PrimeCharacteristic<2>>,
+>(
     plan: Plan<F>,
     maps: &Representations,
     native: &Native,

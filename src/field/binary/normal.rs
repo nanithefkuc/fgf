@@ -1,19 +1,9 @@
 //! Normal-basis binary presentations at degrees 2, 4, and 8.
 //!
-//! [`Normal`] wraps a polynomial [`Polynomial`] basis element
-//! `E` into its conjugate basis: bit `i` selects `E^(2^i)`, and one is all
-//! `N` bits set. The descriptor pins both coordinate matrices; the inverse
-//! columns come from bounded enumeration of the forward map, never from a
-//! matrix solver.
-//!
-//! Smallest valid test instances: `E = 2` over `P = 0x7`, `E = 8` over
-//! `P = 0x13`, and `E = 0x20` over [`AES`](super::poly::AES) and
-//! [`RS`](super::poly::RS).
-//!
-//! ```compile_fail,E0080
-//! // E = 1 has all conjugates equal to one, so the basis collapses.
-//! let _ = fgf::Elem::<fgf::FiniteField<2, 8, fgf::Normal<0x11B, 1>>>::from_raw(1);
-//! ```
+//! `Normal` wraps a polynomial-basis element into its conjugate basis, with
+//! both coordinate matrices pinned in the descriptor and the inverse columns
+//! derived by bounded enumeration of the forward map. The public basis
+//! contract lives on the [`binary`](crate::binary) facade.
 
 use super::BinaryRepr;
 use super::description::{BinaryDescription, ByteLogExp};

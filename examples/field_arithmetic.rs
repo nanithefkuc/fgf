@@ -5,22 +5,20 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::field::{FieldElem, PrimeIdentity};
-use fgf::poly::{AES, RS};
-use fgf::{
-    Elem, Field, FieldBuffer, FiniteField, Goldilocks, HasGenerator, Mersenne31, Polynomial,
-    QuadMersenne31,
-};
+use fgf::binary::{AES, Polynomial, RS};
+use fgf::extension::QuadMersenne31;
+use fgf::prime::{Goldilocks, Mersenne31, PrimeIdentity};
+use fgf::{Elem, Field, FieldBuffer, FieldElem, FiniteField, HasGenerator};
 
 // Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
-type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
-type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Extension<fgf::FanPaar8, 2>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
-type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Extension<fgf::FanPaar32, 2>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
+type Gf1 = fgf::FiniteField<2, 1, fgf::binary::Polynomial<3>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
+type FanPaar8Field = fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>;
 
 // Concrete arithmetic can also prepare constants at compile time.
 const SCALE: Elem<Gf16> = Elem::<Gf16>::from_raw(0x0108);
@@ -42,7 +40,10 @@ fn main() {
     // rather than bytes.
     assert_eq!(Elem::<Gf1>::ONE + Elem::<Gf1>::ONE, Elem::<Gf1>::ZERO);
     assert_eq!(Elem::<Gf1>::ONE * Elem::<Gf1>::ONE, Elem::<Gf1>::ONE);
-    println!("{}: 1 + 1 = 0, 1 * 1 = 1; vectors use fgf::bits", Gf1::NAME);
+    println!(
+        "{}: 1 + 1 = 0, 1 * 1 = 1; vectors use fgf::ops::bits",
+        Gf1::NAME
+    );
     describe::<FiniteField<2, 8, Polynomial<AES>>>();
     describe::<FiniteField<2, 8, Polynomial<RS>>>();
     describe::<Gf16>();

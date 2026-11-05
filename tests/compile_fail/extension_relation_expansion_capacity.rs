@@ -1,7 +1,9 @@
 // expect: relation exceeds the coordinate capacity
 //! Sixty-five one-bit words expand to sixty-five coordinates, past the
 //! capacity of sixty-four.
-use fgf::{FiniteField, Polynomial, Relation};
+use fgf::FiniteField;
+use fgf::binary::Polynomial;
+use fgf::extension::Relation;
 
 type Gf2 = FiniteField<2, 1, Polynomial<3>>;
 

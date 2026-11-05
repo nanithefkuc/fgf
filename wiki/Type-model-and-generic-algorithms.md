@@ -10,7 +10,8 @@ The default representation is a prime residue. Binary fields select a
 polynomial, ordered basis, or extension explicitly:
 
 ```rust
-use fgf::{AES, Elem, FiniteField, Polynomial};
+use fgf::{Elem, FiniteField};
+use fgf::binary::{AES, Polynomial};
 
 type Prime = FiniteField<7, 1>;
 type Binary = FiniteField<2, 8, Polynomial<AES>>;
@@ -44,7 +45,8 @@ Horner evaluation needs only scalar arithmetic. Coefficients are ordered
 constant-first; the reversed fold evaluates `c0 + c1*x + ...`:
 
 ```rust
-use fgf::{AES, Elem, Field, FiniteField, Polynomial};
+use fgf::{Elem, Field, FiniteField};
+use fgf::binary::{AES, Polynomial};
 
 fn evaluate<F: Field>(coefficients: &[Elem<F>], x: Elem<F>) -> Elem<F> {
     coefficients.iter().rev().fold(Elem::<F>::ZERO, |sum, &c| sum * x + c)

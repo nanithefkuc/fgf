@@ -17,7 +17,8 @@ coordinates, not the original input spelling.
 coordinates. In a normal basis these differ:
 
 ```rust
-use fgf::{Elem, FieldElem, FiniteField, Normal};
+use fgf::{Elem, FieldElem, FiniteField};
+use fgf::binary::Normal;
 
 type Row = FiniteField<2, 2, Normal<7, 2>>;
 let one = Elem::<Row>::ONE;
@@ -33,7 +34,8 @@ Use checked `from_index` at format boundaries. Unlike a masking `from_raw`
 constructor, it rejects excess coordinates:
 
 ```rust
-use fgf::{Elem, FieldElem, FiniteField, Polynomial};
+use fgf::{Elem, FieldElem, FiniteField};
+use fgf::binary::Polynomial;
 
 type Small = FiniteField<2, 4, Polynomial<0x13>>;
 assert_eq!(Elem::<Small>::from_raw(0x12).to_raw(), 2);
@@ -51,7 +53,9 @@ storage; `pack_to_vec` requires `alloc`. Generic residue rows use `encode` and
 `decode`, not the fixed-array `to_bytes` methods of shipped element families.
 
 ```rust
-use fgf::{Elem, Extension, FieldBuffer, FiniteField, Rijndael16, ops};
+use fgf::{Elem, FieldBuffer, FiniteField, ops};
+use fgf::binary::Rijndael16;
+use fgf::extension::Extension;
 
 type F = FiniteField<2, 16, Extension<Rijndael16, 2>>;
 let values = [Elem::<F>::from_raw(0x1234), Elem::<F>::from_raw(0xabcd)];
@@ -74,7 +78,9 @@ Packing requires `FieldBuffer`; arithmetic on packed bytes requires `FieldKernel
 Buffers hold complete lanes, but their starting address need not have native integer alignment. A framed payload can be borrowed as bytes without a transmute or a typed integer view.
 
 ```rust
-use fgf::{Elem, Extension, FiniteField, Rijndael16, ops};
+use fgf::{Elem, FiniteField, ops};
+use fgf::binary::Rijndael16;
+use fgf::extension::Extension;
 
 type F = FiniteField<2, 16, Extension<Rijndael16, 2>>;
 let mut frame = [0x7eu8; 6];

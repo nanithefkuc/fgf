@@ -7,7 +7,7 @@
 use crate::field::{Elem, FieldElem};
 use crate::kernel::{FieldKernels, RawDispatch};
 
-use super::check_width;
+use super::geometry::check_width;
 use super::single::mul_into;
 
 #[cfg(feature = "alloc")]
@@ -29,7 +29,7 @@ use super::single::mul_into_with;
 /// of one backing region; the destination is the single row that comes first.
 ///
 /// ```
-/// use fgf::{FiniteField, Polynomial, poly::AES, ops};
+/// use fgf::{FiniteField, binary::{AES, Polynomial}, ops};
 ///
 /// // Two 2-byte rows in one backing region, folded into `dst`.
 /// let region = [0x01u8, 0x02, 0x10, 0x20];

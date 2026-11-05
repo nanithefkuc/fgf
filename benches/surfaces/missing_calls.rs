@@ -1,11 +1,10 @@
 //! Separate timed cases for stable public callables whose timed bodies no
 //! other panel carries: the direct isomorphism constructors and the
-//! generator accessor, the scalar description identity and structure
-//! comparator, the prepared-collection accessors, and the one-shot
+//! generator accessor, the prepared-collection accessors, and the one-shot
 //! tuple-terms matrix overwrite over every bulk-kernel presentation.
 //!
-//! Map, description, and collection work runs scalar arithmetic and reports
-//! the `scalar` backend; each accessor case times one call over a container
+//! Map and collection work runs scalar arithmetic and reports the `scalar`
+//! backend; each accessor case times one call over a container
 //! built outside the timer. The one-shot matrix case runs 4 KiB rows with
 //! four sources and three outputs; coefficient preparation and the
 //! independent per-lane scalar oracle stay outside the timer, and every
@@ -13,9 +12,10 @@
 
 use std::hint::black_box;
 
-use fgf::field::{Field, FieldElem};
+use fgf::maps::{Embedding, Isomorphism};
 use fgf::ops::{CoeffMatrix, CoeffVec};
-use fgf::{Elem, Embedding, FieldBuffer, FieldKernels, Isomorphism, ops};
+use fgf::{Elem, FieldBuffer, FieldKernels, ops};
+use fgf::{Field, FieldElem};
 
 use crate::fields::{self, Gf2p8Aes, Gf2p8Rs, Gf2p16Rijndael, for_each_bulk_field};
 use crate::fixture;
@@ -32,16 +32,8 @@ const OUTPUTS: usize = 3;
 /// Prepared coefficients behind one collection accessor case.
 const VIEW_LEN: usize = 8;
 
-const API_ISO_NEW: &[&str] = &["fgf::Isomorphism::new"];
-const API_GENERATOR_COUNT: &[&str] = &["fgf::Embedding::generator_count"];
-const API_DESCRIPTION_ONE: &[&str] = &[
-    "fgf::BinaryField::DESCRIPTION",
-    "fgf::BinaryDescription::one",
-];
-const API_DESCRIPTION_SAME_STRUCTURE: &[&str] = &[
-    "fgf::BinaryField::DESCRIPTION",
-    "fgf::BinaryDescription::same_structure",
-];
+const API_ISO_NEW: &[&str] = &["fgf::maps::Isomorphism::new"];
+const API_GENERATOR_COUNT: &[&str] = &["fgf::maps::Embedding::generator_count"];
 const API_COEFFVEC_IS_EMPTY: &[&str] = &["fgf::ops::CoeffVec::is_empty"];
 const API_COEFFVEC_GET: &[&str] = &["fgf::ops::CoeffVec::get"];
 const API_COEFFVEC_VALUES: &[&str] = &["fgf::ops::CoeffVec::values"];
@@ -55,8 +47,7 @@ fn row_bytes<F: FieldBuffer>() -> usize {
     ROW_TARGET - ROW_TARGET % F::BYTES
 }
 
-/// The scalar backend name every map, description, and collection record
-/// reports.
+/// The scalar backend name every map and collection record reports.
 fn scalar_backend() -> String {
     fields::scalar_backend_name()
 }
@@ -211,39 +202,6 @@ where
     let backend = scalar_backend();
     registry::time(case, ctx, &backend, || {
         fixture::observe(Embedding::<S, T>::generator_count());
-    });
-}
-
-fn run_description_one(case: &Case, ctx: &CaseCtx) {
-    let description = <Gf2p8Aes as fgf::BinaryField>::DESCRIPTION;
-    assert_eq!(
-        description.one(),
-        u64::from(<Elem<Gf2p8Aes> as FieldElem>::ONE.to_raw()),
-        "{}: description one matches the field's raw one encoding",
-        case.case
-    );
-    let backend = scalar_backend();
-    registry::time(case, ctx, &backend, || {
-        fixture::observe(black_box(description).one());
-    });
-}
-
-fn run_description_same_structure(case: &Case, ctx: &CaseCtx) {
-    let description = <Gf2p8Aes as fgf::BinaryField>::DESCRIPTION;
-    let different = <Gf2p8Rs as fgf::BinaryField>::DESCRIPTION;
-    assert!(
-        description.same_structure(description),
-        "{}: a description agrees with itself",
-        case.case
-    );
-    assert!(
-        !description.same_structure(different),
-        "{}: different defining polynomials are different structures",
-        case.case
-    );
-    let backend = scalar_backend();
-    registry::time(case, ctx, &backend, || {
-        fixture::observe(black_box(description).same_structure(black_box(different)));
     });
 }
 
@@ -450,23 +408,6 @@ pub fn register() {
         0,
         0,
         run_generator_count::<Gf2p8Aes, Gf2p8Rs>,
-    );
-
-    add_query_case(
-        "scalar/description-one/gf2p8-aes".to_string(),
-        "gf2p8-aes",
-        "description one",
-        API_DESCRIPTION_ONE,
-        0,
-        run_description_one,
-    );
-    add_query_case(
-        "scalar/description-same_structure/gf2p8-aes".to_string(),
-        "gf2p8-aes",
-        "description structure comparison",
-        API_DESCRIPTION_SAME_STRUCTURE,
-        0,
-        run_description_same_structure,
     );
 
     add_query_case(

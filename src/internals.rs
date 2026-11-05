@@ -2,13 +2,20 @@
 //!
 //! Paths, types, signatures, and behavior may change or disappear in any release.
 //! Production consumers should use the supported API in [`crate::ops`],
-//! [`crate::bits`], [`crate::field`], and [`crate::kernel`].
+//! [`crate::ops::bits`], [`crate::prime`], [`crate::binary`],
+//! [`crate::extension`], and [`crate::maps`].
 
 /// Direct kernel implementations, preparation tables, and capability tokens.
 pub mod kernel {
     pub use crate::kernel::bytes::xor;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     pub use crate::kernel::matrix_provider::{FlatMatrix, Matrix};
+
+    /// The declared tier ladder and the backend capability queries.
+    pub use crate::kernel::{
+        FGF_TIERS, KernelBackend, has_vector_elementwise, vector_elementwise_min_bytes,
+    };
+    pub use simdispatch::ParseBackendError;
 
     /// Byte-field kernels and preparation.
     pub mod gf8 {
@@ -91,10 +98,30 @@ pub mod kernel {
     };
 }
 
-/// Independent scalar field oracles.
+/// Field-implementation plumbing: descriptors, reductions, and scalar oracles.
 pub mod field {
+    /// Binary presentation descriptors and the degree-eight log/exp tables.
+    pub mod description {
+        pub use crate::field::binary::description::{BinaryDescription, ByteLogExp};
+    }
+
     /// Fan–Paar recurrence for differential checks of the tower family.
     pub mod fan_paar {
         pub use crate::field::binary::tower::{fp_invert, fp_mul_alpha, fp_multiply, fp_square};
+    }
+
+    /// The Goldilocks lane folds.
+    pub mod goldilocks {
+        pub use crate::field::goldilocks::{reduce, reduce_wide};
+    }
+
+    /// The Mersenne31 lane fold.
+    pub mod mersenne31 {
+        pub use crate::field::mersenne31::reduce;
+    }
+
+    /// Validated integer reductions modulo a checked prime.
+    pub mod prime {
+        pub use crate::field::prime::{reduce, reduce_wide};
     }
 }

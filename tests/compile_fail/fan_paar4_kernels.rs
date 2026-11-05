@@ -1,5 +1,7 @@
 // expect-rejection
-use fgf::{Extension, FanPaar4, FieldKernels, FiniteField};
+use fgf::{FieldKernels, FiniteField};
+use fgf::binary::FanPaar4;
+use fgf::extension::Extension;
 
 // The shipped GF(2^4) extension row sits below one byte: it has no
 // packed kernels.

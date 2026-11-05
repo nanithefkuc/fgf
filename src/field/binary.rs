@@ -1,26 +1,10 @@
-//! Binary fields by total degree and representation.
+//! Binary presentation rows and their descriptor tables.
 //!
-//! GF(2^N) under the flat representation `R` is the canonical family row
-//! [`FiniteField<2, N, R>`](crate::field::FiniteField), and [`Elem`] over it
-//! is its element. [`BinaryRepr`] is the sealed vocabulary of flat binary
-//! representations: it extends the family's presentation metadata with the
-//! descriptor and, at degree eight, the discrete-logarithm tables.
-//! [`BinaryField`] adds the canonical coordinate conversions shared by every
-//! binary field, flat rows and characteristic-two extension rows alike, and
-//! [`BinaryDegree`] pins the exact degree generic code may build on. The
-//! shipped quadratic towers are extension rows; see [`tower`].
-//!
-//! # Layout
-//!
-//! Raw storage is private to the crate. Flat rows of degrees 1, 2, 4, and 8
-//! store one element in a byte holding exactly the `N` low coordinate bits.
-//! The stable byte encoding of an element is the little-endian encoding of
-//! its raw word, and degree 64 is the crate's binary cap.
-//!
-//! # Totality and canonicalization
-//!
-//! By crate-wide convention `inv(0) == 0` and `x / 0 == 0`, in every build
-//! profile and under `const` evaluation alike.
+//! The sealed `BinaryRepr`/`BinaryField` capability traits, the flat-basis
+//! leaves, and the descriptor and degree-eight log/exp tables they carry.
+//! The public surface ships through the crate's `binary` facade; each
+//! submodule holds one presentation family's arithmetic and validation
+//! bodies.
 
 pub mod cantor;
 pub mod description;
@@ -29,9 +13,10 @@ pub mod poly;
 pub mod tower;
 
 pub use cantor::Cantor;
-pub use description::{BinaryDescription, ByteLogExp};
 pub use normal::Normal;
 pub use poly::{AES, Polynomial, RS};
+
+use description::{BinaryDescription, ByteLogExp};
 
 use core::fmt;
 

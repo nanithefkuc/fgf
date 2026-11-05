@@ -1,6 +1,6 @@
 //! Conversion and encoding surfaces: [`FieldBuffer`] decode/encode,
 //! presentation indices, residues and their range errors, extension
-//! components, the integer reduction functions, and the packing conversions.
+//! components, primality, and the packing conversions.
 //!
 //! Decode/encode and index/residue conversions run one call per steady body;
 //! packing runs an 8192-lane bulk body over preallocated buffers, and
@@ -14,8 +14,10 @@
 
 use std::hint::black_box;
 
-use fgf::field::{Field, FieldBuffer, FieldElem, PrimeIdentity};
-use fgf::{Elem, ExtensionField, RangeError};
+use fgf::extension::ExtensionField;
+use fgf::prime::PrimeIdentity;
+use fgf::{Elem, RangeError};
+use fgf::{Field, FieldBuffer, FieldElem};
 
 use crate::fields::{self, for_each_field, for_each_field_small};
 use crate::fixture;
@@ -24,33 +26,27 @@ use crate::scalar::seed_for;
 
 const LANES: usize = 8192;
 
-const API_DECODE: &[&str] = &["fgf::field::FieldBuffer::decode"];
-const API_ENCODE: &[&str] = &["fgf::field::FieldBuffer::encode"];
+const API_DECODE: &[&str] = &["fgf::FieldBuffer::decode"];
+const API_ENCODE: &[&str] = &["fgf::FieldBuffer::encode"];
 const API_INDEX: &[&str] = &[
-    "fgf::field::FieldElem::from_index",
-    "fgf::field::FieldElem::to_index",
+    "fgf::FieldElem::from_index",
+    "fgf::FieldElem::to_index",
     "fgf::RangeError",
 ];
 const API_RESIDUE: &[&str] = &[
-    "fgf::field::FieldElem::from_residue",
-    "fgf::field::FieldElem::to_residue",
+    "fgf::FieldElem::from_residue",
+    "fgf::FieldElem::to_residue",
     "fgf::RangeError",
 ];
 const API_COMPONENTS: &[&str] = &[
-    "fgf::ExtensionField::from_components",
-    "fgf::ExtensionField::to_components",
+    "fgf::extension::ExtensionField::from_components",
+    "fgf::extension::ExtensionField::to_components",
 ];
 const API_PACK: &[&str] = &["fgf::ops::pack"];
 const API_UNPACK: &[&str] = &["fgf::ops::unpack"];
 const API_UNPACK_TO_VEC: &[&str] = &["fgf::ops::unpack_to_vec"];
 const API_PACK_TO_VEC: &[&str] = &["fgf::ops::pack_to_vec"];
-const API_REDUCE: &[&str] = &[
-    "fgf::field::prime::reduce",
-    "fgf::field::prime::reduce_wide",
-];
-const API_FOLD_REDUCE_M31: &[&str] = &["fgf::mersenne31::reduce"];
-const API_FOLD_REDUCE_GLD: &[&str] = &["fgf::goldilocks::reduce", "fgf::goldilocks::reduce_wide"];
-const API_IS_PRIME: &[&str] = &["fgf::field::is_prime"];
+const API_IS_PRIME: &[&str] = &["fgf::prime::is_prime"];
 
 fn register_decode<F: FieldBuffer>(label: &'static str) {
     let case = Case {
@@ -368,120 +364,6 @@ fn register_pack_to_vec<F: FieldBuffer>(label: &'static str) {
     registry::add(case);
 }
 
-/// The generic `prime::reduce`/`reduce_wide` pair at one modulus.
-fn register_reduce<const P: u64>(label: &'static str) {
-    let case = Case {
-        case: format!("convert/reduce/{label}"),
-        api: API_REDUCE,
-        field: label.to_string(),
-        operation: "integer reduction".to_string(),
-        scope: Scope::Steady,
-        bytes: 0,
-        lanes: 1,
-        sources: 1,
-        destinations: 1,
-        control: false,
-        phase: None,
-        run: |case, ctx| {
-            let mut seed = seed_for(case.field.as_str());
-            let value = fixture::lcg(&mut seed);
-            let wide = u128::from(value) << 64 | u128::from(fixture::lcg(&mut seed));
-            assert_eq!(
-                fgf::field::prime::reduce::<P>(value),
-                value % P,
-                "{}: reduce oracle",
-                case.case
-            );
-            assert_eq!(
-                u128::from(fgf::field::prime::reduce_wide::<P>(wide)),
-                wide % u128::from(P),
-                "{}: reduce_wide oracle",
-                case.case
-            );
-            let backend = fields::scalar_backend_name();
-            registry::time(case, ctx, &backend, || {
-                let reduced = fgf::field::prime::reduce::<P>(black_box(value));
-                let widened = fgf::field::prime::reduce_wide::<P>(black_box(wide));
-                fixture::observe((reduced, widened));
-            });
-        },
-    };
-    registry::add(case);
-}
-
-/// The specialized fold reductions: `mersenne31::reduce` and the Goldilocks
-/// pair, each validated against the generic reduction.
-fn register_fold_reduce(label: &'static str) {
-    if label == "m31" {
-        let case = Case {
-            case: "convert/fold-reduce/m31".to_string(),
-            api: API_FOLD_REDUCE_M31,
-            field: "m31".to_string(),
-            operation: "specialized reduction".to_string(),
-            scope: Scope::Steady,
-            bytes: 0,
-            lanes: 1,
-            sources: 1,
-            destinations: 1,
-            control: false,
-            phase: None,
-            run: |case, ctx| {
-                let mut seed = seed_for(case.field.as_str());
-                let value = (fixture::lcg(&mut seed) & u64::from(u32::MAX)) as u32;
-                assert_eq!(
-                    u64::from(fgf::mersenne31::reduce(value)),
-                    fgf::field::prime::reduce::<0x7FFF_FFFF>(u64::from(value)),
-                    "{}: m31 reduce oracle",
-                    case.case
-                );
-                let backend = fields::scalar_backend_name();
-                registry::time(case, ctx, &backend, || {
-                    fixture::observe(fgf::mersenne31::reduce(black_box(value)));
-                });
-            },
-        };
-        registry::add(case);
-    } else {
-        let case = Case {
-            case: "convert/fold-reduce/goldilocks".to_string(),
-            api: API_FOLD_REDUCE_GLD,
-            field: "goldilocks".to_string(),
-            operation: "specialized reduction".to_string(),
-            scope: Scope::Steady,
-            bytes: 0,
-            lanes: 1,
-            sources: 1,
-            destinations: 1,
-            control: false,
-            phase: None,
-            run: |case, ctx| {
-                let mut seed = seed_for(case.field.as_str());
-                let value = fixture::lcg(&mut seed);
-                let wide = u128::from(value) << 64 | u128::from(fixture::lcg(&mut seed));
-                assert_eq!(
-                    fgf::goldilocks::reduce(value),
-                    fgf::field::prime::reduce::<0xFFFF_FFFF_0000_0001>(value),
-                    "{}: goldilocks reduce oracle",
-                    case.case
-                );
-                assert_eq!(
-                    u128::from(fgf::goldilocks::reduce_wide(wide)),
-                    wide % u128::from(0xFFFF_FFFF_0000_0001u64),
-                    "{}: goldilocks reduce_wide oracle",
-                    case.case
-                );
-                let backend = fields::scalar_backend_name();
-                registry::time(case, ctx, &backend, || {
-                    let reduced = fgf::goldilocks::reduce(black_box(value));
-                    let widened = fgf::goldilocks::reduce_wide(black_box(wide));
-                    fixture::observe((reduced, widened));
-                });
-            },
-        };
-        registry::add(case);
-    }
-}
-
 /// Primality latency for a full-width prime, semiprime, and divisibility shortcut.
 fn register_is_prime() {
     for route in ["large-prime", "semiprime", "even-composite"] {
@@ -498,7 +380,7 @@ fn register_is_prime() {
             control: false,
             phase: None,
             run: |case, ctx| {
-                use fgf::field::is_prime;
+                use fgf::prime::is_prime;
                 let (candidate, expected) = match case.operation.as_str() {
                     "large-prime" => (18_446_744_073_709_551_557, true),
                     "semiprime" => (4_294_967_291_u64 * 4_294_967_279, false),
@@ -520,7 +402,7 @@ fn register_is_prime() {
 }
 
 /// Register the conversion panel over every registered field, plus the
-/// field-independent reduction, fold-reduction, and primality cases.
+/// field-independent primality cases.
 pub fn register() {
     macro_rules! walk {
         ($label:literal, $F:ty) => {
@@ -543,25 +425,6 @@ pub fn register() {
     }
     for_each_field_small!(scalar_walk);
 
-    macro_rules! residue_walk {
-        ($label:literal, $p:literal) => {
-            register_reduce::<$p>($label);
-        };
-    }
-    residue_walk!("gf2p1-residue", 2);
-    residue_walk!("gf101", 101);
-    residue_walk!("gf127", 127);
-    residue_walk!("gf131", 131);
-    residue_walk!("gf65521", 65_521);
-    residue_walk!("gf65537", 65_537);
-    residue_walk!("gf1e9p7", 1_000_000_007);
-    residue_walk!("gfu32max", 4_294_967_291);
-    residue_walk!("gfmaxp", 18_446_744_073_709_551_557);
-    residue_walk!("m31-residue", 0x7FFF_FFFF);
-    residue_walk!("goldilocks-residue", 0xFFFF_FFFF_0000_0001);
-
-    register_fold_reduce("m31");
-    register_fold_reduce("goldilocks");
     register_is_prime();
 
     macro_rules! components_walk {

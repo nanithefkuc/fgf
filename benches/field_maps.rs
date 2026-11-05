@@ -27,13 +27,13 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::poly::{AES, RS};
-use fgf::{
-    Components, Elem, Embedding, Extension, ExtensionSpec, Field, FieldBuffer, FieldElem,
-    FiniteField, Goldilocks, Isomorphism, Mersenne31, Normal, Polynomial, QuadMersenne31, Relation,
-    Residue, backend, backend_for,
-};
-use fgf::{FanPaar8, FanPaar16, FanPaar64, Rijndael16, Rijndael32, Rijndael64};
+use fgf::binary::{AES, RS};
+use fgf::binary::{FanPaar8, FanPaar16, FanPaar64, Rijndael16, Rijndael32, Rijndael64};
+use fgf::binary::{Normal, Polynomial};
+use fgf::extension::{Components, Extension, ExtensionSpec, QuadMersenne31, Relation};
+use fgf::maps::{Embedding, Isomorphism};
+use fgf::prime::{Goldilocks, Mersenne31, Residue};
+use fgf::{Elem, Field, FieldBuffer, FieldElem, FiniteField, backend, backend_for};
 
 type Aes8 = FiniteField<2, 8, Polynomial<AES>>;
 type Rs8 = FiniteField<2, 8, Polynomial<RS>>;
@@ -776,7 +776,7 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
         .collect();
     let mixed_restrict_bytes = encode_staged::<T>(pair, "restrict-mixed", &mixed_restrict);
     let elem_traffic = S::BYTES + T::BYTES;
-    let mask_bytes = fgf::bits::bytes_for(top);
+    let mask_bytes = fgf::ops::bits::bytes_for(top);
 
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/embed/row-{count}");
@@ -797,14 +797,14 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
     }
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/restrict-member/row-{count}");
-        let bytes = count * elem_traffic + fgf::bits::bytes_for(count);
+        let bytes = count * elem_traffic + fgf::ops::bits::bytes_for(count);
         let src = &member_bytes[..count * T::BYTES];
         let mut dst = vec![0u8; top * S::BYTES];
         let mut mask = vec![0u8; mask_bytes];
         bench_region(&label, bytes, || {
             let src = black_box(src);
             let dst = black_box(&mut dst[..count * S::BYTES]);
-            let mask = black_box(&mut mask[..fgf::bits::bytes_for(count)]);
+            let mask = black_box(&mut mask[..fgf::ops::bits::bytes_for(count)]);
             mask.fill(0);
             for (i, (s, d)) in src
                 .chunks_exact(T::BYTES)
@@ -824,14 +824,14 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
     }
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/restrict-nonmember/row-{count}");
-        let bytes = count * elem_traffic + fgf::bits::bytes_for(count);
+        let bytes = count * elem_traffic + fgf::ops::bits::bytes_for(count);
         let src = &outsider_bytes[..count * T::BYTES];
         let mut dst = vec![0u8; top * S::BYTES];
         let mut mask = vec![0u8; mask_bytes];
         bench_region(&label, bytes, || {
             let src = black_box(src);
             let dst = black_box(&mut dst[..count * S::BYTES]);
-            let mask = black_box(&mut mask[..fgf::bits::bytes_for(count)]);
+            let mask = black_box(&mut mask[..fgf::ops::bits::bytes_for(count)]);
             mask.fill(0);
             for (i, (s, d)) in src
                 .chunks_exact(T::BYTES)
@@ -851,7 +851,7 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
     }
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/restrict-mixed/row-{count}");
-        let bytes = count * elem_traffic + fgf::bits::bytes_for(count);
+        let bytes = count * elem_traffic + fgf::ops::bits::bytes_for(count);
         let src = &mixed_restrict_bytes[..count * T::BYTES];
         let mut dst = vec![0u8; top * S::BYTES];
         let mut mask = vec![0u8; mask_bytes];
@@ -877,7 +877,7 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
         // computed expectations: canonical preimage-or-zero lanes,
         // LSB-first membership bits, cleared tail bits.
         {
-            let mask_len = fgf::bits::bytes_for(count);
+            let mask_len = fgf::ops::bits::bytes_for(count);
             run_mixed_row(map, &mut dst[..count * S::BYTES], &mut mask[..mask_len]);
             for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
                 let value = T::decode(s);
@@ -918,7 +918,7 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
                 }
             }
             assert_eq!(
-                fgf::bits::weight(&mask[..mask_len], count),
+                fgf::ops::bits::weight(&mask[..mask_len], count),
                 mixed_restrict[..count]
                     .iter()
                     .filter(|y| map.contains(**y))
@@ -932,19 +932,19 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
         }
         bench_region(&label, bytes, || {
             let dst = black_box(&mut dst[..count * S::BYTES]);
-            let mask = black_box(&mut mask[..fgf::bits::bytes_for(count)]);
+            let mask = black_box(&mut mask[..fgf::ops::bits::bytes_for(count)]);
             run_mixed_row(map, dst, mask);
             black_box((dst, mask));
         });
     }
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/contains/row-{count}");
-        let bytes = count * T::BYTES + fgf::bits::bytes_for(count);
+        let bytes = count * T::BYTES + fgf::ops::bits::bytes_for(count);
         let src = &mixed_bytes[..count * T::BYTES];
         let mut mask = vec![0u8; mask_bytes];
         bench_region(&label, bytes, || {
             let src = black_box(src);
-            let mask = black_box(&mut mask[..fgf::bits::bytes_for(count)]);
+            let mask = black_box(&mut mask[..fgf::ops::bits::bytes_for(count)]);
             mask.fill(0);
             for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
                 if map.contains(T::decode(s)) {

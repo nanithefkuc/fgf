@@ -1,7 +1,9 @@
 // expect: padded packed storage is not narrower than its word
 //! `PackedPadded<u8>` over a degree-sixteen row: the coordinate word must
 //! stay below the storage word.
-use fgf::{AES, Elem, Extension, ExtensionSpec, FiniteField, PackedPadded, Polynomial, Relation};
+use fgf::{Elem, FiniteField};
+use fgf::binary::{AES, Polynomial};
+use fgf::extension::{Extension, ExtensionSpec, PackedPadded, Relation};
 
 type Aes8 = FiniteField<2, 8, Polynomial<AES>>;
 

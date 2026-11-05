@@ -11,7 +11,8 @@ mod reference;
 #[path = "extension/rows.rs"]
 mod rows;
 
-use fgf::{Components, Extension, ExtensionSpec, FiniteField, Relation};
+use fgf::FiniteField;
+use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
 
 /// GF(49) as `t^2 - 3` over the residue row at seven.
 struct Gf49Spec;

@@ -36,7 +36,8 @@ compatibility promise. Applications normally use `ops`, not direct kernels.
 ## Inspect the field, not only the process
 
 ```rust
-use fgf::{AES, FiniteField, Normal, Polynomial, backend, backend_for};
+use fgf::{FiniteField, backend, backend_for};
+use fgf::binary::{AES, Normal, Polynomial};
 
 type PolynomialField = FiniteField<2, 8, Polynomial<AES>>;
 type NormalField = FiniteField<2, 8, Normal<AES, 0x20>>;

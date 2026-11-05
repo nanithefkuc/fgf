@@ -1,7 +1,7 @@
 //! Batch reciprocal and division rows: Montgomery inversion over lanes.
 //!
-//! The scalar [`FieldElem::inv`](crate::field::FieldElem::inv) maps zero to
-//! zero and [`FieldElem::div`](crate::field::FieldElem::div) maps a zero
+//! The scalar [`FieldElem::inv`](crate::FieldElem::inv) maps zero to
+//! zero and [`FieldElem::div`](crate::FieldElem::div) maps a zero
 //! divisor to zero; these row forms keep that totality lane by lane. Zeros
 //! map to zero and never poison the shared batch product: the running
 //! prefix skips zero lanes, the single inverted product only touches
@@ -10,7 +10,7 @@
 use crate::field::{Elem, FieldElem};
 use crate::kernel::FieldKernels;
 
-use super::{check_pair, check_width};
+use super::geometry::{check_pair, check_width};
 
 /// Montgomery chunk: stack scratch sized to cover a 512-bit AVX-512 lane
 /// of the widest 8-byte lanes without touching the heap.

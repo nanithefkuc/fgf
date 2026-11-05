@@ -1,19 +1,9 @@
 //! Cantor-basis binary presentations at degrees 2, 4, and 8.
 //!
-//! [`Cantor`] builds its basis from `SEED` through the relation
-//! `c_(N-1) = SEED` and `c_i = c_(i+1)^2 + c_(i+1)`; bit `i` selects `c_i`.
-//! Validity explicitly asserts that the chain reaches `c_0 == ONE` and
-//! checks basis rank by bounded enumeration, never by a matrix solver.
-//!
-//! Smallest valid test instances use the same seeds as the normal basis:
-//! `SEED = 2` over `P = 0x7`, `SEED = 8` over `P = 0x13`, and
-//! `SEED = 0x20` over [`AES`](super::poly::AES) and
-//! [`RS`](super::poly::RS).
-//!
-//! ```compile_fail,E0080
-//! // SEED = 0 builds the zero chain, which never reaches one.
-//! let _ = fgf::Elem::<fgf::FiniteField<2, 8, fgf::Cantor<0x11B, 0>>>::from_raw(1);
-//! ```
+//! `Cantor` builds its basis from a seed through
+//! `c_i = c_(i+1)^2 + c_(i+1)`, asserts that the chain reaches one, and
+//! checks basis rank by bounded enumeration. The public basis contract lives
+//! on the [`binary`](crate::binary) facade.
 
 use super::BinaryRepr;
 use super::description::{BinaryDescription, ByteLogExp};

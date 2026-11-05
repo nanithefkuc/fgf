@@ -30,10 +30,10 @@ pub mod gf16 {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::field::binary::tower::FanPaar16Field;
     use crate::field::binary::tower::Rijndael16Field;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    use crate::field::binary::{AES, Polynomial};
     use crate::field::extension::Packed;
     use crate::field::extension::pinned::{self, Instance};
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    use crate::field::{AES, Polynomial};
     use crate::field::{BinaryField, Elem, Field};
     use crate::kernel::extension::{StorageKernels, StorageRow};
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]

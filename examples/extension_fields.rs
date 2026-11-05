@@ -7,14 +7,17 @@
 #![forbid(unsafe_code)]
 
 use fgf::Field;
-use fgf::{Elem, FiniteField, Mersenne31, Polynomial, QuadMersenne31};
+use fgf::binary::Polynomial;
+use fgf::extension::QuadMersenne31;
+use fgf::prime::Mersenne31;
+use fgf::{Elem, FiniteField};
 
-use fgf::poly::AES;
+use fgf::binary::AES;
 
 // Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Extension<fgf::FanPaar8, 2>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type FanPaar8Field = fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>;
 
 fn main() {
     // In the AES-rooted tower, x = a + b*u and u^2 + u + DELTA = 0.

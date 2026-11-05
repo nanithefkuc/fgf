@@ -6,7 +6,7 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::bits;
+use fgf::ops::bits;
 
 const LENGTH: usize = 7;
 const CHECKS: [[u8; 1]; 3] = [[0b0101_0101], [0b0110_0110], [0b0111_1000]];

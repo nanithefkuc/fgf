@@ -13,7 +13,7 @@
 //! lane; lane helpers are `#[rite]` functions.
 //!
 //! The AVX2 lane helpers are shared with the
-//! [`QuadMersenne31`](crate::field::QuadMersenne31) kernels, whose limbs are
+//! [`QuadMersenne31`](crate::extension::QuadMersenne31) kernels, whose limbs are
 //! these lanes.
 
 mod avx2;

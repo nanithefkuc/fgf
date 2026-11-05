@@ -7,7 +7,7 @@
 //! re-asserted after every operation on every geometry: a kernel that reads
 //! or writes one bit past the live region fails here.
 
-use fgf::bits;
+use fgf::ops::bits;
 
 /// The shared fixed-seed LCG noise, as in the other suites.
 fn noise(len: usize, seed: u64) -> Vec<u8> {

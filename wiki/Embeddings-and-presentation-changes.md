@@ -13,7 +13,9 @@ Embed the smaller field through a root of its defining polynomial in the
 target, not by treating its coordinates as a byte prefix:
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Embedding, Polynomial};
+use fgf::{FiniteField, Elem};
+use fgf::binary::{AES, Polynomial};
+use fgf::maps::Embedding;
 
 type Small = FiniteField<2, 4, Polynomial<0x13>>;
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
@@ -34,7 +36,9 @@ outside this particular subfield.
 AES-to-RS conversion preserves arithmetic, not raw bytes:
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Isomorphism, Polynomial, RS};
+use fgf::{FiniteField, Elem};
+use fgf::binary::{AES, Polynomial, RS};
+use fgf::maps::Isomorphism;
 
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
 type Rs = FiniteField<2, 8, Polynomial<RS>>;
@@ -57,7 +61,10 @@ not tuning options. `then` composes by image transport, so the composed
 inclusion equals the direct one:
 
 ```rust
-use fgf::{AES, Elem, Embedding, Extension, FiniteField, Polynomial, Rijndael16, Rijndael64};
+use fgf::{Elem, FiniteField};
+use fgf::binary::{AES, Polynomial, Rijndael16, Rijndael64};
+use fgf::extension::Extension;
+use fgf::maps::Embedding;
 
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
 type Mid = FiniteField<2, 16, Extension<Rijndael16, 2>>;
@@ -79,7 +86,10 @@ composes the other order, an isomorphism into a proper inclusion;
 `Isomorphism::then` composes two isomorphisms:
 
 ```rust
-use fgf::{AES, Elem, Embedding, Extension, FiniteField, Isomorphism, Polynomial, RS, Rijndael16};
+use fgf::{Elem, FiniteField};
+use fgf::binary::{AES, Polynomial, RS, Rijndael16};
+use fgf::extension::Extension;
+use fgf::maps::{Embedding, Isomorphism};
 
 type Nibble = FiniteField<2, 4, Polynomial<0x13>>;
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
@@ -106,7 +116,10 @@ For source order `q` and relative extension degree `r`, relative Frobenius sends
 In the Rijndael degree-sixteen relation `t² + t + 0x20 = 0`, the conjugate of `a + b*t` is `(a + b) + b*t`. Its trace is `b`; its norm is `a² + a*b + 0x20*b²`.
 
 ```rust
-use fgf::{AES, Elem, Embedding, Extension, FiniteField, Polynomial, Rijndael16};
+use fgf::{Elem, FiniteField};
+use fgf::binary::{AES, Polynomial, Rijndael16};
+use fgf::extension::Extension;
+use fgf::maps::Embedding;
 
 type Base = FiniteField<2, 8, Polynomial<AES>>;
 type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
@@ -137,7 +150,10 @@ respectively. Restrict through a valid smaller-to-larger map rather than
 constructing the reverse inclusion:
 
 ```rust
-use fgf::{AES, Embedding, EmbeddingError, Extension, FiniteField, Isomorphism, Polynomial, RS, Rijndael16};
+use fgf::{FiniteField};
+use fgf::binary::{AES, Polynomial, RS, Rijndael16};
+use fgf::extension::Extension;
+use fgf::maps::{Embedding, EmbeddingError, Isomorphism};
 
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
 type Rs = FiniteField<2, 8, Polynomial<RS>>;

@@ -28,18 +28,18 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::poly::AES;
-use fgf::{
-    Elem, Extension, ExtensionSpec, FieldBuffer, FieldElem, FiniteField, Goldilocks, Mersenne31,
-    Packed, Polynomial, QuadMersenne31, RS, Relation, backend, backend_for, ops,
-};
+use fgf::binary::AES;
+use fgf::binary::{Polynomial, RS};
+use fgf::extension::{Extension, ExtensionSpec, Packed, QuadMersenne31, Relation};
+use fgf::prime::{Goldilocks, Mersenne31};
+use fgf::{Elem, FieldBuffer, FieldElem, FiniteField, backend, backend_for, ops};
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
-type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Extension<fgf::FanPaar32, 2>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>;
 type Word1e9p7 = FiniteField<1_000_000_007, 1>;
 type WordMax = FiniteField<4_294_967_291, 1>;
 type Byte101 = FiniteField<101, 1>;
@@ -884,25 +884,29 @@ fn bench_gf2_bits() {
         let mut dst = noise(bytes, 0x2300 + bytes as u64);
         println!("  {human} buffers ({bits} elements):");
         bench("  bits::xor_assign              packed", bytes, || {
-            fgf::bits::xor_assign(black_box(&mut dst), black_box(&a));
+            fgf::ops::bits::xor_assign(black_box(&mut dst), black_box(&a));
         });
         bench("  bits::and_into         packed", bytes, || {
-            fgf::bits::and_into(black_box(&mut dst), black_box(&a), black_box(&b));
+            fgf::ops::bits::and_into(black_box(&mut dst), black_box(&a), black_box(&b));
         });
         bench("  bits::weight           packed", bytes, || {
-            black_box(fgf::bits::weight(black_box(&a), bits));
+            black_box(fgf::ops::bits::weight(black_box(&a), bits));
         });
         bench("  bits::dot_product       packed", bytes, || {
-            black_box(fgf::bits::dot_product(black_box(&a), black_box(&b), bits));
+            black_box(fgf::ops::bits::dot_product(
+                black_box(&a),
+                black_box(&b),
+                bits,
+            ));
         });
         let from = bits / 4;
         let to = bits - bits / 8;
         bench("  bits::xor_range  5/8    packed", bytes, || {
-            fgf::bits::xor_range(black_box(&mut dst), black_box(&a), bits, from, to);
+            fgf::ops::bits::xor_range(black_box(&mut dst), black_box(&a), bits, from, to);
         });
-        let plan = fgf::bits::XorRange::new(bits, from, to);
+        let plan = fgf::ops::bits::XorRange::new(bits, from, to);
         bench("  bits::XorRange   5/8    packed", bytes, || {
-            fgf::bits::xor_range_with(black_box(&mut dst), black_box(&a), black_box(&plan));
+            fgf::ops::bits::xor_range_with(black_box(&mut dst), black_box(&a), black_box(&plan));
         });
         bench("  ops::add_assign  gf8b control", bytes, || {
             ops::add_assign::<FiniteField<2, 8, Polynomial<AES>>>(
@@ -933,7 +937,7 @@ fn bench_gf2_short_rows() {
     let one_shot = bench("  bits::xor_range  8-bit row", ROW_BYTES * pairs, || {
         for i in 0..pairs {
             let off = i * 2 * ROW_BYTES;
-            fgf::bits::xor_range(
+            fgf::ops::bits::xor_range(
                 black_box(&mut dst[off..off + ROW_BYTES]),
                 black_box(&src[off..off + ROW_BYTES]),
                 bits,
@@ -942,11 +946,11 @@ fn bench_gf2_short_rows() {
             );
         }
     });
-    let plan = fgf::bits::XorRange::new(bits, 61, 69);
+    let plan = fgf::ops::bits::XorRange::new(bits, 61, 69);
     let prepared = bench("  bits::XorRange   8-bit row", ROW_BYTES * pairs, || {
         for i in 0..pairs {
             let off = i * 2 * ROW_BYTES;
-            fgf::bits::xor_range_with(
+            fgf::ops::bits::xor_range_with(
                 black_box(&mut dst[off..off + ROW_BYTES]),
                 black_box(&src[off..off + ROW_BYTES]),
                 black_box(&plan),

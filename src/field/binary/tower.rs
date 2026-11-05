@@ -1,54 +1,9 @@
-//! The shipped quadratic binary extension instances.
+//! The shipped quadratic binary extension instances and their scalar bodies.
 //!
-//! The Rijndael and Fan-Paar towers are [`ExtensionSpec<2>`] instances: each
-//! names the field `FiniteField<2, N, Extension<S, 2>>` as `a + b*t` over
-//! the previous level, under the relation `t^2 + c1*t + c0 = 0`. The low
-//! `N/2` coordinate bits hold `a` and the high `N/2` bits hold `b`; storage
-//! bits at or above `N` are zero. One is the base one in the low component.
-//! The scalar identities are:
-//!
-//! ```text
-//! product:   (a*c + c0*b*d, a*d + b*c + c1*b*d)
-//! square:    (a^2 + c0*b^2, c1*b^2)
-//! conjugate: (a + c1*b, b)
-//! norm:      a^2 + c1*a*b + c0*b^2
-//! ```
-//!
-//! [`Rijndael16`], [`Rijndael32`], and [`Rijndael64`] root at the AES field
-//! with `c1 = 1` and `c0` equal to `0x20`, `0x2000`, and `0x2000_0000`. The
-//! Fan-Paar specs nest from GF(2) through the Wiedemann relation
-//! `t^2 + alpha*t + 1`, where `alpha` is the previous level's
-//! indeterminate (`1` over GF(2), then the raw `base_one << (h/2)` in its
-//! own packing). [`FanPaar2`] and [`FanPaar4`] keep their coordinate word
-//! in a padded byte and carry no byte buffer; every other instance fills
-//! its `u8`, `u16`, `u32`, or `u64` word exactly and encodes it
-//! little-endian.
-//!
-//! Each instance carries its frozen generator and a full `const` surface on
-//! its concrete element type: constructors, byte and component conversions,
-//! and arithmetic, plus `mul_alpha` on Fan-Paar GF(2^8), GF(2^16), and
-//! GF(2^32). The `const` methods and the row's [`Field`](crate::Field)
-//! arithmetic share one specialized body per instance: the Rijndael rows run
-//! the Karatsuba recurrence over the AES field, the wide Fan-Paar rows the
-//! Wiedemann recurrence, and Fan-Paar GF(2^2) through GF(2^8) the
-//! descriptor interpreter. An extension row whose presentation equals a
-//! shipped instance's — base presentation, relation, and storage — runs
-//! that instance's body; every other row runs the generic extension body.
-//!
-//! ```
-//! use fgf::{Elem, Extension, FiniteField, Rijndael16};
-//!
-//! type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
-//!
-//! let x = Elem::<Gf16>::from_raw(0x1234);
-//! assert_eq!(x.mul(Elem::<Gf16>::ONE), x);
-//! assert_eq!(Elem::<Gf16>::GENERATOR.pow(65_535), Elem::<Gf16>::ONE);
-//!
-//! // Components are the base-field coefficients of `1` and `t`.
-//! let [low, high] = x.to_components();
-//! assert_eq!((low.to_raw(), high.to_raw()), (0x34, 0x12));
-//! assert_eq!(Elem::<Gf16>::from_components([low, high]), x);
-//! ```
+//! The Rijndael and Fan-Paar towers are `ExtensionSpec<2>` instances over
+//! `a + b*t` with `t^2 + c1*t + c0 = 0`, each carrying its frozen generator
+//! and a specialized `const` surface. The public packing convention,
+//! identities, and examples live on the [`binary`](crate::binary) facade.
 
 use super::BinaryField;
 use super::description::BinaryDescription;
@@ -1198,8 +1153,8 @@ mod tests {
     /// product to the normal-basis product of the images.
     #[test]
     fn transport_poly_is_a_field_isomorphism() {
-        type Poly8 = FiniteField<2, 8, crate::field::Polynomial<0x11B>>;
-        type Normal8 = FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>;
+        type Poly8 = FiniteField<2, 8, crate::field::binary::Polynomial<0x11B>>;
+        type Normal8 = FiniteField<2, 8, crate::field::binary::Normal<0x11B, 0x20>>;
         #[allow(clippy::cast_possible_truncation)]
         let transport = |word: u8| transport_poly(core::hint::black_box(u64::from(word))) as u8;
         assert_eq!(transport(1), Elem::<Normal8>::ONE.to_raw());

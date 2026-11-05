@@ -1,7 +1,9 @@
 // expect: polynomial is reducible
 //! An extension over `x^2 + 1` over GF(2): the base polynomial factors, so
 //! the base's own validation rejects the row before the relation is read.
-use fgf::{Components, Elem, Extension, ExtensionSpec, FiniteField, Polynomial, Relation};
+use fgf::{Elem, FiniteField};
+use fgf::binary::Polynomial;
+use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
 
 struct Spec;
 impl ExtensionSpec<2> for Spec {

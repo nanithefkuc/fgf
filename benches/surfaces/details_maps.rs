@@ -14,9 +14,11 @@
 
 use std::hint::black_box;
 
-use fgf::field::{Field, FieldElem};
+use fgf::extension::Relation;
+use fgf::maps::Isomorphism;
 use fgf::ops::{CoeffMatrix, CoeffVec};
-use fgf::{Elem, FieldBuffer, FieldKernels, Isomorphism, Relation, ops};
+use fgf::{Elem, FieldBuffer, FieldKernels, ops};
+use fgf::{Field, FieldElem};
 
 use crate::fields::{self, Gf2p8Aes, Gf2p8Rs, Gf2p16Rijndael, Qm31};
 use crate::fixture;
@@ -111,22 +113,24 @@ const API_COEFFVECREF_IS_EMPTY: &[&str] = &[
     "fgf::ops::CoeffVec::new",
     "fgf::ops::CoeffVec::as_ref",
 ];
-const API_HAS_VECTOR_ELEMENTWISE: &[&str] = &["fgf::kernel::FieldKernels::has_vector_elementwise"];
-const API_VECTOR_ELEMENTWISE_MIN_BYTES: &[&str] = &["fgf::kernel::vector_elementwise_min_bytes"];
+const API_HAS_VECTOR_ELEMENTWISE: &[&str] = &["fgf::FieldKernels::has_vector_elementwise"];
 const API_ISO_FROM_IMAGES: &[&str] = &[
-    "fgf::Isomorphism::from_images",
-    "fgf::Isomorphism::to_images",
-    "fgf::Isomorphism::new",
+    "fgf::maps::Isomorphism::from_images",
+    "fgf::maps::Isomorphism::to_images",
+    "fgf::maps::Isomorphism::new",
 ];
 const API_ISO_THEN: &[&str] = &[
-    "fgf::Isomorphism::then",
-    "fgf::Isomorphism::inverse",
-    "fgf::Isomorphism::new",
+    "fgf::maps::Isomorphism::then",
+    "fgf::maps::Isomorphism::inverse",
+    "fgf::maps::Isomorphism::new",
 ];
-const API_ISO_TO_IMAGES: &[&str] = &["fgf::Isomorphism::to_images", "fgf::Isomorphism::new"];
-const API_RELATION_FROM_COORDINATES: &[&str] = &["fgf::Relation::from_coordinates"];
-const API_RELATION_FROM_BINARY_WORDS: &[&str] = &["fgf::Relation::from_binary_words"];
-const API_RELATION_TO_COORDINATES: &[&str] = &["fgf::Relation::to_coordinates"];
+const API_ISO_TO_IMAGES: &[&str] = &[
+    "fgf::maps::Isomorphism::to_images",
+    "fgf::maps::Isomorphism::new",
+];
+const API_RELATION_FROM_COORDINATES: &[&str] = &["fgf::extension::Relation::from_coordinates"];
+const API_RELATION_FROM_BINARY_WORDS: &[&str] = &["fgf::extension::Relation::from_binary_words"];
+const API_RELATION_TO_COORDINATES: &[&str] = &["fgf::extension::Relation::to_coordinates"];
 
 fn register_gather_into_prepared<F: FieldBuffer + FieldKernels>(label: &'static str) {
     let row = row_bytes::<F>();
@@ -364,44 +368,14 @@ fn register_has_vector_elementwise<F: FieldKernels>(label: &'static str) {
         phase: None,
         run: |case, ctx| {
             let has = <F as FieldKernels>::has_vector_elementwise();
-            assert_eq!(
-                has,
-                fgf::has_vector_elementwise::<F>(),
-                "{}: free wrapper agrees with the trait method",
+            assert!(
+                !has || fgf::backend_for::<F>() != fgf::Backend::Scalar,
+                "{}: vector elementwise implies a vector-capable tier",
                 case.case
             );
             let backend = fields::backend_name::<F>();
             registry::time(case, ctx, &backend, || {
                 fixture::observe(<F as FieldKernels>::has_vector_elementwise());
-            });
-        },
-    });
-}
-
-fn register_vector_elementwise_min_bytes<F: FieldKernels>(label: &'static str) {
-    registry::add(Case {
-        case: format!("details-maps/vector-elementwise-min-bytes/{label}"),
-        api: API_VECTOR_ELEMENTWISE_MIN_BYTES,
-        field: label.to_string(),
-        operation: "vector-elementwise-min-bytes".to_string(),
-        scope: Scope::Query,
-        bytes: 0,
-        lanes: 1,
-        sources: 0,
-        destinations: 0,
-        control: false,
-        phase: None,
-        run: |case, ctx| {
-            let min_bytes = fgf::kernel::vector_elementwise_min_bytes::<F>();
-            assert_eq!(
-                min_bytes,
-                <F as FieldKernels>::vector_elementwise_min_bytes(),
-                "{}: free wrapper agrees with the trait method",
-                case.case
-            );
-            let backend = fields::backend_name::<F>();
-            registry::time(case, ctx, &backend, || {
-                fixture::observe(fgf::kernel::vector_elementwise_min_bytes::<F>());
             });
         },
     });
@@ -612,7 +586,6 @@ pub fn register() {
     register_coeffvecref_len::<Gf2p16Rijndael>("gf2p16-rijndael");
     register_coeffvecref_is_empty::<Gf2p16Rijndael>("gf2p16-rijndael");
     register_has_vector_elementwise::<Qm31>("qm31");
-    register_vector_elementwise_min_bytes::<Qm31>("qm31");
 
     iso_case(
         "iso-from-images",

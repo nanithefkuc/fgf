@@ -14,7 +14,8 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use fgf::{Elem, Goldilocks, ops};
+use fgf::prime::Goldilocks;
+use fgf::{Elem, ops};
 
 #[path = "common/goldilocks_wrap.rs"]
 mod common;

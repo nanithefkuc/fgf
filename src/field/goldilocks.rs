@@ -1,42 +1,8 @@
-//! The prime field GF(2^64 − 2^32 + 1), the Goldilocks field.
+//! The Goldilocks row and its scalar body.
 //!
-//! Elements are 64-bit lanes reduced modulo `p = 2^64 − 2^32 + 1 =
-//! 0xFFFF_FFFF_0000_0001`. Reduction of a 128-bit product uses the identity
-//! `2^64 ≡ 2^32 − 1 (mod p)` (the split-fold that makes Goldilocks fast on
-//! 32-bit-half integer SIMD).
-//!
-//! # Totality and canonicalization
-//!
-//! Every raw 64-bit lane is a legal input: [`Elem::from_raw`](crate::field::Elem)
-//! and [`FieldBuffer::decode`](crate::field::FieldBuffer) reduce it into the
-//! canonical range `0..p` on the way in. Every arithmetic output is canonical
-//! with no branch and no panic on out-of-range operands, the prime-field
-//! analogue of the crate-wide `inv(0) == 0` convention. Storage is always
-//! canonical, so equality, hashing, and ordering compare raw words directly.
-//! Inspect the stored bits with [`Elem::to_raw`](crate::field::Elem::to_raw).
-//!
-//! Arithmetic is variable-time and not intended for secret data.
-//!
-//! ```
-//! use fgf::{Elem, Goldilocks};
-//!
-//! const X: Elem<Goldilocks> = Elem::<Goldilocks>::from_raw(0xFFFF_FFFF_0000_0000);
-//! const _: () = assert!(X.mul(X).to_raw() == 0x0000_0000_0000_0001);
-//!
-//! // `inv` is `const`, so a reciprocal table can be a `const` item.
-//! const HALF: Elem<Goldilocks> = Elem::<Goldilocks>::from_raw(2).inv();
-//! const _: () = assert!(HALF.to_raw() == 0x7FFF_FFFF_8000_0001);
-//! const _: () = assert!(Elem::<Goldilocks>::from_raw(2).mul(HALF).to_raw() == 1);
-//!
-//! // Division is total: `x / 0` is zero, in `const` context too.
-//! const _: () = assert!(X.div(Elem::<Goldilocks>::ZERO).to_raw() == 0);
-//!
-//! // The generator has full multiplicative order p − 1 = 2^64 − 2^32.
-//! assert_eq!(
-//!     Elem::<Goldilocks>::GENERATOR.pow(0xFFFF_FFFF_0000_0000),
-//!     Elem::<Goldilocks>::ONE
-//! );
-//! ```
+//! Reduction uses `2^64 ≡ 2^32 − 1 (mod p)`, the split-fold that makes
+//! Goldilocks fast on 32-bit-half integer SIMD. The public contract for this
+//! field lives on the [`prime`](crate::prime) facade.
 
 use super::extension::Descriptor;
 use super::extension::descriptor::PrimePresentation;
@@ -44,7 +10,7 @@ use super::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
 use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, RangeError, Validate};
 
 /// The field modulus, `2^64 − 2^32 + 1`.
-pub const MODULUS: u64 = 0xFFFF_FFFF_0000_0001;
+pub(crate) const MODULUS: u64 = 0xFFFF_FFFF_0000_0001;
 
 /// `2^32 − 1`, the residue of `2^64` modulo `p` and the fold constant.
 const EPSILON: u64 = 0xFFFF_FFFF;
@@ -427,7 +393,17 @@ impl core::fmt::Display for Elem<Goldilocks> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Elem, Goldilocks, HasGenerator, MODULUS, is_primitive};
+    use super::{Elem, Goldilocks, HasGenerator, MODULUS, is_primitive, reduce, reduce_wide};
+
+    /// The Goldilocks split reduction chain lands on its published
+    /// constants.
+    #[test]
+    fn fold_reductions_match_known_answers() {
+        assert_eq!(reduce(0xFFFF_FFFF_0000_0001), 0);
+        assert_eq!(reduce(u64::MAX), 0xFFFF_FFFE);
+        assert_eq!(reduce_wide(1u128 << 64), 0xFFFF_FFFF); // 2^64 = 2^32 − 1
+        assert_eq!(reduce_wide(1u128 << 96), 0xFFFF_FFFF_0000_0000); // 2^96 = −1
+    }
 
     const fn gcd(mut a: u64, mut b: u64) -> u64 {
         while b != 0 {

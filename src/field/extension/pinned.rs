@@ -295,13 +295,13 @@ mod tests {
     use super::PINNED;
     use super::shipped_instances as table;
     use crate::field::BinaryField;
-    use crate::field::QuadMersenne31;
     use crate::field::binary::description::BinaryDescription;
     use crate::field::binary::tower::{
         FanPaar2Field, FanPaar4Field, FanPaar8Field, FanPaar16Field, FanPaar32Field,
         FanPaar64Field, Rijndael16Field, Rijndael32Field, Rijndael64Field,
     };
     use crate::field::private::RowAccess;
+    use crate::field::quad_mersenne31::QuadMersenne31;
 
     #[test]
     fn pinned_descriptors_prove_irreducible_by_the_full_test() {

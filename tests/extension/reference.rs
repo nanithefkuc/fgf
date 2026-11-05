@@ -11,11 +11,14 @@
 //! the full-width prime rows.
 
 use super::{Gf49, Gf343, Sample};
-use fgf::field::mersenne31::Mersenne31;
-use fgf::{
-    AES, Elem, Embedding, Extension, ExtensionField, ExtensionSpec, Field, FieldElem, FiniteField,
-    Goldilocks, Normal, PackedPadded, Polynomial, PrimeIdentity, QuadMersenne31, Relation,
+use fgf::binary::{AES, Normal, Polynomial};
+use fgf::extension::{
+    Extension, ExtensionField, ExtensionSpec, PackedPadded, QuadMersenne31, Relation,
 };
+use fgf::maps::Embedding;
+use fgf::prime::Mersenne31;
+use fgf::prime::{Goldilocks, PrimeIdentity};
+use fgf::{Elem, Field, FieldElem, FiniteField};
 
 // ---------------------------------------------------------------------------
 // Rows under test
@@ -26,7 +29,7 @@ use fgf::{
 struct Gf4Spec;
 impl ExtensionSpec<2> for Gf4Spec {
     type Base = FiniteField<2, 1>;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "GF(4) over residues";
     const RELATION: Relation = Relation::from_coordinates(&[1, 1]);
 }
@@ -60,7 +63,7 @@ type FlatGf4 = FiniteField<2, 2, Polynomial<7>>;
 struct BinaryComponentsSpec;
 impl ExtensionSpec<2> for BinaryComponentsSpec {
     type Base = FlatGf4;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "GF(2^4) in components";
     const RELATION: Relation = Relation::from_binary_words::<FlatGf4>(&[2, 1]);
 }
@@ -70,7 +73,7 @@ type BinaryComponents = FiniteField<2, 4, Extension<BinaryComponentsSpec, 2>>;
 struct GoldilocksSquareSpec;
 impl ExtensionSpec<2> for GoldilocksSquareSpec {
     type Base = Goldilocks;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "GF(g^2)";
     const RELATION: Relation = Relation::from_coordinates(&[0xFFFF_FFFF_0000_0001 - 7, 0]);
 }
@@ -81,7 +84,7 @@ type GoldilocksSquare = FiniteField<0xFFFF_FFFF_0000_0001, 2, Extension<Goldiloc
 struct CustomComplexSpec;
 impl ExtensionSpec<2> for CustomComplexSpec {
     type Base = Mersenne31;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "custom GF(p^2)";
     const RELATION: Relation = Relation::from_coordinates(&[1, 0]);
 }
@@ -90,7 +93,7 @@ type CustomComplex = FiniteField<0x7FFF_FFFF, 2, Extension<CustomComplexSpec, 2>
 struct OverCustomSpec;
 impl ExtensionSpec<2> for OverCustomSpec {
     type Base = CustomComplex;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "GF(p^4) over custom";
     const RELATION: Relation = Relation::from_coordinates(&[0x7FFF_FFFD, 0x7FFF_FFFE, 0, 0]);
 }
@@ -101,7 +104,7 @@ type OverCustom = FiniteField<0x7FFF_FFFF, 4, Extension<OverCustomSpec, 2>>;
 struct WidePrimeSquareSpec;
 impl ExtensionSpec<2> for WidePrimeSquareSpec {
     type Base = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1>;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "wide GF(p^2)";
     const RELATION: Relation = Relation::from_coordinates(&[0xFFFF_FFFF_FFFF_FFC5 - 2, 0]);
 }
@@ -112,7 +115,7 @@ type WidePrimeSquare = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 2, Extension<WidePrime
 struct Gf49FullSpec;
 impl ExtensionSpec<2> for Gf49FullSpec {
     type Base = FiniteField<7, 1>;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "GF(49) full relation";
     const RELATION: Relation = Relation::from_coordinates(&[3, 1]);
 }
@@ -122,7 +125,7 @@ type Gf49Full = FiniteField<7, 2, Extension<Gf49FullSpec, 2>>;
 struct Gf125Spec;
 impl ExtensionSpec<3> for Gf125Spec {
     type Base = FiniteField<5, 1>;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "GF(125)";
     const RELATION: Relation = Relation::from_coordinates(&[1, 1, 0]);
 }
@@ -133,7 +136,7 @@ type Gf125 = FiniteField<5, 3, Extension<Gf125Spec, 3>>;
 struct Gf625Spec;
 impl ExtensionSpec<4> for Gf625Spec {
     type Base = FiniteField<5, 1>;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "GF(625)";
     const RELATION: Relation = Relation::from_coordinates(&[3, 1, 1, 1]);
 }
@@ -144,7 +147,7 @@ type Gf625 = FiniteField<5, 4, Extension<Gf625Spec, 4>>;
 struct Gf9Spec;
 impl ExtensionSpec<2> for Gf9Spec {
     type Base = FiniteField<3, 1>;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "GF(9)";
     const RELATION: Relation = Relation::from_coordinates(&[1, 0]);
 }
@@ -153,7 +156,7 @@ type Gf9Row = FiniteField<3, 2, Extension<Gf9Spec, 2>>;
 struct Gf81Spec;
 impl ExtensionSpec<2> for Gf81Spec {
     type Base = Gf9Row;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "GF(81)";
     // `-(1 + a)` in base components: `(-1, -1)`, then the zero linear
     // coefficient.
@@ -915,14 +918,14 @@ type Normal4 = FiniteField<2, 2, Normal<7, 2>>;
 struct OverNormal4Spec;
 impl ExtensionSpec<2> for OverNormal4Spec {
     type Base = Normal4;
-    type Storage = fgf::Components;
+    type Storage = fgf::extension::Components;
     const NAME: &'static str = "GF(16) over normal-basis GF(4)";
     const RELATION: Relation = Relation::from_binary_words::<Normal4>(&[2, 3]);
 }
 type OverNormal16 = FiniteField<2, 4, Extension<OverNormal4Spec, 2>>;
 
-type Gf16Tower = FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>;
-type FanPaar16Tower = FiniteField<2, 16, Extension<fgf::FanPaar16, 2>>;
+type Gf16Tower = FiniteField<2, 16, Extension<fgf::binary::Rijndael16, 2>>;
+type FanPaar16Tower = FiniteField<2, 16, Extension<fgf::binary::FanPaar16, 2>>;
 
 #[test]
 fn routed_degree2_matches_the_pow_reference_exhaustively() {
@@ -941,7 +944,7 @@ fn routed_degree2_matches_the_pow_reference_exhaustively() {
 #[test]
 fn routed_packed_towers_match_the_pow_reference_exhaustively() {
     sweep_indexed_pair::<FiniteField<2, 8, Polynomial<AES>>, Gf16Tower>();
-    sweep_indexed_pair::<FiniteField<2, 8, Extension<fgf::FanPaar8, 2>>, FanPaar16Tower>();
+    sweep_indexed_pair::<FiniteField<2, 8, Extension<fgf::binary::FanPaar8, 2>>, FanPaar16Tower>();
 }
 
 /// Sample one relative-degree-2 row against the pow reference with the
@@ -967,7 +970,7 @@ where
 /// with the deterministic word generator.
 fn sample_packed_pair<Base, Row>(seed: u64)
 where
-    Base: fgf::BinaryField,
+    Base: fgf::binary::BinaryField,
     Row: Field<Characteristic = <Base as Field>::Characteristic> + fgf::FieldBuffer,
     Elem<Row>: FieldElem<Field = Row>,
     Elem<Base>: FieldElem<Field = Base>,
@@ -1020,6 +1023,10 @@ fn mersenne_custom_quadratic_routing_matches_the_pow_reference_on_samples() {
 
 #[test]
 fn routed_wide_towers_match_the_pow_reference_on_samples() {
-    sample_packed_pair::<Gf16Tower, FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>>(0xBEEF);
-    sample_packed_pair::<FanPaar16Tower, FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>>(0xCAFE);
+    sample_packed_pair::<Gf16Tower, FiniteField<2, 32, Extension<fgf::binary::Rijndael32, 2>>>(
+        0xBEEF,
+    );
+    sample_packed_pair::<FanPaar16Tower, FiniteField<2, 32, Extension<fgf::binary::FanPaar32, 2>>>(
+        0xCAFE,
+    );
 }

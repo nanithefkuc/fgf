@@ -1,11 +1,9 @@
-// expect-rejection
-use fgf::FieldKernels;
+// expect: mismatched types
 
-// Bound elaboration names the raw dispatch entry, but its proof is private
-// to the crate: outside code can neither name the type nor construct the
-// value, so the proof argument cannot be supplied and the call site cannot
-// compile.
-fn drive<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
-    let proof: fgf::kernel::RawDispatch = fgf::kernel::RawDispatch;
-    F::add_assign(proof, dst, src);
+// The raw dispatch entry takes a proof value whose type is private to the
+// crate: outside code cannot name or construct it, so the call is rejected
+// with a type error (E0308) at the proof argument. The entry's private
+// visibility contributes a second diagnostic.
+fn drive<F: fgf::FieldKernels>(dst: &mut [u8], src: &[u8]) {
+    F::add_assign((), dst, src);
 }

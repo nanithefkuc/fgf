@@ -7,10 +7,8 @@
 
 use core::any::TypeId;
 
-use fgf::{
-    Elem, Field, FieldBuffer, FiniteField, FiniteFieldRepr, Goldilocks, GoldilocksFold,
-    HasGenerator, Mersenne31, MersenneFold, PrimeField, RangeError,
-};
+use fgf::prime::{Goldilocks, GoldilocksFold, Mersenne31, MersenneFold, PrimeField};
+use fgf::{Elem, Field, FieldBuffer, FiniteField, FiniteFieldRepr, HasGenerator, RangeError};
 
 const M31: u64 = 0x7FFF_FFFF;
 const GOLDILOCKS: u64 = 0xFFFF_FFFF_0000_0001;

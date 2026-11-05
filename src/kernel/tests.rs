@@ -22,10 +22,11 @@ use crate::field::binary::tower::{
     FanPaar8Field, FanPaar16Field, FanPaar32Field, FanPaar64Field, Rijndael16Field,
     Rijndael32Field, Rijndael64Field,
 };
-use crate::field::binary::{AES, RS};
-use crate::field::{Elem, FiniteField, Polynomial};
-use crate::field::{Goldilocks, quad_mersenne31};
-use crate::field::{Packed, Relation};
+use crate::field::binary::{AES, Polynomial, RS};
+use crate::field::extension::{Packed, Relation};
+use crate::field::goldilocks::Goldilocks;
+use crate::field::quad_mersenne31;
+use crate::field::{Elem, FiniteField};
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::kernel::gf8::Prepared;
 use crate::kernel::scalar;
@@ -118,7 +119,7 @@ impl crate::field::ExtensionSpec<2> for RsExtension {
     const RELATION: Relation = Relation::from_binary_words::<Self::Base>(&[0x80, 2]);
 }
 
-pub(crate) type RsExtField = FiniteField<2, 16, crate::field::Extension<RsExtension, 2>>;
+pub(crate) type RsExtField = FiniteField<2, 16, crate::field::extension::Extension<RsExtension, 2>>;
 #[allow(dead_code)]
 pub(crate) type RsExtElem = Elem<RsExtField>;
 
@@ -136,7 +137,8 @@ impl crate::field::ExtensionSpec<2> for AesExtension {
 }
 
 #[allow(dead_code)]
-pub(crate) type AesExtField = FiniteField<2, 16, crate::field::Extension<AesExtension, 2>>;
+pub(crate) type AesExtField =
+    FiniteField<2, 16, crate::field::extension::Extension<AesExtension, 2>>;
 #[allow(dead_code)]
 pub(crate) type AesExtElem = Elem<AesExtField>;
 
@@ -6266,7 +6268,7 @@ mod x86 {
                 Relation::from_binary_words::<NormalBase>(&[normal_transport(0x20), 0xFF]);
         }
 
-        type Field = FiniteField<2, 16, crate::field::Extension<OverNormal, 2>>;
+        type Field = FiniteField<2, 16, crate::field::extension::Extension<OverNormal, 2>>;
         assert_eq!(Elem::<NormalBase>::ONE.to_raw(), 0xFF);
 
         assert_eq!(
@@ -6746,7 +6748,7 @@ fn macro_kernels_matrix_with_matches_per_row_application() {
 fn quad_mersenne31_kernel_handles_zero_and_one_coefficients() {
     // The kernel-level zero/one shortcuts sit below the `ops` wrappers,
     // which short-circuit first; drive them directly.
-    use crate::field::QuadMersenne31;
+    use crate::field::quad_mersenne31::QuadMersenne31;
 
     let mut zeroed = noise(16, 0x67);
     <QuadMersenne31 as KernelDispatch>::mul_assign(
@@ -6893,7 +6895,8 @@ fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
 mod gf1_bits {
     use super::Vec;
 
-    use crate::field::{Elem, FiniteField, Polynomial};
+    use crate::field::binary::Polynomial;
+    use crate::field::{Elem, FiniteField};
     use crate::kernel::gf1 as k;
 
     fn bit(buf: &[u8], i: usize) -> bool {

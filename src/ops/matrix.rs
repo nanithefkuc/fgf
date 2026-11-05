@@ -7,7 +7,7 @@
 use crate::field::Elem;
 use crate::kernel::{FieldKernels, RawDispatch};
 
-use super::check_width;
+use super::geometry::check_width;
 
 #[cfg(feature = "alloc")]
 use super::CoeffMatrix;
@@ -503,8 +503,9 @@ fn check_at<F: FieldKernels>(name: &str, dst_len: usize, row_len: usize, row_sta
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
-    use crate::field::poly::AES;
-    use crate::field::{Elem as E8, FiniteField, Polynomial};
+    use crate::field::binary::Polynomial;
+    use crate::field::binary::poly::AES;
+    use crate::field::{Elem as E8, FiniteField};
 
     /// Term coefficient counts are still validated at zero row length.
     #[test]

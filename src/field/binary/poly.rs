@@ -1,54 +1,9 @@
 //! Polynomial-basis binary presentations at degrees 1, 2, 4, and 8.
 //!
-//! [`Polynomial`] is the construction `GF(2)[x] / p(x)` for an irreducible
-//! degree-`N` `p`. The representation, its descriptor, and its generator
-//! derive from the polynomial at compile time, so each polynomial is a
-//! distinct representation with fully `const` scalar arithmetic.
-//!
-//! | Constant | Polynomial | Convention |
-//! | --- | --- | --- |
-//! | [`AES`] | `0x11B` | AES/Rijndael; the field `GF2P8MULB` multiplies natively |
-//! | [`RS`] | `0x11D` | Intel ISA-L, `klauspost/reedsolomon`, QR codes |
-//!
-//! Any other degree-8 irreducible polynomial is spelled directly, such as
-//! `Polynomial<0x12D>` for Data Matrix or `Polynomial<0x187>` for the CCSDS Reed–Solomon
-//! field. Distinct polynomials are unrelated encodings: a byte has different
-//! products under each, so a buffer carries one convention and never two.
-//!
-//! ```
-//! use fgf::{AES, Elem, FiniteField, Polynomial, RS};
-//!
-//! // The same bytes multiply differently under the two conventions.
-//! let (a, b) = (0x53, 0xca);
-//! assert_eq!(
-//!     Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(a)
-//!         .mul(Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(b))
-//!         .to_raw(),
-//!     0x01
-//! );
-//! assert_eq!(
-//!     Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(a)
-//!         .mul(Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(b))
-//!         .to_raw(),
-//!     0x8f
-//! );
-//!
-//! // Any irreducible polynomial is a field; its generator is derived.
-//! assert_eq!(
-//!     Elem::<FiniteField<2, 8, Polynomial<0x12D>>>::GENERATOR.pow(255),
-//!     Elem::<FiniteField<2, 8, Polynomial<0x12D>>>::ONE
-//! );
-//! ```
-//!
-//! ```compile_fail,E0080
-//! // x^8 + 1 = (x + 1)^8 is reducible, so this field does not exist.
-//! let _ = fgf::Elem::<fgf::FiniteField<2, 8, fgf::Polynomial<0x101>>>::from_raw(1);
-//! ```
-//!
-//! ```compile_fail,E0080
-//! // The degree-eight polynomial does not match a degree-four field.
-//! let _ = fgf::Elem::<fgf::FiniteField<2, 4, fgf::Polynomial<0x11B>>>::from_raw(1);
-//! ```
+//! `Polynomial` is `GF(2)[x] / p(x)` for an irreducible degree-`N` `p`; the
+//! representation, descriptor, and generator derive from the polynomial at
+//! compile time. The public convention table and examples live on the
+//! [`binary`](crate::binary) facade.
 
 use super::BinaryRepr;
 use super::description::{BinaryDescription, ByteLogExp};

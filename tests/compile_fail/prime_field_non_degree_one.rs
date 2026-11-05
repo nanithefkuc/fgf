@@ -1,5 +1,7 @@
 // expect-rejection
-use fgf::{FiniteField, Polynomial, AES, PrimeField};
+use fgf::FiniteField;
+use fgf::binary::{Polynomial, AES};
+use fgf::prime::PrimeField;
 
 // The prime-field marker covers degree-one rows only; a degree-eight binary
 // row is an extension, not GF(P).

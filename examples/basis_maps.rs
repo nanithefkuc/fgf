@@ -14,11 +14,11 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::poly::AES;
-use fgf::{
-    Cantor, Components, Elem, Embedding, EmbeddingError, Extension, ExtensionField, ExtensionSpec,
-    Field, FieldElem, FiniteField, Isomorphism, Normal, Polynomial, Relation,
-};
+use fgf::binary::AES;
+use fgf::binary::{Cantor, Normal, Polynomial};
+use fgf::extension::{Components, Extension, ExtensionField, ExtensionSpec, Relation};
+use fgf::maps::{Embedding, EmbeddingError, Isomorphism};
+use fgf::{Elem, Field, FieldElem, FiniteField};
 
 // Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
 type Aes = FiniteField<2, 8, Polynomial<AES>>;

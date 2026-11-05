@@ -1,5 +1,6 @@
 // expect: polynomial is reducible
-use fgf::{Field, FiniteField, Polynomial};
+use fgf::{Field, FiniteField};
+use fgf::binary::Polynomial;
 
 // Every raw entry point validates the representation's defining data, so a
 // reducible polynomial never answers.

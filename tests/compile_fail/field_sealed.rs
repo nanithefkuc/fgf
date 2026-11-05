@@ -1,5 +1,6 @@
 // expect-rejection
-use fgf::field::{Field, PrimeCharacteristic};
+use fgf::Field;
+use fgf::prime::PrimeCharacteristic;
 
 // `Field` is sealed: the row hooks live in a crate-private supertrait, so a
 // downstream implementation cannot satisfy the bound.

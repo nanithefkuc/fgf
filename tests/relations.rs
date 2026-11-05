@@ -6,11 +6,12 @@
 //! Construction, error precedence, conjugates, and the boundary cases
 //! follow.
 
-use fgf::poly::RS;
-use fgf::{
-    AES, Components, Elem, Embedding, EmbeddingError, Extension, ExtensionSpec, Field, FieldElem,
-    FiniteField, Isomorphism, Mersenne31, Polynomial, QuadMersenne31, Relation, Residue,
-};
+use fgf::binary::RS;
+use fgf::binary::{AES, Polynomial};
+use fgf::extension::{Components, Extension, ExtensionSpec, QuadMersenne31, Relation};
+use fgf::maps::{Embedding, EmbeddingError, Isomorphism};
+use fgf::prime::{Mersenne31, Residue};
+use fgf::{Elem, Field, FieldElem, FiniteField};
 
 // ---------------------------------------------------------------------------
 // Inventory rows for the enumeration reference
@@ -294,7 +295,7 @@ fn enumeration_agrees_on_small_binary_pairs() {
 #[test]
 fn shipped_instances_embed_over_every_base_and_the_prime_subfield() {
     // Rijndael16 over the AES byte field and over GF(2).
-    type R16 = FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>;
+    type R16 = FiniteField<2, 16, Extension<fgf::binary::Rijndael16, 2>>;
     let to_base = Embedding::<Aes, R16>::new().unwrap();
     let to_prime = Embedding::<FiniteField<2, 1, Polynomial<3>>, R16>::new().unwrap();
     let x = Elem::<Aes>::from_raw(0x53);
@@ -302,8 +303,8 @@ fn shipped_instances_embed_over_every_base_and_the_prime_subfield() {
     assert_eq!(to_base.restrict(lifted), Some(x));
     assert_eq!(to_prime.embed(Elem::ONE), Elem::ONE);
     // FanPaar64 over FanPaar32 is a tower inclusion.
-    type Fp32 = FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>;
-    type Fp64 = FiniteField<2, 64, Extension<fgf::FanPaar64, 2>>;
+    type Fp32 = FiniteField<2, 32, Extension<fgf::binary::FanPaar32, 2>>;
+    type Fp64 = FiniteField<2, 64, Extension<fgf::binary::FanPaar64, 2>>;
     let tower = Embedding::<Fp32, Fp64>::new().unwrap();
     let y = Elem::<Fp32>::from_raw(0x1234_5678);
     assert_eq!(tower.restrict(tower.embed(y)), Some(y));
@@ -477,7 +478,7 @@ fn mixed_composition_agrees_with_sequential_application() {
     // the tower inclusion into an equal-degree tower isomorphism.
     type ByteAes = FiniteField<2, 8, Polynomial<AES>>;
     type ByteRs = FiniteField<2, 8, Polynomial<RS>>;
-    type Tower = FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>;
+    type Tower = FiniteField<2, 16, Extension<fgf::binary::Rijndael16, 2>>;
     let swap = Isomorphism::<ByteAes, ByteRs>::new().unwrap();
     let lift = Embedding::<ByteRs, Tower>::new().unwrap();
     let mixed = swap.then_embedding(&lift);

@@ -4,14 +4,15 @@
 
 use std::fmt::{self, Write};
 
-use fgf::{
-    AES, BinaryField, Cantor, Elem, Embedding, Extension, ExtensionSpec, Field, FieldBuffer,
-    FieldElem, FiniteField, Normal, Packed, Polynomial, RS, RangeError, Relation, Residue,
-};
+use fgf::binary::{AES, BinaryField, Cantor, Normal, Polynomial, RS};
+use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
+use fgf::maps::Embedding;
+use fgf::prime::Residue;
+use fgf::{Elem, Field, FieldBuffer, FieldElem, FiniteField, RangeError};
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
 
 /// Deterministic linear-congruential samples.
 fn lcg_samples(count: usize, seed: u64) -> Vec<u64> {

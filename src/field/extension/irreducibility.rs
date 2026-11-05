@@ -519,7 +519,7 @@ mod tests {
         };
         // CM31 relations over the pinned QuadMersenne31 descriptor: the
         // cubic exceeds the cardinality bound and runs past the checks.
-        let qm31 = *<crate::field::QuadMersenne31 as crate::field::private::RowAccess>::DESCRIPTOR;
+        let qm31 = *<crate::field::quad_mersenne31::QuadMersenne31 as crate::field::private::RowAccess>::DESCRIPTOR;
         assert!(
             Descriptor::extension(
                 &qm31,
@@ -923,7 +923,7 @@ mod tests {
 
     /// `t^2 - (2 + i)` over the pinned `QuadMersenne31` descriptor.
     const fn quad_over_quad_mersenne31() -> bool {
-        let base = *<crate::field::QuadMersenne31 as crate::field::private::RowAccess>::DESCRIPTOR;
+        let base = *<crate::field::quad_mersenne31::QuadMersenne31 as crate::field::private::RowAccess>::DESCRIPTOR;
         Descriptor::extension(
             &base,
             0x7FFF_FFFF,

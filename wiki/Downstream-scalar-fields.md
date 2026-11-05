@@ -21,8 +21,10 @@ This constructs GF(49) as GF(7)[t]/(t² - 3). The relation omits the monic
 leading coefficient and lists the remaining coordinates constant-first:
 
 ```rust
-use fgf::{Components, Elem, Extension, ExtensionField, ExtensionSpec,
-          FieldElem, FiniteField, Relation};
+use fgf::{Elem, FieldElem, FiniteField};
+use fgf::extension::{
+    Components, Extension, ExtensionField, ExtensionSpec, Relation,
+};
 
 type Base = FiniteField<7, 1>;
 struct Quadratic;

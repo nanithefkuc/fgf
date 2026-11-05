@@ -1,67 +1,13 @@
-//! Field definitions and the scalar algebra contract.
+//! Field implementation: the type model, row hooks, and central validation.
 //!
-//! A [`Field`] is a zero-sized marker type carrying compile-time facts about a
-//! finite field: its raw scalar word, its characteristic identity, and its
-//! order. [`Elem<F>`] is the one scalar element wrapper for every field in
-//! the crate. [`FieldBuffer`] adds the fixed-width byte encoding that bulk
-//! operations pack into buffers, and [`HasGenerator`] selects a verified
-//! multiplicative generator. Kernels in [`crate::ops`] are generic over
-//! [`crate::kernel::FieldKernels`], so callers write one algorithm and get a
-//! monomorphized, SIMD-dispatched implementation per field.
-//!
-//! The canonical generic family [`FiniteField`] names a field by its prime
-//! characteristic, its degree, and a presentation, with [`Residue`] as the
-//! ordinary-residue presentation at degree one over every `u64` prime; see
-//! [`finite_field`] and [`prime`].
-//!
-//! # Scalar storage
-//!
-//! Every safely constructed element holds canonical raw coordinates, so
-//! [`PartialEq`], [`Eq`], [`Hash`], and [`Ord`] compare raw words directly.
-//! Ordering is deterministic coordinate order, not an order compatible with
-//! field algebra. [`FieldElem::from_raw`] canonicalizes its input.
-//!
-//! By library-wide convention `inv(0) == 0` and `x / 0 == 0`, in every build
-//! profile and under `const` evaluation alike. This is a total-function
-//! convention chosen so hot loops never branch on an impossible case; it is
-//! *not* a claim that zero is invertible.
-//!
-//! # Row vocabulary
-//!
-//! [`Field`] is sealed: the crate implements it for the canonical family
-//! rows and the named rows only, so a presentation's defining facts are
-//! always crate-owned. A custom prime field is the family's degree-one row
-//! [`FiniteField<P, 1>`](FiniteField) over any checked `u64` prime. The
-//! central validation block checks the characteristic identity, a positive
-//! degree, `ORDER == CHARACTERISTIC^DEGREE`, and the total degree cap of 64
-//! before evaluating `VALID`. It runs from every generic constructor, so a
-//! row that misdeclares its metadata fails at value use:
-//!
-//! ```
-//! use fgf::{Elem, Mersenne31};
-//!
-//! // A shipped prime field constructs its identities generically.
-//! const ONE: Elem<Mersenne31> = Elem::<Mersenne31>::ONE;
-//! assert_eq!(ONE.to_raw(), 1);
-//! ```
-//!
-//! A prime identity is available at any checked `u64` prime, and a composite
-//! modulus fails the same way:
-//!
-//! ```
-//! use fgf::{PrimeCharacteristic, PrimeIdentity};
-//!
-//! // Seven is prime, so its identity reads back.
-//! const P: u64 = <PrimeCharacteristic<7> as PrimeIdentity>::CHARACTERISTIC;
-//! const _: () = assert!(P == 7);
-//! ```
-//!
-//! ```compile_fail,E0080
-//! use fgf::{PrimeCharacteristic, PrimeIdentity};
-//!
-//! // Ninety-one is composite, so reading the identity fails.
-//! const Q: u64 = <PrimeCharacteristic<91> as PrimeIdentity>::CHARACTERISTIC;
-//! ```
+//! The public type model lives at the crate root and presentations ship
+//! through the `prime`, `binary`, `extension`, and `maps` facades. This
+//! module and its subtrees hold the sealed row hooks, the central validation
+//! block, descriptor access, and each row's arithmetic body. `Field` is
+//! sealed, so a presentation's defining facts are always crate-owned, and
+//! the central validation block checks the characteristic identity, a
+//! positive degree, `ORDER == CHARACTERISTIC^DEGREE`, and the total degree cap
+//! of 64 before evaluating `VALID` from every generic constructor.
 
 pub mod binary;
 pub mod embedding;
@@ -72,29 +18,9 @@ pub mod mersenne31;
 pub mod prime;
 pub mod quad_mersenne31;
 
-pub use binary::cantor;
-pub use binary::description;
-pub use binary::normal;
-pub use binary::poly;
-pub use binary::tower;
-pub use binary::tower::{
-    FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Rijndael16, Rijndael32,
-    Rijndael64,
-};
-pub use binary::{
-    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Normal,
-    Polynomial, RS,
-};
-pub use embedding::{Embedding, EmbeddingError, Isomorphism, Postcompose};
-pub use extension::{
-    Components, Extension, ExtensionField, ExtensionSpec, ExtensionStorage, Packed, PackedPadded,
-    PackedWord, Relation,
-};
+pub use binary::{BinaryField, Cantor, Normal};
+pub use extension::ExtensionSpec;
 pub use finite_field::{FiniteField, FiniteFieldRepr, Residue};
-pub use goldilocks::{Goldilocks, GoldilocksFold};
-pub use mersenne31::{Mersenne31, MersenneFold};
-pub use prime::PrimeField;
-pub use quad_mersenne31::{ComplexMersenne31, QuadMersenne31};
 
 mod private {
     use super::Field;
@@ -234,8 +160,8 @@ pub(crate) fn index_coordinates(
     index: u128,
     degree: u32,
     characteristic: u64,
-) -> [u64; super::extension::descriptor::COORDINATES] {
-    use super::extension::descriptor::COORDINATES;
+) -> [u64; extension::descriptor::COORDINATES] {
+    use extension::descriptor::COORDINATES;
     let mut coordinates = [0u64; COORDINATES];
     let mut rest = index;
     let mut i = 0;
@@ -391,6 +317,16 @@ impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
 /// arithmetic methods are a row's scalar body, and ordinary callers work
 /// with [`Elem<F>`] and its operations. Generic code reads the characteristic
 /// as `<F::Characteristic as PrimeIdentity>::CHARACTERISTIC`.
+///
+/// Every safely constructed element holds canonical raw coordinates, so
+/// [`PartialEq`], [`Eq`], [`Hash`], and [`Ord`] compare raw words directly.
+/// Ordering is deterministic coordinate order, not an order compatible with
+/// field algebra; [`FieldElem::from_raw`] canonicalizes its input.
+///
+/// By library-wide convention `inv(0) == 0` and `x / 0 == 0`, in every build
+/// profile and under `const` evaluation alike. This is a total-function
+/// convention chosen so hot loops never branch on an impossible case; it is
+/// not a claim that zero is invertible.
 #[allow(private_bounds)]
 pub trait Field: private::RowAccess + Copy + core::fmt::Debug + 'static {
     /// The raw word of one scalar element.
@@ -573,7 +509,7 @@ impl<F: HasGenerator> Elem<F> {
 /// coordinate word one:
 ///
 /// ```
-/// use fgf::{Elem, FieldElem, FiniteField, Normal};
+/// use fgf::{Elem, FieldElem, FiniteField, binary::Normal};
 ///
 /// type Row = FiniteField<2, 2, Normal<7, 2>>;
 /// let one = Elem::<Row>::ONE;
@@ -964,9 +900,15 @@ mod tests {
         FanPaar2Field, FanPaar4Field, FanPaar8Field, FanPaar16Field, FanPaar32Field,
         FanPaar64Field, Rijndael16Field, Rijndael32Field, Rijndael64Field,
     };
+    use super::binary::{AES, Cantor, Normal, Polynomial, RS};
     use super::extension::Descriptor;
     use super::extension::pinned;
+    use super::extension::storage::{Components, PackedPadded};
+    use super::extension::{Extension, Relation};
+    use super::goldilocks::Goldilocks;
+    use super::mersenne31::Mersenne31;
     use super::private::RowAccess as _;
+    use super::quad_mersenne31::QuadMersenne31;
     use super::*;
 
     /// The largest `u64` prime, for full-width residue samples.

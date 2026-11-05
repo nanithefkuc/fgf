@@ -12,12 +12,16 @@
 //! defining polynomial is irreducible — `t²+t+c` over a binary base needs
 //! trace one on `c`, which the row validation re-proves at first use.
 
-use fgf::{
-    AES, Cantor, Components, Extension, ExtensionSpec, FanPaar2, FanPaar4, FanPaar8, FanPaar16,
-    FanPaar32, FanPaar64, FiniteField, Goldilocks, KernelBackend, Mersenne31, Normal, Packed,
-    PackedPadded, Polynomial, QuadMersenne31, RS, Relation, Residue, Rijndael16, Rijndael32,
-    Rijndael64, backend_for,
+use fgf::binary::{
+    AES, Cantor, FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Normal, Polynomial,
+    RS, Rijndael16, Rijndael32, Rijndael64,
 };
+use fgf::extension::{
+    Components, Extension, ExtensionSpec, Packed, PackedPadded, QuadMersenne31, Relation,
+};
+use fgf::internals::kernel::KernelBackend as _;
+use fgf::prime::{Goldilocks, Mersenne31, Residue};
+use fgf::{FiniteField, backend_for};
 
 // --- shipped rows -----------------------------------------------------------
 

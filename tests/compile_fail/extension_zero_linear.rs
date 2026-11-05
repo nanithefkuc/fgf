@@ -1,7 +1,9 @@
 // expect: extension relation is reducible
 //! `t^2 + 0x20` over the AES field: the zero linear coefficient makes the
 //! quadratic reducible in characteristic two.
-use fgf::{AES, Elem, Extension, ExtensionSpec, FiniteField, Packed, Polynomial, Relation};
+use fgf::{Elem, FiniteField};
+use fgf::binary::{AES, Polynomial};
+use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
 
 type Aes8 = FiniteField<2, 8, Polynomial<AES>>;
 

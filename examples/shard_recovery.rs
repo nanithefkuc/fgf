@@ -7,8 +7,9 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::poly::RS;
-use fgf::{Elem, FiniteField, Polynomial, backend_for, ops};
+use fgf::binary::Polynomial;
+use fgf::binary::RS;
+use fgf::{Elem, FiniteField, backend_for, ops};
 
 const ROW_LEN: usize = 32;
 const TWO: Elem<FiniteField<2, 8, Polynomial<RS>>> =

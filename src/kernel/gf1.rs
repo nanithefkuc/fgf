@@ -15,10 +15,10 @@
 //! hand-written vector body has to beat memory before it earns a line here.
 //! `weight` is compute-bound and counts whole words with `VPOPCNTQ` on
 //! `V4x` under `simd512`. The dispatch seam is this module: backend-specific
-//! arms attach beside the portable bodies, never in [`crate::bits`].
+//! arms attach beside the portable bodies, never in [`crate::ops::bits`].
 //!
 //! Preconditions (length pairing, `from <= to <= bits`, buffer coverage) are
-//! checked by [`crate::bits`]; only `debug_assert`s remain here.
+//! checked by [`crate::ops::bits`]; only `debug_assert`s remain here.
 
 /// `dst ^= src` over whole buffers.
 ///

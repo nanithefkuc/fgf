@@ -15,12 +15,13 @@
 use super::{Base7, Gf49, Gf343, Sample};
 use core::any::TypeId;
 
-use fgf::field::mersenne31::Mersenne31;
-use fgf::{
-    AES, Backend, ComplexMersenne31, Components, Elem, Extension, ExtensionField, ExtensionSpec,
-    FieldBuffer, FieldElem, FiniteField, Packed, PackedPadded, Polynomial, QuadMersenne31,
-    Relation, backend_for, ops,
+use fgf::binary::{AES, Polynomial};
+use fgf::extension::{
+    ComplexMersenne31, Components, Extension, ExtensionField, ExtensionSpec, Packed, PackedPadded,
+    QuadMersenne31, Relation,
 };
+use fgf::prime::Mersenne31;
+use fgf::{Backend, Elem, FieldBuffer, FieldElem, FiniteField, backend_for, ops};
 
 struct MersenneSquareSpec;
 impl ExtensionSpec<2> for MersenneSquareSpec {

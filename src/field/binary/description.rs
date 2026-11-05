@@ -565,8 +565,8 @@ mod tests {
     use core::hint::black_box;
 
     use super::*;
-    use crate::Polynomial;
     use crate::field::FiniteField;
+    use crate::field::binary::Polynomial;
     use crate::field::binary::normal::inverse_columns;
     use crate::field::binary::tower::{
         FanPaar2Field, FanPaar4Field, FanPaar8Field, FanPaar16Field, FanPaar32Field,

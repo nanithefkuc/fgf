@@ -10,7 +10,9 @@ In a degree-sixteen packed tower, the low byte holds `a` and the high byte
 holds `b`. Components belong to the declared base presentation:
 
 ```rust
-use fgf::{AES, Elem, Extension, FiniteField, Polynomial, Rijndael16};
+use fgf::{Elem, FiniteField};
+use fgf::binary::{AES, Polynomial, Rijndael16};
+use fgf::extension::Extension;
 
 type Base = FiniteField<2, 8, Polynomial<AES>>;
 type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
@@ -67,10 +69,12 @@ Supply the base, storage, name, and constant-first relation.
 This example uses the RS byte field and packed storage:
 
 ```rust
-use fgf::{
-    Elem, Embedding, Extension, ExtensionField, ExtensionSpec, FiniteField, Packed, Polynomial,
-    RS, Relation,
+use fgf::{Elem, FiniteField};
+use fgf::binary::{Polynomial, RS};
+use fgf::extension::{
+    Extension, ExtensionField, ExtensionSpec, Packed, Relation,
 };
+use fgf::maps::Embedding;
 
 type Base = FiniteField<2, 8, Polynomial<RS>>;
 

@@ -22,6 +22,7 @@ just package-check         # isolated archive build and portable example executi
 just external-check        # type-check every package under external/
 just lint                  # rustfmt and clippy at both feature ends
 just doc                   # rustdoc with warnings denied
+just doc-stable            # default-feature rustdoc, the docs.rs configuration
 just unsafe-check-gfni     # owned-unsafe GFNI Miri cases
 just cover                 # merged per-tier coverage, 95% minimum
 just validate              # shared correctness and coverage gate
@@ -30,7 +31,7 @@ just test-gather-validation-32 # i686 release regression, overflow checks disabl
 just isa-accept TIER       # fail-closed native execution evidence and tier sweep
 just benchmark-check       # portable fixtures and compiler-derived API coverage
 just benchmark-check-native # native GF16 fixtures on capable hosts
-just api                   # stable API inventory matches api/, one-path report
+just api                   # stable API inventory matches api/, one-path gate
 just api-update            # rewrite api/; only inside an authorized API change
 just api-semver [BASELINE] # semver check of the stable feature sets
 just example NAME [ARGS]   # one educational example, with Cargo options
@@ -39,7 +40,8 @@ just examples              # every educational example in each feature configura
 
 `just validate` is the shared gate, not every crate-specific CI or release
 check. `just release-accept` includes the separate GFNI Miri, feature, MSRV,
-cross-target, packaged-archive, example, benchmark-fixture, and 32-bit checks.
+cross-target, stable-documentation, packaged-archive, example,
+benchmark-fixture, and 32-bit checks.
 Publication dry-run and native tier acceptance remain explicit final steps.
 `test-gather-validation-32` needs a 32-bit linker (`gcc-multilib` on Linux).
 Native GF16 fixture execution requires the documented AVX2/GFNI/crypto host.
@@ -68,11 +70,11 @@ inventory closes with a `# external re-exports` section naming, per stable
 re-export path, the re-exported crate and canonical path, and
 `api/metadata.txt` records one `dependency <name> <version>` line per
 re-exported crate, so a dependency bump changes the inventory. It runs the
-one-path check from `api/surface.py` on the same rustdoc JSON, in the mode
-`API_PATHS_MODE` names in `crate.just` (`report` until every stable item has
-one path, then `enforce`); in report mode the full duplicate list of the
-all/x86_64 cell is printed to `target/api/generated/paths.txt` and to
-stdout. It needs the pinned `API_NIGHTLY` with the aarch64 and wasm32
+one-path check from `api/surface.py` on the same rustdoc JSON, in the
+`enforce` mode `API_PATHS_MODE` names in `crate.just`. The recipe writes the
+all/x86_64 cell's full report to `target/api/generated/paths.txt` and prints
+its last line to stdout. It
+needs the pinned `API_NIGHTLY` with the aarch64 and wasm32
 targets, and exactly the `cargo-public-api` and `cargo-semver-checks`
 versions pinned in `crate.just` (`cargo binstall
 cargo-public-api@<version> cargo-semver-checks@<version>`); it checks those
@@ -454,7 +456,8 @@ Tests must defend observable contracts, not implementation wiring.
 - `src/kernel/tests.rs`: direct scalar-versus-architecture differentials across
   lane, tail, row, and source-count boundaries.
 - `tests/zero_alloc.rs`: allocation-free steady-state contracts.
-- `tests/internals.rs`: explicitly unstable direct-kernel surfaces.
+- `tests/internals.rs`: token-gated direct architecture kernels, direct
+gather-offset validation, and the tier capability queries.
 
 Reuse the deterministic test helpers and fixed-seed noise generator. Do not add
 nondeterministic randomness or duplicate oracle conventions. GF(2^16) byte

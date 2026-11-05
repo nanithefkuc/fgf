@@ -11,7 +11,7 @@
 
 use std::hint::black_box;
 
-use fgf::field::FieldElem;
+use fgf::FieldElem;
 use fgf::{Elem, Field, FieldBuffer, ops};
 
 /// Step the deterministic LCG and return the raw 64-bit state.

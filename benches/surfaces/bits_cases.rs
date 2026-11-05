@@ -13,7 +13,7 @@
 
 use std::hint::black_box;
 
-use fgf::bits::{self, XorRange};
+use fgf::ops::bits::{self, XorRange};
 
 use crate::fixture;
 use crate::registry::{self, Case, CaseCtx, Scope};
@@ -23,24 +23,27 @@ const SHORT_BITS: usize = 512;
 const RESIDENT_BITS: usize = 2 * 1024 * 1024;
 const NONRESIDENT_BITS: usize = 128 * 1024 * 1024 * 8;
 
-const API_BYTES_FOR: &[&str] = &["fgf::bits::bytes_for"];
-const API_XOR_ASSIGN: &[&str] = &["fgf::bits::xor_assign"];
-const API_XOR_RANGE: &[&str] = &["fgf::bits::xor_range"];
-const API_XOR_RANGE_NEW: &[&str] = &["fgf::bits::XorRange::new"];
-const API_XOR_RANGE_WITH: &[&str] = &["fgf::bits::xor_range_with", "fgf::bits::XorRange::new"];
-const API_AND_INTO: &[&str] = &["fgf::bits::and_into"];
-const API_AND_ASSIGN: &[&str] = &["fgf::bits::and_assign"];
-const API_ANDNOT: &[&str] = &["fgf::bits::andnot_assign"];
-const API_CLEAR_RANGE: &[&str] = &["fgf::bits::clear_range"];
-const API_SET_RANGE: &[&str] = &["fgf::bits::set_range"];
-const API_WEIGHT: &[&str] = &["fgf::bits::weight"];
-const API_DOT: &[&str] = &["fgf::bits::dot_product", "fgf::field::FieldElem::is_one"];
-const API_XOR_GATHER: &[&str] = &["fgf::bits::xor_gather"];
+const API_BYTES_FOR: &[&str] = &["fgf::ops::bits::bytes_for"];
+const API_XOR_ASSIGN: &[&str] = &["fgf::ops::bits::xor_assign"];
+const API_XOR_RANGE: &[&str] = &["fgf::ops::bits::xor_range"];
+const API_XOR_RANGE_NEW: &[&str] = &["fgf::ops::bits::XorRange::new"];
+const API_XOR_RANGE_WITH: &[&str] = &[
+    "fgf::ops::bits::xor_range_with",
+    "fgf::ops::bits::XorRange::new",
+];
+const API_AND_INTO: &[&str] = &["fgf::ops::bits::and_into"];
+const API_AND_ASSIGN: &[&str] = &["fgf::ops::bits::and_assign"];
+const API_ANDNOT: &[&str] = &["fgf::ops::bits::andnot_assign"];
+const API_CLEAR_RANGE: &[&str] = &["fgf::ops::bits::clear_range"];
+const API_SET_RANGE: &[&str] = &["fgf::ops::bits::set_range"];
+const API_WEIGHT: &[&str] = &["fgf::ops::bits::weight"];
+const API_DOT: &[&str] = &["fgf::ops::bits::dot_product", "fgf::FieldElem::is_one"];
+const API_XOR_GATHER: &[&str] = &["fgf::ops::bits::xor_gather"];
 const API_EMPTY_ROUTES: &[&str] = &[
-    "fgf::bits::xor_range",
-    "fgf::bits::xor_range_with",
-    "fgf::bits::xor_gather",
-    "fgf::bits::xor_assign",
+    "fgf::ops::bits::xor_range",
+    "fgf::ops::bits::xor_range_with",
+    "fgf::ops::bits::xor_gather",
+    "fgf::ops::bits::xor_assign",
 ];
 
 const FIELD_LABEL: &str = "gf2-packed-bits";

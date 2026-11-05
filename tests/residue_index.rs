@@ -7,11 +7,13 @@
 //! and deterministic samples. Residues agree with repeated addition at
 //! small primes and double-and-add at full width.
 
-use fgf::{
-    AES, Cantor, ComplexMersenne31, Components, Elem, Extension, ExtensionField, ExtensionSpec,
-    Field, FieldElem, FiniteField, Goldilocks, Mersenne31, Normal, Polynomial, QuadMersenne31,
-    RangeError, Relation, Residue,
+use fgf::binary::{AES, Cantor, Normal, Polynomial};
+use fgf::extension::{
+    ComplexMersenne31, Components, Extension, ExtensionField, ExtensionSpec, QuadMersenne31,
+    Relation,
 };
+use fgf::prime::{Goldilocks, Mersenne31, Residue};
+use fgf::{Elem, Field, FieldElem, FiniteField, RangeError};
 
 /// Every index round-trips, and the order and `u128::MAX` are rejected.
 fn index_round_trip<F: Field>() {

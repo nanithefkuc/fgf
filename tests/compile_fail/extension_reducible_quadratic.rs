@@ -1,6 +1,7 @@
 // expect: extension relation is reducible
 //! `t^2 - 2` over GF(7): two is a square, so the relation factors.
-use fgf::{Components, Elem, Extension, ExtensionSpec, FiniteField, Relation};
+use fgf::{Elem, FiniteField};
+use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
 
 struct Spec;
 impl ExtensionSpec<2> for Spec {

@@ -1,6 +1,7 @@
 // expect: relation coordinate count differs from the field degree
 //! One coordinate where the degree-two row needs two.
-use fgf::{Components, Elem, Extension, ExtensionSpec, FiniteField, Relation};
+use fgf::{Elem, FiniteField};
+use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
 
 struct Spec;
 impl ExtensionSpec<2> for Spec {

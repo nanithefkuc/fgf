@@ -1078,8 +1078,11 @@ pub(super) const fn euclid_inverse(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::field::Elem;
     use crate::field::extension::descriptor::{PrimePresentation, Storage};
-    use crate::field::{Elem, Goldilocks, Mersenne31, QuadMersenne31};
+    use crate::field::goldilocks::Goldilocks;
+    use crate::field::mersenne31::Mersenne31;
+    use crate::field::quad_mersenne31::QuadMersenne31;
 
     /// Deterministic 64-bit words from the crate's shared LCG constants.
     fn words(seed: u64) -> impl Iterator<Item = u64> {

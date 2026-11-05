@@ -15,7 +15,8 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::{Elem, Field, FieldBuffer, FiniteField, Goldilocks, backend_for, ops};
+use fgf::prime::Goldilocks;
+use fgf::{Elem, Field, FieldBuffer, FiniteField, backend_for, ops};
 
 /// The largest `u64` prime: eight-byte lanes, no fold identities.
 type WidePrime = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1>;

@@ -10,14 +10,17 @@
 
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
-use fgf::field::{Field, FieldBuffer, FieldElem};
-use fgf::poly::{AES, RS};
-use fgf::{
-    BinaryField, BinaryRepr, Cantor, Components, Elem, Extension, ExtensionField, ExtensionSpec,
-    FieldKernels, FiniteField, FiniteFieldRepr, Goldilocks, Mersenne31, Normal, Packed,
-    PackedPadded, Polynomial, PrimeField, QuadMersenne31, Relation, Residue, Rijndael16,
-    Rijndael32, Rijndael64, ops,
+use fgf::binary::{AES, RS};
+use fgf::binary::{
+    BinaryField, BinaryRepr, Cantor, Normal, Polynomial, Rijndael16, Rijndael32, Rijndael64,
 };
+use fgf::extension::{
+    Components, Extension, ExtensionField, ExtensionSpec, Packed, PackedPadded, QuadMersenne31,
+    Relation,
+};
+use fgf::prime::{Goldilocks, Mersenne31, PrimeField, Residue};
+use fgf::{Elem, FieldKernels, FiniteField, FiniteFieldRepr, ops};
+use fgf::{Field, FieldBuffer, FieldElem};
 
 type Residue2 = FiniteField<2, 1, Residue>;
 type Residue7 = FiniteField<7, 1, Residue>;
@@ -27,12 +30,12 @@ type ResidueWide = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>;
 type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
 type Gf32 = FiniteField<2, 32, Extension<Rijndael32, 2>>;
 type Gf64 = FiniteField<2, 64, Extension<Rijndael64, 2>>;
-type FanPaar2Row = FiniteField<2, 2, Extension<fgf::FanPaar2, 2>>;
-type FanPaar4Row = FiniteField<2, 4, Extension<fgf::FanPaar4, 2>>;
-type FanPaar8Row = FiniteField<2, 8, Extension<fgf::FanPaar8, 2>>;
-type FanPaar16Row = FiniteField<2, 16, Extension<fgf::FanPaar16, 2>>;
-type FanPaar32Row = FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>;
-type FanPaar64Row = FiniteField<2, 64, Extension<fgf::FanPaar64, 2>>;
+type FanPaar2Row = FiniteField<2, 2, Extension<fgf::binary::FanPaar2, 2>>;
+type FanPaar4Row = FiniteField<2, 4, Extension<fgf::binary::FanPaar4, 2>>;
+type FanPaar8Row = FiniteField<2, 8, Extension<fgf::binary::FanPaar8, 2>>;
+type FanPaar16Row = FiniteField<2, 16, Extension<fgf::binary::FanPaar16, 2>>;
+type FanPaar32Row = FiniteField<2, 32, Extension<fgf::binary::FanPaar32, 2>>;
+type FanPaar64Row = FiniteField<2, 64, Extension<fgf::binary::FanPaar64, 2>>;
 
 /// A downstream extension specification over a shipped byte field with the
 /// Rijndael relation `t^2 + t + 0x20`, reaching the library-owned kernels.
@@ -912,7 +915,7 @@ fn extension_rows_exercise_arithmetic_and_relations() {
 
 #[test]
 fn characteristic_two_extension_rows_join_the_binary_capability() {
-    use fgf::BinaryDegree;
+    use fgf::binary::BinaryDegree;
 
     // The padded GF(8) and GF(64) rows convert through their coordinate
     // words: component `i` at the bits `[i*B, (i+1)*B)`.

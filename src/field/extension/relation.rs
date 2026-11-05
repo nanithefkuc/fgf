@@ -108,7 +108,7 @@ mod tests {
     use super::COORDINATES;
     use super::Relation;
     use crate::field::FiniteField;
-    use crate::field::Polynomial;
+    use crate::field::binary::Polynomial;
 
     type Gf4 = FiniteField<2, 2, Polynomial<7>>;
 

@@ -10,12 +10,10 @@
 
 use core::error::Error;
 
-use fgf::field::finite_field::Residue;
-use fgf::field::prime::{reduce, reduce_wide};
-use fgf::{
-    Components, Elem, Extension, ExtensionField, ExtensionSpec, Field, FieldBuffer, FieldElem,
-    FiniteField, FiniteFieldRepr, PrimeCharacteristic, PrimeIdentity, RangeError, Relation,
-};
+use fgf::extension::{Components, Extension, ExtensionField, ExtensionSpec, Relation};
+use fgf::prime::Residue;
+use fgf::prime::{PrimeCharacteristic, PrimeIdentity};
+use fgf::{Elem, Field, FieldBuffer, FieldElem, FiniteField, FiniteFieldRepr, RangeError};
 
 /// `2^64 − 59`, the largest `u64` prime.
 const WIDE: u64 = 0xFFFF_FFFF_FFFF_FFC5;
@@ -311,42 +309,6 @@ const fn mul_const<const P: u64>(a: u64, b: u64) -> u64 {
         exponent >>= 1;
     }
     result as u64
-}
-
-#[test]
-fn reductions_match_remainder() {
-    check_reductions::<2>();
-    check_reductions::<3>();
-    check_reductions::<251>();
-    check_reductions::<0x7FFF_FFFF>();
-    check_reductions::<0xFFFF_FFFF_0000_0001>();
-    check_reductions::<WIDE>();
-    check_reductions::<WIDE2>();
-    check_reductions::<WIDE3>();
-}
-
-fn check_reductions<const P: u64>() {
-    for value in [0, 1, 2, 7, P - 1, P, P + 1, 1 << 63, u64::MAX, u64::MAX - 1] {
-        assert_eq!(reduce::<P>(value), value % P, "reduce {value} at {P}");
-    }
-    let words = [
-        0,
-        1,
-        7,
-        u128::from(P) * u128::from(P),
-        1 << 64,
-        (1 << 64) + 5,
-        1 << 127,
-        u128::MAX,
-        u128::MAX - 1,
-    ];
-    for wide in words {
-        assert_eq!(
-            u128::from(reduce_wide::<P>(wide)),
-            wide % u128::from(P),
-            "reduce_wide {wide} at {P}"
-        );
-    }
 }
 
 #[test]

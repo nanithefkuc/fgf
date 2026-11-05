@@ -27,7 +27,8 @@ Here `out[i] = a[i] + 2*b[i]` in the AES binary field. The overwrite call needs
 no pre-zeroing:
 
 ```rust
-use fgf::{AES, Elem, FiniteField, Polynomial, ops};
+use fgf::{Elem, FiniteField, ops};
+use fgf::binary::{AES, Polynomial};
 
 type F = FiniteField<2, 8, Polynomial<AES>>;
 let a = [1u8, 2, 3];

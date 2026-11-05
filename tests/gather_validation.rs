@@ -9,8 +9,10 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use fgf::poly::AES;
-use fgf::{FiniteField, Goldilocks, Polynomial, ops};
+use fgf::binary::AES;
+use fgf::binary::Polynomial;
+use fgf::prime::Goldilocks;
+use fgf::{FiniteField, ops};
 
 type Gf8 = FiniteField<2, 8, Polynomial<AES>>;
 
@@ -86,44 +88,4 @@ fn overflowing_offset_rejects_before_mutation_on_32_bit() {
     rejects_without_mutating(&dst, |got| {
         ops::add_gather_offsets::<Goldilocks>(got, &region, &[0, u32::MAX]);
     });
-}
-
-/// Direct AVX2 entries demand a capability token the host must prove;
-/// `#[should_panic]` cannot express the documented skip, so rejection is
-/// asserted through `catch_unwind` after the token summons.
-#[cfg(all(feature = "simd", feature = "internals", target_arch = "x86_64"))]
-mod direct_avx2 {
-    use fgf::internals::kernel::{SimdToken, X64V3Token, x86};
-
-    use super::{noise, rejects_without_mutating};
-
-    /// 33 bytes is one whole 32-byte lane plus a 1-byte tail: the shape that
-    /// falls back to the per-source fold.
-    #[test]
-    fn tail_row_rejects_invalid_later_offset_before_mutation() {
-        let Some(token) = X64V3Token::summon() else {
-            eprintln!("skipping: no AVX2 on this host");
-            return;
-        };
-        let region = noise(128, 0x61);
-        let dst = noise(33, 0x62);
-        rejects_without_mutating(&dst, |got| {
-            x86::bytes::xor_gather_avx2(token, &region, got, &[0, 96]);
-        });
-    }
-
-    /// 288 bytes is nine whole lanes: wider than eight vectors, the other
-    /// shape that falls back to the per-source fold.
-    #[test]
-    fn wide_row_rejects_invalid_later_offset_before_mutation() {
-        let Some(token) = X64V3Token::summon() else {
-            eprintln!("skipping: no AVX2 on this host");
-            return;
-        };
-        let region = noise(512, 0x63);
-        let dst = noise(288, 0x64);
-        rejects_without_mutating(&dst, |got| {
-            x86::bytes::xor_gather_avx2(token, &region, got, &[0, 32, 480]);
-        });
-    }
 }

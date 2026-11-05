@@ -20,9 +20,7 @@ def canonical_api(path: str) -> str:
     parts = path.removesuffix(" (inherent const)").removeprefix("fgf::").split("::")
     if len(parts) >= 2 and parts[-2][:1].isupper():
         return "::".join(parts[-2:])
-    if len(parts) == 1 and parts[0] in {
-        "backend", "backend_for", "has_vector_elementwise", "vector_elementwise_min_bytes"
-    }:
+    if len(parts) == 1 and parts[0] in {"backend", "backend_for"}:
         return "kernel::" + parts[0]
     return "::".join(parts[-2:])
 

@@ -771,7 +771,7 @@ impl<E: crate::field::FieldElem> Tower2Coeff<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::RS;
+    use crate::field::binary::RS;
 
     type E8 = Elem<FiniteField<2, 8, Polynomial<AES>>>;
 

@@ -40,7 +40,7 @@ Choose the field, then construct its elements. Shipped scalar arithmetic is
 `const`; operators follow field arithmetic, not ordinary integer arithmetic.
 
 ```rust
-use fgf::{Elem, FiniteField, Polynomial, AES};
+use fgf::{Elem, FiniteField, binary::{AES, Polynomial}};
 
 type Prime = FiniteField<17, 1>;
 type Binary = FiniteField<2, 8, Polynomial<AES>>;
@@ -55,10 +55,10 @@ assert_eq!(
 
 `ops` scales and combines rows of packed elements, with prepared coefficients
 for repeated calls. Byte lanes are fixed-width and little-endian; their size
-depends on the field representation. Bit-packed GF(2) vectors use `bits`.
+depends on the field representation. Bit-packed GF(2) vectors use `ops::bits`.
 
 ```rust
-use fgf::{FiniteField, Elem, Polynomial, poly::AES, ops};
+use fgf::{FiniteField, Elem, binary::{AES, Polynomial}, ops};
 
 type Gf2P8 = FiniteField<2, 8, Polynomial<AES>>;
 
