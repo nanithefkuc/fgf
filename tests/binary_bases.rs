@@ -73,12 +73,11 @@ fn binary_formatting_reports_writer_failure() {
         .expect_err("excess coordinate bits");
     assert_eq!(write!(FullWriter, "{coordinate}"), Err(fmt::Error));
 
-    let degree = Embedding::<Gf16, FiniteField<2, 8, Polynomial<AES>>>::new()
-        .expect_err("sixteen does not divide eight");
-    assert_eq!(write!(FullWriter, "{degree}"), Err(fmt::Error));
+    let rejected = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf16>::from_images(&[])
+        .expect_err("the empty sequence has the wrong count");
+    assert_eq!(write!(FullWriter, "{rejected}"), Err(fmt::Error));
 
-    let embedding = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf16>::new()
-        .expect("eight divides sixteen");
+    let embedding = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf16>::new();
     assert_eq!(write!(FullWriter, "{embedding:?}"), Err(fmt::Error));
 }
 
@@ -267,6 +266,9 @@ fn residue_two_and_binary_degree_one_transport_by_residue() {
         }
     }
     for out_of_range in [2, 3, 256, u64::MAX] {
-        assert_eq!(Elem::<Bin>::from_residue(out_of_range), Err(RangeError));
+        assert!(matches!(
+            Elem::<Bin>::from_residue(out_of_range),
+            Err(RangeError { .. })
+        ));
     }
 }

@@ -331,7 +331,7 @@ impl<const P: u64> FieldBuffer for FiniteField<P, 1, Residue> {
         assert_eq!(
             bytes.len(),
             Self::BYTES,
-            "GF(p) element has the wrong byte width"
+            "FieldBuffer::decode: bytes has the wrong byte width for a GF(p) element"
         );
         Elem::<Self>::from_raw(read_lane(bytes))
     }
@@ -342,7 +342,7 @@ impl<const P: u64> FieldBuffer for FiniteField<P, 1, Residue> {
         assert_eq!(
             bytes.len(),
             Self::BYTES,
-            "GF(p) element has the wrong byte width"
+            "FieldBuffer::encode: bytes has the wrong byte width for a GF(p) element"
         );
         let raw = value.to_raw().to_le_bytes();
         bytes.copy_from_slice(&raw[..Self::BYTES]);

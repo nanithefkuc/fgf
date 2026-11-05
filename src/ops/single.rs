@@ -49,8 +49,8 @@ pub fn add_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
 /// whole number of rows.
 #[inline]
 pub fn add_assign_rows<F: FieldBuffer>(dst: &mut [u8], row_len: usize, src: &[u8]) {
-    assert_ne!(row_len, 0, "add_assign_rows: row length must be nonzero");
-    check_width::<F>("add_assign_rows", row_len);
+    assert_ne!(row_len, 0, "add_assign_rows: row_len must be nonzero");
+    check_width::<F>("add_assign_rows", "row_len", row_len);
     assert_eq!(
         dst.len(),
         src.len(),
@@ -61,7 +61,8 @@ pub fn add_assign_rows<F: FieldBuffer>(dst: &mut [u8], row_len: usize, src: &[u8
     assert_eq!(
         dst.len() % row_len,
         0,
-        "add_assign_rows: partial trailing row",
+        "add_assign_rows: dst of {} bytes is not a whole number of {row_len}-byte rows",
+        dst.len(),
     );
     F::add_assign_rows(RawDispatch, dst, src, row_len);
 }
@@ -90,8 +91,8 @@ pub fn sub_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
 /// whole number of rows.
 #[inline]
 pub fn sub_assign_rows<F: FieldBuffer>(dst: &mut [u8], row_len: usize, src: &[u8]) {
-    assert_ne!(row_len, 0, "sub_assign_rows: row length must be nonzero");
-    check_width::<F>("sub_assign_rows", row_len);
+    assert_ne!(row_len, 0, "sub_assign_rows: row_len must be nonzero");
+    check_width::<F>("sub_assign_rows", "row_len", row_len);
     assert_eq!(
         dst.len(),
         src.len(),
@@ -102,7 +103,8 @@ pub fn sub_assign_rows<F: FieldBuffer>(dst: &mut [u8], row_len: usize, src: &[u8
     assert_eq!(
         dst.len() % row_len,
         0,
-        "sub_assign_rows: partial trailing row",
+        "sub_assign_rows: dst of {} bytes is not a whole number of {row_len}-byte rows",
+        dst.len(),
     );
     F::sub_assign_rows(RawDispatch, dst, src, row_len);
 }
@@ -193,7 +195,7 @@ pub fn mul_into_with<F: FieldBuffer>(
 /// Panics on a partial trailing element.
 #[inline]
 pub fn mul_assign<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>) {
-    check_width::<F>("mul_assign", dst.len());
+    check_width::<F>("mul_assign", "dst", dst.len());
     if coeff.is_one() {
         return;
     }
@@ -210,7 +212,7 @@ pub fn mul_assign<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>) {
 /// Panics on a partial trailing element.
 #[inline]
 pub fn mul_assign_with<F: FieldBuffer>(dst: &mut [u8], coeff: &impl PreparedCoefficient<F>) {
-    check_width::<F>("mul_assign_with", dst.len());
+    check_width::<F>("mul_assign_with", "dst", dst.len());
     let value = coeff.value();
     if value.is_one() {
         return;
@@ -262,7 +264,7 @@ pub fn mul_elementwise_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
 /// Panics if `dst` holds a partial trailing element.
 #[inline]
 pub fn add_assign_scalar<F: FieldBuffer>(dst: &mut [u8], value: Elem<F>) {
-    check_width::<F>("add_assign_scalar", dst.len());
+    check_width::<F>("add_assign_scalar", "dst", dst.len());
     F::add_assign_scalar(RawDispatch, dst, &F::prepare(RawDispatch, value));
 }
 
@@ -276,6 +278,6 @@ pub fn add_assign_scalar<F: FieldBuffer>(dst: &mut [u8], value: Elem<F>) {
 /// Panics if `dst` holds a partial trailing element.
 #[inline]
 pub fn sub_assign_scalar<F: FieldBuffer>(dst: &mut [u8], value: Elem<F>) {
-    check_width::<F>("sub_assign_scalar", dst.len());
+    check_width::<F>("sub_assign_scalar", "dst", dst.len());
     F::sub_assign_scalar(RawDispatch, dst, &F::prepare(RawDispatch, value));
 }

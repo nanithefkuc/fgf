@@ -158,7 +158,7 @@ where
     T: Field<Characteristic = S::Characteristic>,
 {
     {
-        let iso = Isomorphism::<S, T>::new().expect("canonical isomorphism exists");
+        let iso = Isomorphism::<S, T>::new();
         let x = sample::<S>(&case.case);
         let y = sample::<S>(&format!("{}/probe", case.case));
         assert_eq!(
@@ -182,7 +182,7 @@ where
     }
     let backend = scalar_backend();
     registry::time(case, ctx, &backend, || {
-        let iso = Isomorphism::<S, T>::new().expect("canonical isomorphism exists");
+        let iso = Isomorphism::<S, T>::new();
         fixture::observe(iso.to_images().len());
     });
 }
@@ -192,7 +192,7 @@ where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
-    let iso = Isomorphism::<S, T>::new().expect("canonical isomorphism exists");
+    let iso = Isomorphism::<S, T>::new();
     assert_eq!(
         Embedding::<S, T>::generator_count(),
         iso.to_images().len(),

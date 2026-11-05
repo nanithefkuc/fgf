@@ -124,6 +124,41 @@ All notable changes to this project are documented here. The format follows
   the compile-fail fixtures under `tests/compile_fail/` pin the
   rejections; the cases added for this change name both the diagnostic
   fragment and `E0080`.
+- **Breaking:** Map constructors and data errors follow the error
+  classification. `Embedding::new` and `Isomorphism::new` return `Self`:
+  a pair outside the degree contract — equal degrees for `Embedding`, a
+  source degree that does not divide the target degree, unequal degrees
+  for `Isomorphism` — is a compile-time assertion that surfaces at code
+  generation (`cargo build` and `cargo test` catch it; `cargo check`
+  alone may skip it), after each row's own field validation. Both
+  constructors of both maps now evaluate the source and target rows'
+  field validation, so a map over an invalid row (for example a
+  reducible extension relation) no longer compiles even when the degree
+  check would previously have returned an error first. A pair inside
+  the contracts that no structural or ladder rule covers panics under
+  `# Panics`, naming the constructor and the source and target
+  presentation types. Migration: drop the `Result` handling on `new`,
+  move impossible pairs out of the codebase, and obtain noncanonical
+  maps from `from_images` with validated images.
+- **Breaking:** `EmbeddingError` is removed; `fgf::maps::ImageError`
+  replaces it as a `#[non_exhaustive]` unit covering exactly the
+  rejection of a supplied generator-image sequence (wrong count, or a
+  failed transported relation), which `Embedding::from_images` and
+  `Isomorphism::from_images` return after checking the count before the
+  relations. `from_images` no longer requires or searches for a
+  canonical map. `RangeError` is `#[non_exhaustive]`. Migration: neither
+  error type can be constructed outside the crate — obtain the value
+  from a rejected conversion or image sequence, match it with
+  `Err(RangeError { .. })` or `Err(ImageError { .. })` (the bare unit
+  pattern no longer names the type outside the crate and binds a
+  variable instead), and replace variant matches on `EmbeddingError`
+  with the single `ImageError` arm; degree mismatches no longer reach
+  runtime code.
+- Runtime precondition panics of the row operations, field byte codecs,
+  `Relation` constructors, and `Embedding::generator` name the operation
+  and the offending operand. The checks, their order, and the accepted
+  inputs are unchanged; tests matching panic text may need the new
+  operation-prefixed fragments.
 - The generic extension test suite is one binary: `tests/extension.rs`
   holds the shared rows and splits into `rows` (per-field laws, encodings,
   and the packed surface) and `reference` (arithmetic against the

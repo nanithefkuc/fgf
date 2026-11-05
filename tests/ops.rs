@@ -1879,7 +1879,7 @@ fn erasure_round_trip_gf8() {
 }
 
 #[test]
-#[should_panic(expected = "mul_into_gather: 2 coefficients for 1 sources")]
+#[should_panic(expected = "mul_into_gather: coeffs holds 2 coefficients but there are 1 sources")]
 fn mul_into_gather_rejects_mismatched_source_count() {
     let mut dst = [0u8; 8];
     ops::mul_into_gather::<FiniteField<2, 8, Polynomial<AES>>>(
@@ -2608,7 +2608,7 @@ fn mul_elementwise_assign_rejects_length_mismatch() {
 
 #[test]
 #[should_panic(
-    expected = "add_assign_scalar: buffer of 6 bytes is not a whole number of GF(2^64 - 2^32 + 1) elements"
+    expected = "add_assign_scalar: dst of 6 bytes is not a whole number of GF(2^64 - 2^32 + 1) elements"
 )]
 fn add_assign_scalar_rejects_partial_trailing_element() {
     ops::add_assign_scalar::<Goldilocks>(&mut [0u8; 6], gld(1));
@@ -2945,7 +2945,7 @@ fn scatter_with_rejects_short_rows_buffer() {
 }
 
 #[test]
-#[should_panic(expected = "mul_add_gather: 2 coefficients for 1 sources")]
+#[should_panic(expected = "mul_add_gather: coeffs holds 2 coefficients but there are 1 sources")]
 fn gather_rejects_coefficient_count_mismatch() {
     let src = [0u8; 8];
     let mut dst = vec![0u8; 8];
@@ -2960,7 +2960,7 @@ fn gather_rejects_coefficient_count_mismatch() {
 }
 
 #[test]
-#[should_panic(expected = "mul_add_gather: source is 7 bytes")]
+#[should_panic(expected = "mul_add_gather: source 0 is 7 bytes")]
 fn gather_rejects_source_length_mismatch() {
     let src = [0u8; 7];
     let mut dst = vec![0u8; 8];
@@ -2973,7 +2973,9 @@ fn gather_rejects_source_length_mismatch() {
 
 #[test]
 #[cfg(feature = "alloc")]
-#[should_panic(expected = "mul_add_gather_with: 2 coefficients for 1 sources")]
+#[should_panic(
+    expected = "mul_add_gather_with: coeffs holds 2 coefficients but there are 1 sources"
+)]
 fn gather_with_rejects_vector_source_mismatch() {
     let src = [0u8; 8];
     let mut dst = vec![0u8; 8];
@@ -2998,7 +3000,9 @@ fn gather_with_rejects_source_length_mismatch() {
 
 #[test]
 #[cfg(feature = "alloc")]
-#[should_panic(expected = "mul_into_gather_with: 2 coefficients for 1 sources")]
+#[should_panic(
+    expected = "mul_into_gather_with: coeffs holds 2 coefficients but there are 1 sources"
+)]
 fn mul_into_gather_with_rejects_vector_source_mismatch() {
     let src = [0u8; 8];
     let mut dst = vec![0u8; 8];
@@ -3665,7 +3669,7 @@ fn gf16_add_assign_rows_wide_rows_match_oracle() {
 }
 
 #[test]
-#[should_panic(expected = "add_assign_rows: row length must be nonzero")]
+#[should_panic(expected = "add_assign_rows: row_len must be nonzero")]
 fn add_assign_rows_rejects_zero_row_length() {
     let mut dst = [0u8; 8];
     let src = [0u8; 8];
@@ -3673,7 +3677,7 @@ fn add_assign_rows_rejects_zero_row_length() {
 }
 
 #[test]
-#[should_panic(expected = "add_assign_rows: buffer of 3 bytes is not a whole number")]
+#[should_panic(expected = "add_assign_rows: row_len of 3 bytes is not a whole number")]
 fn add_assign_rows_rejects_row_length_with_partial_element() {
     // Three bytes is not a whole number of two-byte GF(2^16) elements.
     let mut dst = [0u8; 6];
@@ -3690,7 +3694,7 @@ fn add_assign_rows_rejects_mismatched_buffers() {
 }
 
 #[test]
-#[should_panic(expected = "add_assign_rows: partial trailing row")]
+#[should_panic(expected = "add_assign_rows: dst of 10 bytes is not a whole number of 4-byte rows")]
 fn add_assign_rows_rejects_partial_trailing_row() {
     // Ten bytes into four-byte rows leaves a two-byte remainder.
     let mut dst = [0u8; 10];
@@ -3794,7 +3798,7 @@ fn sub_assign_rows_add_assign_rows_round_trip_restores() {
 }
 
 #[test]
-#[should_panic(expected = "sub_assign_rows: row length must be nonzero")]
+#[should_panic(expected = "sub_assign_rows: row_len must be nonzero")]
 fn sub_assign_rows_rejects_zero_row_length() {
     let mut dst = [0u8; 8];
     let src = [0u8; 8];
@@ -3802,7 +3806,7 @@ fn sub_assign_rows_rejects_zero_row_length() {
 }
 
 #[test]
-#[should_panic(expected = "sub_assign_rows: buffer of 3 bytes is not a whole number")]
+#[should_panic(expected = "sub_assign_rows: row_len of 3 bytes is not a whole number")]
 fn sub_assign_rows_rejects_row_length_with_partial_element() {
     let mut dst = [0u8; 6];
     let src = [0u8; 6];
@@ -3818,7 +3822,7 @@ fn sub_assign_rows_rejects_mismatched_buffers() {
 }
 
 #[test]
-#[should_panic(expected = "sub_assign_rows: partial trailing row")]
+#[should_panic(expected = "sub_assign_rows: dst of 10 bytes is not a whole number of 4-byte rows")]
 fn sub_assign_rows_rejects_partial_trailing_row() {
     let mut dst = [0u8; 10];
     let src = [0u8; 10];
@@ -4777,7 +4781,7 @@ fn fallback_mul_add_rejects_length_mismatch() {
 }
 
 #[test]
-#[should_panic(expected = "buffer of 3 bytes is not a whole number")]
+#[should_panic(expected = "mul_assign: dst of 3 bytes is not a whole number")]
 fn fallback_mul_assign_rejects_partial_element() {
     let mut dst = [0u8; 3];
     ops::mul_assign::<Custom16Row>(&mut dst, pattern_elem(0x53));
@@ -4846,7 +4850,7 @@ fn fallback_unpack_rejects_source_mismatch() {
 }
 
 #[test]
-#[should_panic(expected = "add_assign_rows: partial trailing row")]
+#[should_panic(expected = "add_assign_rows: dst of 10 bytes is not a whole number of 4-byte rows")]
 fn fallback_add_assign_rows_rejects_partial_row() {
     let mut dst = [0u8; 10];
     let src = [0u8; 10];
@@ -4976,7 +4980,7 @@ fn bulk_dot_product_rejects_length_mismatch() {
 }
 
 #[test]
-#[should_panic(expected = "dot_product: buffer of 3 bytes is not a whole number")]
+#[should_panic(expected = "dot_product: a of 3 bytes is not a whole number")]
 fn bulk_dot_product_rejects_partial_trailing_element() {
     let _ = ops::dot_product::<Gf16>(&[0u8; 3], &[0u8; 3]);
 }
@@ -5163,7 +5167,7 @@ fn inv_into_rejects_length_mismatch() {
 }
 
 #[test]
-#[should_panic(expected = "inv_assign: buffer of 3 bytes is not a whole number")]
+#[should_panic(expected = "inv_assign: dst of 3 bytes is not a whole number")]
 fn inv_assign_rejects_partial_trailing_element() {
     ops::inv_assign::<Gf16>(&mut [0u8; 3]);
 }

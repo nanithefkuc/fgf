@@ -903,8 +903,12 @@ impl<const P: u64, const N: u32, R: FiniteFieldRepr<P, N>> private::FieldSeal
 /// An integer outside the range a conversion accepts.
 ///
 /// Returned when a value does not name an element of the target field: a
-/// residue at or above the characteristic, or an index at or above the field
-/// order. The unit carries no payload; tests compare by value.
+/// residue at or above the characteristic, or an index at or above the
+/// field order. The unit carries no payload; it is obtained from a
+/// rejected conversion and compared by value, and cannot be constructed
+/// outside the crate. Outside the crate a pattern names it as
+/// `RangeError { .. }`.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RangeError;
 

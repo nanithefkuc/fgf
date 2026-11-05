@@ -515,14 +515,18 @@ impl<R: BinaryRepr<8>> FieldBuffer for FiniteField<2, 8, R> {
         let () = Validate::<Self>::OK;
         let bytes: [u8; 1] = bytes
             .try_into()
-            .expect("GF(2^8) element has the wrong byte width");
+            .expect("FieldBuffer::decode: bytes has the wrong byte width for a GF(2^8) element");
         Elem::<Self>::from_raw(bytes[0])
     }
 
     #[inline]
     fn encode(bytes: &mut [u8], value: Elem<Self>) {
         let () = Validate::<Self>::OK;
-        assert_eq!(bytes.len(), 1, "GF(2^8) element has the wrong byte width");
+        assert_eq!(
+            bytes.len(),
+            1,
+            "FieldBuffer::encode: bytes has the wrong byte width for a GF(2^8) element"
+        );
         bytes.copy_from_slice(&value.to_bytes());
     }
 }

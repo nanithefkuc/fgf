@@ -117,20 +117,32 @@ fn named_and_residue_lanes_differ_in_width() {
 
 #[test]
 fn residue_conversions_reject_out_of_range() {
-    assert_eq!(Elem::<Mersenne31>::from_residue(M31), Err(RangeError));
-    assert_eq!(Elem::<Mersenne31>::from_residue(u64::MAX), Err(RangeError));
+    assert!(matches!(
+        Elem::<Mersenne31>::from_residue(M31),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Mersenne31>::from_residue(u64::MAX),
+        Err(RangeError { .. })
+    ));
     // Values whose low 32 bits look like valid residues are still rejected:
     // the range check runs before any narrowing.
-    assert_eq!(Elem::<Mersenne31>::from_residue(1 << 32), Err(RangeError));
-    assert_eq!(
+    assert!(matches!(
+        Elem::<Mersenne31>::from_residue(1 << 32),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
         Elem::<Mersenne31>::from_residue((1 << 32) + 7),
-        Err(RangeError)
-    );
-    assert_eq!(
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
         Elem::<Goldilocks>::from_residue(GOLDILOCKS),
-        Err(RangeError)
-    );
-    assert_eq!(Elem::<Goldilocks>::from_residue(u64::MAX), Err(RangeError));
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Goldilocks>::from_residue(u64::MAX),
+        Err(RangeError { .. })
+    ));
     // The raw constructors still reduce aliases; only the checked residue
     // constructor rejects them.
     assert_eq!(

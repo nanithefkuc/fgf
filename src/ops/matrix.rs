@@ -34,7 +34,7 @@ pub fn mul_add_matrix<F: FieldBuffer>(
     nrows: usize,
     terms: &[(&[Elem<F>], &[u8])],
 ) {
-    check_width::<F>("mul_add_matrix", row_len);
+    check_width::<F>("mul_add_matrix", "row_len", row_len);
     let used = nrows
         .checked_mul(row_len)
         .expect("mul_add_matrix: row geometry overflows");
@@ -83,7 +83,7 @@ pub fn mul_add_matrix_with<F: FieldBuffer>(
     coeffs: &CoeffMatrix<F>,
     srcs: &[&[u8]],
 ) {
-    check_width::<F>("mul_add_matrix_with", row_len);
+    check_width::<F>("mul_add_matrix_with", "row_len", row_len);
     let nrows = coeffs.output_count();
     let used = nrows
         .checked_mul(row_len)
@@ -139,7 +139,7 @@ pub fn mul_into_matrix<F: FieldBuffer>(
     nrows: usize,
     terms: &[(&[Elem<F>], &[u8])],
 ) {
-    check_width::<F>("mul_into_matrix", row_len);
+    check_width::<F>("mul_into_matrix", "row_len", row_len);
     let used = nrows
         .checked_mul(row_len)
         .expect("mul_into_matrix: row geometry overflows");
@@ -190,7 +190,7 @@ pub fn mul_into_matrix_with<F: FieldBuffer>(
     coeffs: &CoeffMatrix<F>,
     srcs: &[&[u8]],
 ) {
-    check_width::<F>("mul_into_matrix_with", row_len);
+    check_width::<F>("mul_into_matrix_with", "row_len", row_len);
     let nrows = coeffs.output_count();
     let used = nrows
         .checked_mul(row_len)
@@ -470,7 +470,7 @@ pub fn mul_into_matrix_at_with<F: FieldBuffer>(
 /// Scattered-row geometry shared by the `_at` entries: every row in bounds,
 /// element-aligned, and pairwise disjoint.
 fn check_at<F: FieldBuffer>(name: &str, dst_len: usize, row_len: usize, row_starts: &[usize]) {
-    check_width::<F>(name, row_len);
+    check_width::<F>(name, "row_len", row_len);
     for (j, &start) in row_starts.iter().enumerate() {
         let end = start
             .checked_add(row_len)

@@ -600,44 +600,15 @@ impl fgf::extension::PackedWord for u64
 impl fgf::extension::PackedWord for u8
 pub type fgf::extension::QuadMersenne31 = fgf::FiniteField<0x7FFF_FFFF, 2, fgf::extension::Extension<fgf::extension::ComplexMersenne31, 2>>
 pub mod fgf::maps
-#[non_exhaustive] pub enum fgf::maps::EmbeddingError
-pub fgf::maps::EmbeddingError::EqualDegree
-pub fgf::maps::EmbeddingError::EqualDegree::degree: u32
-pub fgf::maps::EmbeddingError::IncompatibleDegree
-pub fgf::maps::EmbeddingError::IncompatibleDegree::source: u32
-pub fgf::maps::EmbeddingError::IncompatibleDegree::target: u32
-pub fgf::maps::EmbeddingError::InvalidImages
-pub fgf::maps::EmbeddingError::NoCanonicalMap
-impl core::clone::Clone for fgf::maps::EmbeddingError
-pub fn fgf::maps::EmbeddingError::clone(&self) -> Self
-impl core::clone::TrivialClone for fgf::maps::EmbeddingError
-impl core::cmp::Eq for fgf::maps::EmbeddingError
-pub fn fgf::maps::EmbeddingError::assert_fields_are_eq(&self)
-impl core::cmp::PartialEq for fgf::maps::EmbeddingError
-pub fn fgf::maps::EmbeddingError::eq(&self, &Self) -> bool
-impl core::error::Error for fgf::maps::EmbeddingError
-impl core::fmt::Debug for fgf::maps::EmbeddingError
-pub fn fgf::maps::EmbeddingError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for fgf::maps::EmbeddingError
-pub fn fgf::maps::EmbeddingError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for fgf::maps::EmbeddingError
-impl core::marker::StructuralPartialEq for fgf::maps::EmbeddingError
-impl core::marker::Freeze for fgf::maps::EmbeddingError
-impl core::marker::Send for fgf::maps::EmbeddingError
-impl core::marker::Sync for fgf::maps::EmbeddingError
-impl core::marker::Unpin for fgf::maps::EmbeddingError
-impl core::marker::UnsafeUnpin for fgf::maps::EmbeddingError
-impl core::panic::unwind_safe::RefUnwindSafe for fgf::maps::EmbeddingError
-impl core::panic::unwind_safe::UnwindSafe for fgf::maps::EmbeddingError
 pub struct fgf::maps::Embedding<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>>
 impl<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>> fgf::maps::Embedding<S, T>
 pub fn fgf::maps::Embedding<S, T>::contains(&self, fgf::Elem<T>) -> bool
 pub fn fgf::maps::Embedding<S, T>::embed(&self, fgf::Elem<S>) -> fgf::Elem<T>
 pub fn fgf::maps::Embedding<S, T>::frobenius(&self, fgf::Elem<T>) -> fgf::Elem<T>
-pub fn fgf::maps::Embedding<S, T>::from_images(&[fgf::Elem<T>]) -> core::result::Result<Self, fgf::maps::EmbeddingError>
+pub fn fgf::maps::Embedding<S, T>::from_images(&[fgf::Elem<T>]) -> core::result::Result<Self, fgf::maps::ImageError>
 pub fn fgf::maps::Embedding<S, T>::generator(usize) -> fgf::Elem<S>
 pub fn fgf::maps::Embedding<S, T>::generator_count() -> usize
-pub fn fgf::maps::Embedding<S, T>::new() -> core::result::Result<Self, fgf::maps::EmbeddingError>
+pub fn fgf::maps::Embedding<S, T>::new() -> Self
 pub fn fgf::maps::Embedding<S, T>::norm(&self, fgf::Elem<T>) -> fgf::Elem<S>
 pub fn fgf::maps::Embedding<S, T>::relative_degree(&self) -> u32
 pub fn fgf::maps::Embedding<S, T>::restrict(&self, fgf::Elem<T>) -> core::option::Option<fgf::Elem<S>>
@@ -656,12 +627,33 @@ impl<S, T> core::marker::Unpin for fgf::maps::Embedding<S, T> where [fgf::Elem<T
 impl<S, T> core::marker::UnsafeUnpin for fgf::maps::Embedding<S, T> where [fgf::Elem<T>; 8]: core::marker::UnsafeUnpin, core::marker::PhantomData<fn() -> (S, T)>: core::marker::UnsafeUnpin
 impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::maps::Embedding<S, T> where [fgf::Elem<T>; 8]: core::panic::unwind_safe::RefUnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::RefUnwindSafe
 impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::maps::Embedding<S, T> where [fgf::Elem<T>; 8]: core::panic::unwind_safe::UnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::UnwindSafe
+#[non_exhaustive] pub struct fgf::maps::ImageError
+impl core::clone::Clone for fgf::maps::ImageError
+pub fn fgf::maps::ImageError::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::maps::ImageError
+impl core::cmp::Eq for fgf::maps::ImageError
+impl core::cmp::PartialEq for fgf::maps::ImageError
+pub fn fgf::maps::ImageError::eq(&self, &Self) -> bool
+impl core::error::Error for fgf::maps::ImageError
+impl core::fmt::Debug for fgf::maps::ImageError
+pub fn fgf::maps::ImageError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for fgf::maps::ImageError
+pub fn fgf::maps::ImageError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for fgf::maps::ImageError
+impl core::marker::StructuralPartialEq for fgf::maps::ImageError
+impl core::marker::Freeze for fgf::maps::ImageError
+impl core::marker::Send for fgf::maps::ImageError
+impl core::marker::Sync for fgf::maps::ImageError
+impl core::marker::Unpin for fgf::maps::ImageError
+impl core::marker::UnsafeUnpin for fgf::maps::ImageError
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::maps::ImageError
+impl core::panic::unwind_safe::UnwindSafe for fgf::maps::ImageError
 pub struct fgf::maps::Isomorphism<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>>
 impl<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>> fgf::maps::Isomorphism<S, T>
 pub fn fgf::maps::Isomorphism<S, T>::apply(&self, fgf::Elem<S>) -> fgf::Elem<T>
-pub fn fgf::maps::Isomorphism<S, T>::from_images(&[fgf::Elem<T>]) -> core::result::Result<Self, fgf::maps::EmbeddingError>
+pub fn fgf::maps::Isomorphism<S, T>::from_images(&[fgf::Elem<T>]) -> core::result::Result<Self, fgf::maps::ImageError>
 pub fn fgf::maps::Isomorphism<S, T>::inverse(&self) -> fgf::maps::Isomorphism<T, S>
-pub fn fgf::maps::Isomorphism<S, T>::new() -> core::result::Result<Self, fgf::maps::EmbeddingError>
+pub fn fgf::maps::Isomorphism<S, T>::new() -> Self
 pub fn fgf::maps::Isomorphism<S, T>::then<U: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>>(&self, &fgf::maps::Isomorphism<T, U>) -> fgf::maps::Isomorphism<S, U>
 pub fn fgf::maps::Isomorphism<S, T>::then_embedding<U: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>>(&self, &fgf::maps::Embedding<T, U>) -> fgf::maps::Embedding<S, U>
 pub fn fgf::maps::Isomorphism<S, T>::to_images(&self) -> &[fgf::Elem<T>]
@@ -1469,7 +1461,7 @@ impl<const P: u64, const N: u32, R> core::marker::Unpin for fgf::FiniteField<P, 
 impl<const P: u64, const N: u32, R> core::marker::UnsafeUnpin for fgf::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::marker::UnsafeUnpin
 impl<const P: u64, const N: u32, R> core::panic::unwind_safe::RefUnwindSafe for fgf::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::panic::unwind_safe::RefUnwindSafe
 impl<const P: u64, const N: u32, R> core::panic::unwind_safe::UnwindSafe for fgf::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::RangeError
+#[non_exhaustive] pub struct fgf::RangeError
 impl core::clone::Clone for fgf::RangeError
 pub fn fgf::RangeError::clone(&self) -> Self
 impl core::clone::TrivialClone for fgf::RangeError

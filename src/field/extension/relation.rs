@@ -15,8 +15,8 @@ use crate::field::Field;
 ///
 /// Opaque and `Copy`; built only through the const constructors. A
 /// construction past the coordinate capacity, or from a binary word with
-/// bits at or above the base's degree, panics with a stable message, in
-/// const evaluation and at runtime alike.
+/// bits at or above the base's degree, panics with a message naming the
+/// constructor and its operand, in const evaluation and at runtime alike.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Relation {
     coordinates: [u64; COORDINATES],
@@ -36,7 +36,7 @@ impl Relation {
     pub const fn from_coordinates(coordinates: &[u64]) -> Self {
         assert!(
             coordinates.len() <= COORDINATES,
-            "relation exceeds the coordinate capacity"
+            "Relation::from_coordinates: coordinates: relation exceeds the coordinate capacity"
         );
         let mut out = [0; COORDINATES];
         let mut i = 0;
@@ -69,11 +69,11 @@ impl Relation {
     pub const fn from_binary_words<B: BinaryField>(words: &[u64]) -> Self {
         let degree = <B as Field>::DEGREE;
         let Some(total) = (words.len() as u64).checked_mul(degree as u64) else {
-            panic!("relation exceeds the coordinate capacity");
+            panic!("Relation::from_binary_words: words: relation exceeds the coordinate capacity");
         };
         assert!(
             total <= COORDINATES as u64,
-            "relation exceeds the coordinate capacity"
+            "Relation::from_binary_words: words: relation exceeds the coordinate capacity"
         );
         let mut out = [0; COORDINATES];
         let mut i = 0;
@@ -81,7 +81,7 @@ impl Relation {
             let word = words[i];
             assert!(
                 degree >= 64 || word >> degree == 0,
-                "relation word has bits at or above the base degree"
+                "Relation::from_binary_words: words: relation word has bits at or above the base degree"
             );
             let mut j = 0;
             while j < degree as usize {

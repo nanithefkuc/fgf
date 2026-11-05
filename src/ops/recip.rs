@@ -53,7 +53,7 @@ pub fn inv_into<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
 ///
 /// Panics if `dst` holds a partial trailing element.
 pub fn inv_assign<F: FieldBuffer>(dst: &mut [u8]) {
-    check_width::<F>("inv_assign", dst.len());
+    check_width::<F>("inv_assign", "dst", dst.len());
     // The backward pass reads prefix products staged ahead of the write
     // cursor; an in-place run would clobber lanes it still needs. Work
     // chunk by chunk through stack scratch instead.

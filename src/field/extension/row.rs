@@ -633,7 +633,8 @@ where
         assert_eq!(
             bytes.len(),
             Self::BYTES,
-            "extension element has the wrong byte width"
+            "FieldBuffer::decode: bytes has the wrong byte width for an extension element of {}",
+            Self::NAME
         );
         let raw = <S::Storage as StorageBuffer<S::Base, D>>::decode(bytes);
         Elem {
@@ -647,7 +648,8 @@ where
         assert_eq!(
             bytes.len(),
             Self::BYTES,
-            "extension element has the wrong byte width"
+            "FieldBuffer::encode: bytes has the wrong byte width for an extension element of {}",
+            Self::NAME
         );
         <S::Storage as StorageBuffer<S::Base, D>>::encode(bytes, &value.raw);
     }

@@ -248,10 +248,22 @@ fn boundaries<const P: u64>() {
 fn residue_conversions_reject_out_of_range() {
     assert_eq!(Elem::<Res<7>>::from_residue(0).map(Elem::to_raw), Ok(0));
     assert_eq!(Elem::<Res<7>>::from_residue(6).map(Elem::to_raw), Ok(6));
-    assert_eq!(Elem::<Res<7>>::from_residue(7), Err(RangeError));
-    assert_eq!(Elem::<Res<7>>::from_residue(8), Err(RangeError));
-    assert_eq!(Elem::<Res<7>>::from_residue(u64::MAX), Err(RangeError));
-    assert_eq!(Elem::<Res<WIDE>>::from_residue(WIDE), Err(RangeError));
+    assert!(matches!(
+        Elem::<Res<7>>::from_residue(7),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Res<7>>::from_residue(8),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Res<7>>::from_residue(u64::MAX),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Res<WIDE>>::from_residue(WIDE),
+        Err(RangeError { .. })
+    ));
     assert_eq!(
         Elem::<Res<WIDE>>::from_residue(WIDE - 1).map(Elem::to_raw),
         Ok(WIDE - 1)
@@ -273,7 +285,10 @@ fn range_error_is_a_std_error() {
         let _ = error.source();
         !error.to_string().is_empty()
     }
-    assert!(display_and_source(&RangeError));
+    // A real rejected conversion yields the error whose trait surface
+    // is checked; the unit cannot be constructed outside the crate.
+    let rejected = Elem::<Res<7>>::from_residue(7).expect_err("seven is out of range");
+    assert!(display_and_source(&rejected));
 }
 
 #[test]
@@ -534,13 +549,13 @@ fn every_residue_round_trips_through_its_lane() {
 }
 
 #[test]
-#[should_panic(expected = "wrong byte width")]
+#[should_panic(expected = "FieldBuffer::decode: bytes has the wrong byte width")]
 fn decode_rejects_a_wrong_length_slice() {
     let _ = <Res<257> as FieldBuffer>::decode(&[0u8; 1]);
 }
 
 #[test]
-#[should_panic(expected = "wrong byte width")]
+#[should_panic(expected = "FieldBuffer::encode: bytes has the wrong byte width")]
 fn encode_rejects_a_wrong_length_slice() {
     let mut lane = [0u8; 1];
     <Res<257> as FieldBuffer>::encode(&mut lane, Elem::<Res<257>>::ONE);

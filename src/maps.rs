@@ -37,7 +37,7 @@
 //! };
 //!
 //! type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
-//! let embedding = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf16>::new().unwrap();
+//! let embedding = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf16>::new();
 //! let x = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
 //! let lifted = embedding.embed(x);
 //! assert!(embedding.contains(lifted));
@@ -45,4 +45,4 @@
 //! assert_eq!(embedding.frobenius(lifted), lifted);
 //! ```
 
-pub use crate::field::embedding::{Embedding, EmbeddingError, Isomorphism, Postcompose};
+pub use crate::field::embedding::{Embedding, ImageError, Isomorphism, Postcompose};

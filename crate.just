@@ -190,18 +190,23 @@ isa-accept EXPECTED:
 # compile on the crate MSRV. The first line names the expectation: a
 # panic fragment or rustc diagnostic code/text (`expect:`) that must appear
 # in the error, or `expect-rejection` when only rejection is the contract.
-# An optional second line (`// expect-code: E0080`) adds a required
-# diagnostic code, so const-validation regressions pin both the named
-# fragment and the evaluation error. A rejection-only case fails when
-# stderr holds an unresolved-name error (`E0405`, `E0412`, `E0422`,
-# `E0423`, `E0425`, `E0432`, `E0433`): such a snippet was rejected for a
+# Comment lines two and three carry optional directives by prefix:
+# `// expect-code: E0080` adds a required diagnostic code, so
+# const-validation regressions pin both the named fragment and the
+# evaluation error, and `// reject: <fragment>` forbids an actual
+# diagnostic fragment, in either order. A reject assertion names the
+# forbidden panic text of a condition that must not fire (a degree
+# assertion reached before a field-validity failure, say), never text the
+# snippet's own source quotes. A rejection-only case fails when stderr
+# holds an unresolved-name error (`E0405`, `E0412`, `E0422`, `E0423`,
+# `E0425`, `E0432`, `E0433`): such a snippet was rejected for a
 # missing import, not the bound under test. Every case also fails when it
 # trips on a private module path (`E0603`), because a privatized module is
 # not the contract the snippet names.
 # Every snippet runs against the all-features rlib; the sealed/row-hook
-# raw-arithmetic probes and the raw/proof/prepared/query/removal privacy
-# probes additionally run against the stable-maximal rlib (every stable
-# feature, `internals` off), each
+# raw-arithmetic probes, the raw/proof/prepared/query/removal privacy
+# probes, and the map/error-boundary negatives additionally run against
+# the stable-maximal rlib (every stable feature, `internals` off), each
 # built separately with its exact artifact path retained, so one
 # configuration's rlib can never serve the other's run. Diagnostics are
 # labeled by configuration.
@@ -237,7 +242,7 @@ compile-fail:
     failures=0
     run_case() {
         local config="${1}" rlib="${2}" snippet="${3}"
-        local header fragment code err
+        local header fragment code reject err directive
         header=$(head -n 1 "${snippet}")
         case "${header}" in
             "// expect-rejection") fragment="" ;;
@@ -247,11 +252,18 @@ compile-fail:
                 exit 1
                 ;;
         esac
-        code=$(sed -n '2p' "${snippet}")
-        case "${code}" in
-            "// expect-code: "*) code="${code##*expect-code: }" ;;
-            *) code="" ;;
-        esac
+        # Lines two and three carry optional directives by prefix, in
+        # either order.
+        code=""
+        reject=""
+        for directive in "$(sed -n '2p' "${snippet}")" "$(sed -n '3p' "${snippet}")"; do
+            case "${directive}" in
+                "// expect-code: "*) code="${directive##*expect-code: }" ;;
+                "// reject: "*) reject="${directive##*reject: }" ;;
+                *) : ;;
+            esac
+        done
+
         if err=$(rustc +{{MSRV}} --edition 2024 --crate-type lib --extern fgf="${rlib}" -L dependency=target/debug/deps --out-dir "${scratch}" "${snippet}" 2>&1); then
             echo "compile-fail: FAIL [${config}] ${snippet} compiled successfully" >&2
             failures=$((failures + 1))
@@ -263,6 +275,9 @@ compile-fail:
             failures=$((failures + 1))
         elif [[ -n "${code}" ]] && ! grep -qF -- "error[${code}]" <<< "${err}"; then
             echo "compile-fail: FAIL [${config}] ${snippet} expected code: ${code}" >&2
+            failures=$((failures + 1))
+        elif [[ -n "${reject}" ]] && grep -qF -- "${reject}" <<< "${err}"; then
+            echo "compile-fail: FAIL [${config}] ${snippet} forbidden fragment present: ${reject}" >&2
             failures=$((failures + 1))
         elif [[ -z "${fragment}" ]] && grep -qE -- 'error\[E(0405|0412|0422|0423|0425|0432|0433)\]' <<< "${err}"; then
             echo "compile-fail: FAIL [${config}] ${snippet}: rejected for an unresolved name" >&2
@@ -279,7 +294,13 @@ compile-fail:
         tests/compile_fail/row_hook_*.rs \
         tests/compile_fail/raw_*_without_proof.rs \
         tests/compile_fail/field_buffer_*.rs \
-        tests/compile_fail/field_kernels_*.rs
+        tests/compile_fail/field_kernels_*.rs \
+        tests/compile_fail/embedding_*.rs \
+        tests/compile_fail/isomorphism_*.rs \
+        tests/compile_fail/map_*.rs \
+        tests/compile_fail/maps_*.rs \
+        tests/compile_fail/image_error_*.rs \
+        tests/compile_fail/range_error_*.rs
     do
         [[ -e "${snippet}" ]] || continue
         run_case stable-maximal "${rlib_stable}" "${snippet}"

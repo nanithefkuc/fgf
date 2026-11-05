@@ -46,7 +46,7 @@ use super::single::mul_into_with;
 /// two-slice operation in this crate.
 #[inline]
 pub fn add_gather_offsets<F: FieldBuffer>(dst: &mut [u8], region: &[u8], offsets: &[u32]) {
-    check_width::<F>("add_gather_offsets", dst.len());
+    check_width::<F>("add_gather_offsets", "dst", dst.len());
     let live = dst.len();
     for (index, &start) in offsets.iter().enumerate() {
         let start = start as usize;
@@ -75,21 +75,21 @@ pub fn add_gather_offsets<F: FieldBuffer>(dst: &mut [u8], region: &[u8], offsets
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches
 /// `dst` in length, or on a partial trailing element.
 pub fn mul_add_gather<F: FieldBuffer>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
-    check_width::<F>("mul_add_gather", dst.len());
+    check_width::<F>("mul_add_gather", "dst", dst.len());
     assert_eq!(
         coeffs.len(),
         srcs.len(),
-        "mul_add_gather: {} coefficients for {} sources",
+        "mul_add_gather: coeffs holds {} coefficients but there are {} sources",
         coeffs.len(),
-        srcs.len()
+        srcs.len(),
     );
-    for &src in srcs {
+    for (index, &src) in srcs.iter().enumerate() {
         assert_eq!(
             dst.len(),
             src.len(),
-            "mul_add_gather: source is {} bytes, expected {}",
+            "mul_add_gather: source {index} is {} bytes, expected {}",
             src.len(),
-            dst.len()
+            dst.len(),
         );
     }
     if dst.is_empty() || srcs.is_empty() || coeffs.iter().all(|c| c.is_zero()) {
@@ -112,11 +112,11 @@ pub fn mul_add_gather_with<F: FieldBuffer>(
     coeffs: CoeffVecRef<'_, F>,
     srcs: &[&[u8]],
 ) {
-    check_width::<F>("mul_add_gather_with", dst.len());
+    check_width::<F>("mul_add_gather_with", "dst", dst.len());
     assert_eq!(
         coeffs.len(),
         srcs.len(),
-        "mul_add_gather_with: {} coefficients for {} sources",
+        "mul_add_gather_with: coeffs holds {} coefficients but there are {} sources",
         coeffs.len(),
         srcs.len(),
     );
@@ -146,13 +146,13 @@ pub fn mul_add_gather_with<F: FieldBuffer>(
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches
 /// `dst` in length, or on a partial trailing element.
 pub fn mul_into_gather<F: FieldBuffer>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
-    check_width::<F>("mul_into_gather", dst.len());
+    check_width::<F>("mul_into_gather", "dst", dst.len());
     assert_eq!(
         coeffs.len(),
         srcs.len(),
-        "mul_into_gather: {} coefficients for {} sources",
+        "mul_into_gather: coeffs holds {} coefficients but there are {} sources",
         coeffs.len(),
-        srcs.len()
+        srcs.len(),
     );
     for (index, &src) in srcs.iter().enumerate() {
         assert_eq!(
@@ -188,11 +188,11 @@ pub fn mul_into_gather_with<F: FieldBuffer>(
     coeffs: CoeffVecRef<'_, F>,
     srcs: &[&[u8]],
 ) {
-    check_width::<F>("mul_into_gather_with", dst.len());
+    check_width::<F>("mul_into_gather_with", "dst", dst.len());
     assert_eq!(
         coeffs.len(),
         srcs.len(),
-        "mul_into_gather_with: {} coefficients for {} sources",
+        "mul_into_gather_with: coeffs holds {} coefficients but there are {} sources",
         coeffs.len(),
         srcs.len(),
     );

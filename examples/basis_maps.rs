@@ -7,17 +7,19 @@
 //! `1`, and residues read the same under every basis while coordinate
 //! indices do not. [`Isomorphism`] maps between equal-degree
 //! presentations with a total inverse, from the canonical ladder or from
-//! caller-supplied generator images. In odd characteristic nothing is
-//! canonical: construction without images refuses, supplied images are
-//! validated against the transported relations, and restriction through a
-//! proper subfield rejects elements outside its image.
+//! caller-supplied generator images. Characteristic two uses the frozen
+//! reference ladder as its canonical-image rule; odd characteristic has
+//! no canonical map between unrelated presentations, so canonical
+//! construction panics and supplied images are validated against the
+//! transported relations, with restriction through a proper subfield
+//! rejecting elements outside its image.
 
 #![forbid(unsafe_code)]
 
 use fgf::binary::AES;
 use fgf::binary::{Cantor, Normal, Polynomial};
 use fgf::extension::{Components, Extension, ExtensionField, ExtensionSpec, Relation};
-use fgf::maps::{Embedding, EmbeddingError, Isomorphism};
+use fgf::maps::{Embedding, ImageError, Isomorphism};
 use fgf::{Elem, Field, FieldElem, FiniteField};
 
 // Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
@@ -86,7 +88,7 @@ fn bases() {
 fn binary_maps() {
     // The frozen ladder covers the ordered bases: one call prepares the
     // canonical map.
-    let iso = Isomorphism::<NormalAes, Aes>::new().unwrap();
+    let iso = Isomorphism::<NormalAes, Aes>::new();
     let (g, h) = (
         Elem::<NormalAes>::GENERATOR,
         Elem::<NormalAes>::from_raw(0x96),
@@ -100,7 +102,7 @@ fn binary_maps() {
     // `inverse` swaps the directions; `then` composes by image transport.
     let back = iso.inverse();
     assert_eq!(back.apply(iso.apply(g)), g);
-    let to_cantor = Isomorphism::<Aes, CantorAes>::new().unwrap();
+    let to_cantor = Isomorphism::<Aes, CantorAes>::new();
     let composed = iso.then(&to_cantor);
     assert_eq!(composed.apply(g), to_cantor.apply(iso.apply(g)));
     assert_eq!(composed.inverse().apply(composed.apply(h)), h);
@@ -128,17 +130,11 @@ fn binary_maps() {
 /// Odd characteristic: no canonical map, validated images, rejected
 /// restriction.
 fn odd_maps() {
-    // Unrelated odd-characteristic presentations name no canonical map, and
-    // an equal-degree `Embedding` is rejected outright: only an
-    // `Isomorphism` maps between fields of the same degree.
-    assert_eq!(
-        Isomorphism::<Gf49Alt, Gf49>::new().unwrap_err(),
-        EmbeddingError::NoCanonicalMap
-    );
-    assert_eq!(
-        Embedding::<Gf49Alt, Gf49>::new().unwrap_err(),
-        EmbeddingError::EqualDegree { degree: 2 }
-    );
+    // Unrelated odd-characteristic presentations name no canonical map:
+    // canonical construction panics instead of guessing, so a map comes
+    // from caller-supplied images. An equal-degree `Embedding` does not
+    // compile at all; only an `Isomorphism` maps between fields of the
+    // same degree.
 
     // In `t^2 = 3`, the element `3t` squares to `2 * 3 = 6 = -1`, so it is
     // a root of the alternative relation `u^2 + 1 = 0` and fixes an
@@ -160,20 +156,20 @@ fn odd_maps() {
     assert_eq!(mapped.unapply(mapped.apply(p)), p);
 
     // Images that fail the transported relation, or the wrong count, are
-    // rejected: the indeterminate squares to 3, not to -1.
+    // rejected as values: the indeterminate squares to 3, not to -1.
     let t = <Gf49 as ExtensionField<2>>::from_components([Elem::<Gf7>::ZERO, Elem::<Gf7>::ONE]);
-    assert_eq!(
-        Isomorphism::<Gf49Alt, Gf49>::from_images(&[t]).unwrap_err(),
-        EmbeddingError::InvalidImages
-    );
-    assert_eq!(
-        Isomorphism::<Gf49Alt, Gf49>::from_images(&[]).unwrap_err(),
-        EmbeddingError::InvalidImages
-    );
+    assert!(matches!(
+        Isomorphism::<Gf49Alt, Gf49>::from_images(&[t]),
+        Err(ImageError { .. })
+    ));
+    assert!(matches!(
+        Isomorphism::<Gf49Alt, Gf49>::from_images(&[]),
+        Err(ImageError { .. })
+    ));
 
     // Restriction through the prime subfield is total on its image alone:
     // the indeterminate lies outside GF(7).
-    let subfield = Embedding::<Gf7, Gf49>::new().unwrap();
+    let subfield = Embedding::<Gf7, Gf49>::new();
     assert_eq!(subfield.restrict(t), None);
     assert_eq!(
         subfield.restrict(subfield.embed(Elem::<Gf7>::from_raw(5))),

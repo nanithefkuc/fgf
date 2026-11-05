@@ -251,20 +251,20 @@ is re-exported, never duplicated. Backend policy stays with
 The classification below is part of the API: changing a row is an API change
 under A6.
 
-| Check | Class |
-|---|---|
-| Characteristic is prime and in range | E1 |
-| Absolute degree satisfies `1 ≤ N ≤ 64`; field order equals the characteristic raised to that degree and is below `2^128` | E1 |
-| Binary presentation validity: irreducible polynomial, valid normal or Cantor basis | E1 |
-| Extension base validity; base and row characteristic agreement; relative degree `D ≥ 2`; absolute degree equals base degree times `D`; defining relation has the required coefficient count and in-range coordinates and is irreducible; storage admissibility; descriptor capacity | E1 |
-| Shipped `GENERATOR` has full multiplicative order | E1 |
-| `Embedding`: source degree divides target degree and differs from it | E1 |
-| `Isomorphism`: source and target degrees are equal | E1 |
-| A canonical map exists for the pair (`Embedding::new`, `Isomorphism::new`) | E2 |
-| Row geometry, lengths, offsets, overlap, coefficient counts | E3 |
-| Residue or index range | E4, `RangeError` |
-| Supplied generator images: count and transported relations | E4, `ImageError` |
-| Partial restriction, prime-subfield readout, collection lookups | E4, `Option` |
+| Check | Class | Evidence |
+|---|---|---|
+| Characteristic is prime and in range | E1 | `tests/compile_fail/constructor_p0.rs`, `constructor_mr_composite.rs`, `identity_p4.rs` |
+| Absolute degree satisfies `1 ≤ N ≤ 64`; field order equals the characteristic raised to that degree and is below `2^128` | E1 | `tests/compile_fail/extension_degree_zero.rs`, `extension_degree_above_cap.rs`, `binary_degree_above_cap.rs`, `extension_cardinality_overflow.rs` |
+| Binary presentation validity: irreducible polynomial, valid normal or Cantor basis | E1 | `tests/compile_fail/binary_reducible_polynomial.rs`, `binary_invalid_normal_basis.rs`, `binary_invalid_cantor_basis.rs` |
+| Extension base validity; base and row characteristic agreement; relative degree `D ≥ 2`; absolute degree equals base degree times `D`; defining relation has the required coefficient count and in-range coordinates and is irreducible; storage admissibility; descriptor capacity | E1 | `tests/compile_fail/extension_reducible_base.rs`, `extension_relative_degree_one.rs`, `extension_marker_degree_mismatch.rs`, `extension_relation_capacity.rs` |
+| Shipped `GENERATOR` has full multiplicative order | E1 | `tests/consumers.rs::shipped_instance_const_surface_matches_the_trait_surface` (const generator use), `tests/algebra.rs::gf8_generator_has_full_order` |
+| `Embedding`: source degree divides target degree and differs from it | E1 | `tests/compile_fail/embedding_equal_new.rs`, `embedding_equal_images.rs`, `embedding_reverse_new.rs`, `embedding_reverse_images.rs`, `embedding_unsupported_nondividing.rs`, `map_field_before_degree.rs` (field validity precedes the degree assertions) |
+| `Isomorphism`: source and target degrees are equal | E1 | `tests/compile_fail/isomorphism_unequal_new.rs`, `isomorphism_unequal_images.rs` |
+| A canonical map exists for the pair (`Embedding::new`, `Isomorphism::new`) | E2 | `tests/relations.rs::embedding_new_panics_on_an_unrelated_odd_pair`, `isomorphism_new_panics_on_an_unrelated_odd_pair`; `tests/embedding.rs::uncovered_presentations_reject_canonical_construction` |
+| Row geometry, lengths, offsets, overlap, coefficient counts | E3 | `tests/ops.rs::mul_into_scatter_rejects_wrong_row_count`, `matrix_scattered_rejects_overlapping_rows`, `tests/bits.rs` geometry cases, `tests/embedding.rs::generator_rejects_a_level_at_the_count` |
+| Residue or index range | E4, `RangeError` | `tests/residue.rs::residue_conversions_reject_out_of_range`, `range_error_is_a_std_error`; `tests/residue_index.rs::residue_rows_round_trip_indices_and_residues`, `mersenne31_rejects_the_shifted_alias`; `tests/named_rows.rs::residue_conversions_reject_out_of_range` |
+| Supplied generator images: count and transported relations | E4, `ImageError` | `tests/relations.rs::image_sequences_reject_or_rebuild_across_both_constructors`, `gf9_conjugate_images_reach_gf81` |
+| Partial restriction, prime-subfield readout, collection lookups | E4, `Option` | `tests/embedding.rs::restrict_rejects_elements_outside_the_subfield`; `tests/residue_index.rs::extension_rows_round_trip_every_index`, `normal_seven_two_marks_the_index_residue_split` (prime-subfield readout split) |
 
 `Embedding::new` and `Isomorphism::new` return `Self` and document their
 construction panics.
@@ -442,8 +442,13 @@ Tests must defend observable contracts, not implementation wiring.
 - `tests/bits.rs`: bit-packed GF(2) behavior and frozen layout conventions.
 - `tests/tower_forward.rs`: frozen raw-word fixtures pinning the unified
   tower packing against the shipped tower identities.
-- `tests/embedding.rs`: reference-ladder forward fixtures, inverse and
-  commuting-triangle contracts, trace/norm, and failed restriction.
+- `tests/embedding.rs`: frozen reference-ladder fixtures, mutual inverses,
+  commuting triangles, trace/norm, canonical-map panics on uncovered
+  pairs, and failed restriction.
+- `tests/relations.rs`: characteristic-independent construction — the
+  enumeration reference over image tuples, the image-error table across
+  both constructors, canonical-map panics on unrelated odd pairs, and
+  conjugate references.
 - `tests/binary_bases.rs`: ordered-basis and custom extension-spec arithmetic against
   base-field schoolbook oracles.
 - `tests/prime_fields.rs`: primality, prime-field bulk operations on raw

@@ -230,9 +230,9 @@ impl FieldBuffer for Goldilocks {
     #[inline]
     fn decode(bytes: &[u8]) -> Elem<Self> {
         let () = Validate::<Self>::OK;
-        let bytes: [u8; 8] = bytes
-            .try_into()
-            .expect("GF(2^64 - 2^32 + 1) element has the wrong byte width");
+        let bytes: [u8; 8] = bytes.try_into().expect(
+            "FieldBuffer::decode: bytes has the wrong byte width for a GF(2^64 - 2^32 + 1) element",
+        );
         Elem::<Self>::from_raw(u64::from_le_bytes(bytes))
     }
 
@@ -242,7 +242,7 @@ impl FieldBuffer for Goldilocks {
         assert_eq!(
             bytes.len(),
             8,
-            "GF(2^64 - 2^32 + 1) element has the wrong byte width"
+            "FieldBuffer::encode: bytes has the wrong byte width for a GF(2^64 - 2^32 + 1) element"
         );
         bytes.copy_from_slice(&value.to_raw().to_le_bytes());
     }

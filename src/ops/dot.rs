@@ -25,7 +25,7 @@ use super::geometry::{check_pair, check_width};
 #[must_use]
 pub fn dot_product<F: FieldBuffer>(a: &[u8], b: &[u8]) -> Elem<F> {
     check_pair::<F>("dot_product", "a", a.len(), "b", b.len());
-    check_width::<F>("dot_product", a.len());
+    check_width::<F>("dot_product", "a", a.len());
     let mut acc = Elem::<F>::ZERO;
     for (x, y) in a.chunks_exact(F::BYTES).zip(b.chunks_exact(F::BYTES)) {
         acc = acc.add(F::decode(x).mul(F::decode(y)));

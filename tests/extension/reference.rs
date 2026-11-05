@@ -888,7 +888,7 @@ where
     Row: Field<Characteristic = Base::Characteristic>,
     Elem<Row>: Coordinates,
 {
-    let embedding = Embedding::<Base, Row>::new().expect("the base embeds in its row");
+    let embedding = Embedding::<Base, Row>::new();
     for value in every_element::<Row>() {
         check_routed::<Base, Row>(&embedding, value);
     }
@@ -903,7 +903,7 @@ where
     Row: Field<Characteristic = Base::Characteristic>,
     Elem<Row>: FieldElem<Field = Row>,
 {
-    let embedding = Embedding::<Base, Row>::new().expect("the base embeds in its row");
+    let embedding = Embedding::<Base, Row>::new();
     for index in 0..<Row as Field>::ORDER {
         let value = <Elem<Row> as FieldElem>::from_index(index).expect("index below the order");
         check_routed::<Base, Row>(&embedding, value);
@@ -955,7 +955,7 @@ where
     F::Base: Field,
     Elem<F>: Coordinates,
 {
-    let embedding = Embedding::<F::Base, F>::new().expect("the base embeds in its row");
+    let embedding = Embedding::<F::Base, F>::new();
     let mut rng = Sample { state: seed };
     for _ in 0..64 {
         let raw = rng.next();
@@ -975,7 +975,7 @@ where
     Elem<Row>: FieldElem<Field = Row>,
     Elem<Base>: FieldElem<Field = Base>,
 {
-    let embedding = Embedding::<Base, Row>::new().expect("the base embeds in its row");
+    let embedding = Embedding::<Base, Row>::new();
     let mut rng = Sample { state: seed };
     for _ in 0..64 {
         let index = u128::from(rng.next()) % <Row as Field>::ORDER;
@@ -986,8 +986,7 @@ where
 
 #[test]
 fn quad_mersenne31_routing_matches_the_pow_reference_on_samples() {
-    let embedding =
-        Embedding::<Mersenne31, QuadMersenne31>::new().expect("Mersenne31 embeds in QM31");
+    let embedding = Embedding::<Mersenne31, QuadMersenne31>::new();
     let mut rng = Sample { state: 0xC01u64 };
     for _ in 0..64 {
         let re = Elem::<Mersenne31>::from_raw((rng.next() % Mersenne31::ORDER as u64) as u32);

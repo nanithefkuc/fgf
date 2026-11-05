@@ -10,29 +10,19 @@
 //! pure queries are query records. Oracles are the algebra itself:
 //! homomorphism on a sum, `restrict ∘ embed` round trips, membership versus
 //! restriction agreement, linearity of trace, and `norm(embed(x)) == x^r`.
-//! The failure cases name `IncompatibleDegree`, `EqualDegree`, and
-//! `InvalidImages`; no registered pair falls outside the structural and
-//! ladder map sources.
+//! The image-rejection case names `ImageError`; every registered pair
+//! sits inside the degree contracts, which reject at code generation
+//! rather than runtime.
 
 use std::hint::black_box;
 
 use fgf::Elem;
-use fgf::maps::{Embedding, EmbeddingError, Isomorphism};
+use fgf::maps::{Embedding, ImageError, Isomorphism};
 use fgf::{Field, FieldElem};
 
 use crate::fixture;
 use crate::registry::{self, Case, CaseCtx, Scope};
 use crate::scalar::seed_for;
-
-/// The alternate GF(7²) presentation uses `t² + 1`; `-1` is nonsquare in GF(7).
-struct Alternate49;
-
-impl fgf::extension::ExtensionSpec<2> for Alternate49 {
-    type Base = fgf::FiniteField<7, 1>;
-    type Storage = fgf::extension::Components;
-    const NAME: &'static str = "GF(7^2)/alternate";
-    const RELATION: fgf::extension::Relation = fgf::extension::Relation::from_coordinates(&[1, 0]);
-}
 
 const API_BUILD: &[&str] = &["fgf::maps::Embedding::new"];
 const API_FROM_IMAGES: &[&str] = &[
@@ -65,18 +55,7 @@ const API_GENERATORS: &[&str] = &[
     "fgf::maps::Embedding::generator",
 ];
 const API_RELATIVE_DEGREE: &[&str] = &["fgf::maps::Embedding::relative_degree"];
-const API_FAIL_DEGREE: &[&str] = &[
-    "fgf::maps::Embedding::new",
-    "fgf::maps::EmbeddingError::IncompatibleDegree",
-];
-const API_FAIL_EQUAL_DEGREE: &[&str] = &[
-    "fgf::maps::Embedding::new",
-    "fgf::maps::EmbeddingError::EqualDegree",
-];
-const API_FAIL_IMAGES: &[&str] = &[
-    "fgf::maps::Embedding::from_images",
-    "fgf::maps::EmbeddingError::InvalidImages",
-];
+const API_FAIL_IMAGES: &[&str] = &["fgf::maps::Embedding::from_images", "fgf::maps::ImageError"];
 
 /// The degree-one rows that only appear as map sources.
 pub type Gf3Row = fgf::FiniteField<3, 1>;
@@ -127,7 +106,7 @@ where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
-    let map = Embedding::<S, T>::new().expect("canonical map exists");
+    let map = Embedding::<S, T>::new();
     let x = sample::<S>(&case.case);
     {
         let y = fixture::elements::<S>(2, &mut seed_for(&case.case));
@@ -158,14 +137,14 @@ where
     T: Field<Characteristic = S::Characteristic>,
 {
     {
-        let map = Embedding::<S, T>::new().expect("canonical map exists");
+        let map = Embedding::<S, T>::new();
         let x = sample::<S>(&case.case);
         let y = map.embed(x);
         assert_eq!(map.restrict(y), Some(x), "{}: build round trip", case.case);
     }
     let backend = map_backend();
     registry::time(case, ctx, &backend, || {
-        let map = Embedding::<S, T>::new().expect("canonical map exists");
+        let map = Embedding::<S, T>::new();
         fixture::observe(map.relative_degree());
     });
 }
@@ -176,7 +155,7 @@ where
     T: Field<Characteristic = S::Characteristic>,
 {
     {
-        let map = Embedding::<S, T>::new().expect("canonical map exists");
+        let map = Embedding::<S, T>::new();
         let rebuilt =
             Embedding::<S, T>::from_images(map.to_images()).expect("canonical images are valid");
         let x = sample::<S>(&case.case);
@@ -189,7 +168,7 @@ where
     }
     let backend = map_backend();
     registry::time(case, ctx, &backend, || {
-        let map = Embedding::<S, T>::new().expect("canonical map exists");
+        let map = Embedding::<S, T>::new();
         let rebuilt =
             Embedding::<S, T>::from_images(map.to_images()).expect("canonical images are valid");
         fixture::observe(rebuilt.relative_degree());
@@ -201,7 +180,7 @@ where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
-    let map = Embedding::<S, T>::new().expect("canonical map exists");
+    let map = Embedding::<S, T>::new();
     let x = sample::<S>(&case.case);
     let y_hit = map.embed(x);
     // Membership and restriction must agree over a sample spread.
@@ -226,7 +205,7 @@ where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
-    let map = Embedding::<S, T>::new().expect("canonical map exists");
+    let map = Embedding::<S, T>::new();
     let y_hit = map.embed(sample::<S>(&case.case));
     assert!(
         map.contains(y_hit),
@@ -244,7 +223,7 @@ where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
-    let map = Embedding::<S, T>::new().expect("canonical map exists");
+    let map = Embedding::<S, T>::new();
     let x = sample::<S>(&case.case);
     let y = map.embed(x);
     assert_eq!(
@@ -264,7 +243,7 @@ where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
-    let map = Embedding::<S, T>::new().expect("canonical map exists");
+    let map = Embedding::<S, T>::new();
     let x = sample::<S>(&case.case);
     let relative = map.relative_degree();
     // A subfield element repeats under every relative conjugate, so its
@@ -292,7 +271,7 @@ where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
-    let map = Embedding::<S, T>::new().expect("canonical map exists");
+    let map = Embedding::<S, T>::new();
     let x = sample::<S>(&case.case);
     let relative = map.relative_degree();
     assert_eq!(
@@ -313,7 +292,7 @@ where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
-    let map = Embedding::<S, T>::new().expect("canonical map exists");
+    let map = Embedding::<S, T>::new();
     assert_eq!(
         map.relative_degree(),
         T::DEGREE / S::DEGREE,
@@ -331,7 +310,7 @@ where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
-    let iso = Isomorphism::<S, T>::new().expect("canonical isomorphism exists");
+    let iso = Isomorphism::<S, T>::new();
     let x = sample::<S>(&case.case);
     {
         assert_eq!(
@@ -353,7 +332,7 @@ where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
-    let iso = Isomorphism::<S, T>::new().expect("canonical isomorphism exists");
+    let iso = Isomorphism::<S, T>::new();
     let x = sample::<S>(&case.case);
     {
         let back = iso.inverse();
@@ -380,8 +359,8 @@ where
     B: Field<Characteristic = A::Characteristic>,
     C: Field<Characteristic = A::Characteristic>,
 {
-    let first = Embedding::<A, B>::new().expect("canonical map exists");
-    let second = Embedding::<B, C>::new().expect("canonical map exists");
+    let first = Embedding::<A, B>::new();
+    let second = Embedding::<B, C>::new();
     let composed = first.then(&second);
     let x = sample::<A>(&case.case);
     assert_eq!(
@@ -404,8 +383,8 @@ where
     B: Field<Characteristic = A::Characteristic>,
     C: Field<Characteristic = A::Characteristic>,
 {
-    let first = Isomorphism::<A, B>::new().expect("canonical isomorphism exists");
-    let second = Embedding::<B, C>::new().expect("canonical map exists");
+    let first = Isomorphism::<A, B>::new();
+    let second = Embedding::<B, C>::new();
     let composed = first.then_embedding(&second);
     let x = sample::<A>(&case.case);
     assert_eq!(
@@ -443,7 +422,7 @@ fn run_generators<S: Field>(case: &Case, ctx: &CaseCtx) {
         nonzero += 1;
     }
     assert_eq!(nonzero, count, "{}", case.case);
-    let identity = Isomorphism::<S, S>::new().expect("identity map exists");
+    let identity = Isomorphism::<S, S>::new();
     let probe = sample::<S>(&format!("{}/identity", case.case));
     assert_eq!(
         identity.apply(probe),
@@ -469,61 +448,17 @@ fn run_generators<S: Field>(case: &Case, ctx: &CaseCtx) {
     });
 }
 
-fn run_fail_degree<S, T>(case: &Case, ctx: &CaseCtx)
-where
-    S: Field,
-    T: Field<Characteristic = S::Characteristic>,
-{
-    match Embedding::<S, T>::new() {
-        Err(EmbeddingError::IncompatibleDegree { source, target }) => {
-            assert_eq!(source, S::DEGREE);
-            assert_eq!(target, T::DEGREE);
-        }
-        other => panic!(
-            "{}: expected IncompatibleDegree, got {:?}",
-            case.case,
-            other.map(|_| ())
-        ),
-    }
-    let backend = map_backend();
-    registry::time(case, ctx, &backend, || {
-        let failure = Embedding::<S, T>::new().err();
-        fixture::observe(failure.is_some());
-    });
-}
-
-fn run_fail_equal_degree<S, T>(case: &Case, ctx: &CaseCtx)
-where
-    S: Field,
-    T: Field<Characteristic = S::Characteristic>,
-{
-    match Embedding::<S, T>::new() {
-        Err(EmbeddingError::EqualDegree { degree }) => {
-            assert_eq!(degree, S::DEGREE);
-            assert_eq!(degree, T::DEGREE);
-        }
-        other => panic!(
-            "{}: expected EqualDegree, got {:?}",
-            case.case,
-            other.map(|_| ())
-        ),
-    }
-    let backend = map_backend();
-    registry::time(case, ctx, &backend, || {
-        let failure = Embedding::<S, T>::new().err();
-        fixture::observe(failure.is_some());
-    });
-}
-
 fn run_fail_images<S, T>(case: &Case, ctx: &CaseCtx)
 where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
+    // The source holds generator levels, so the empty sequence rejects
+    // on its count: a real data error, prepared before timing.
     match Embedding::<S, T>::from_images(&[]) {
-        Err(EmbeddingError::InvalidImages) => {}
+        Err(ImageError { .. }) => {}
         other => panic!(
-            "{}: expected InvalidImages, got {:?}",
+            "{}: expected ImageError, got {:?}",
             case.case,
             other.map(|_| ())
         ),
@@ -934,29 +869,6 @@ pub fn register() {
     generators!("gf81", crate::fields::Gf81);
     generators!("gf2p5-padded", crate::fields::Gf2p5Padded);
 
-    pair_case(
-        "fail-degree",
-        Scope::Query,
-        "gf2p16-rijndael",
-        "gf2p8-aes",
-        API_FAIL_DEGREE,
-        0,
-        0,
-        run_fail_degree::<crate::fields::Gf2p16Rijndael, crate::fields::Gf2p8Aes>,
-    );
-    pair_case(
-        "fail-equal-degree",
-        Scope::Query,
-        "gf49",
-        "gf49-alternate",
-        API_FAIL_EQUAL_DEGREE,
-        0,
-        0,
-        run_fail_equal_degree::<
-            crate::fields::Gf49,
-            fgf::FiniteField<7, 2, fgf::extension::Extension<Alternate49, 2>>,
-        >,
-    );
     pair_case(
         "fail-images",
         Scope::Query,

@@ -1018,7 +1018,7 @@ fn emb_construct_panels<
 ) {
     bench_scalar(&format!("field-maps/{pair}/construct/once"), |ops| {
         for _ in 0..ops {
-            black_box(Embedding::<S, T>::new().expect("a validated pair constructs"));
+            black_box(Embedding::<S, T>::new());
         }
         ops as u64
     });
@@ -1034,7 +1034,7 @@ fn emb_construct_panels<
         &format!("field-maps/{pair}/construct/row-16384"),
         bytes,
         || {
-            let map = black_box(Embedding::<S, T>::new()).expect("a validated pair constructs");
+            let map = black_box(Embedding::<S, T>::new());
             let src = black_box(source_bytes.as_slice());
             let dst = black_box(dst.as_mut_slice());
             for (s, d) in src
@@ -1052,7 +1052,7 @@ fn emb_construct_panels<
 fn emb_construct_once<S: Field, T: Field<Characteristic = S::Characteristic>>(pair: &str) {
     bench_scalar(&format!("field-maps/{pair}/construct/once"), |ops| {
         for _ in 0..ops {
-            black_box(Embedding::<S, T>::new().expect("a validated pair constructs"));
+            black_box(Embedding::<S, T>::new());
         }
         ops as u64
     });
@@ -1151,7 +1151,7 @@ fn iso_construct_panels<
 ) {
     bench_scalar(&format!("field-maps/{pair}/construct/once"), |ops| {
         for _ in 0..ops {
-            black_box(Isomorphism::<S, T>::new().expect("a validated pair constructs"));
+            black_box(Isomorphism::<S, T>::new());
         }
         ops as u64
     });
@@ -1167,7 +1167,7 @@ fn iso_construct_panels<
         &format!("field-maps/{pair}/construct/row-16384"),
         bytes,
         || {
-            let map = black_box(Isomorphism::<S, T>::new()).expect("a validated pair constructs");
+            let map = black_box(Isomorphism::<S, T>::new());
             let src = black_box(source_bytes.as_slice());
             let dst = black_box(dst.as_mut_slice());
             for (s, d) in src
@@ -1190,8 +1190,7 @@ fn iso_construct_panels<
 fn run_emb_pair<S: FieldBuffer, T: Field<Characteristic = S::Characteristic> + FieldBuffer>(
     pair: &str,
 ) {
-    let map = Embedding::<S, T>::new()
-        .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
+    let map = Embedding::<S, T>::new();
     validate_embedding(pair, &map);
     println!(
         "field-maps panel: {pair} (embedding) endpoint bytes {} -> {}",
@@ -1213,8 +1212,7 @@ fn run_emb_pair<S: FieldBuffer, T: Field<Characteristic = S::Characteristic> + F
 /// One embedding pair without a byte form: scalar chains and construction
 /// only.
 fn run_emb_pair_scalar<S: Field, T: Field<Characteristic = S::Characteristic>>(pair: &str) {
-    let map = Embedding::<S, T>::new()
-        .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
+    let map = Embedding::<S, T>::new();
     validate_embedding(pair, &map);
     println!("field-maps panel: {pair} (embedding)");
     emb_scalar_panels(pair, &map, true);
@@ -1226,8 +1224,7 @@ fn run_emb_pair_scalar<S: Field, T: Field<Characteristic = S::Characteristic>>(p
 fn run_iso_pair<S: FieldBuffer, T: Field<Characteristic = S::Characteristic> + FieldBuffer>(
     pair: &str,
 ) {
-    let map = Isomorphism::<S, T>::new()
-        .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
+    let map = Isomorphism::<S, T>::new();
     validate_isomorphism(pair, &map);
     println!(
         "field-maps panel: {pair} (isomorphism) endpoint bytes {} -> {}",

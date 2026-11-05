@@ -18,6 +18,7 @@ use fgf::extension::{
     Components, Extension, ExtensionField, ExtensionSpec, ExtensionStorage, Packed, PackedPadded,
     QuadMersenne31, Relation,
 };
+use fgf::maps::{Embedding, ImageError, Isomorphism};
 use fgf::prime::{Goldilocks, Mersenne31, PrimeField, Residue};
 use fgf::{Elem, Field, FieldBuffer, FieldElem, FiniteField, FiniteFieldRepr, ops};
 
@@ -851,6 +852,43 @@ fn dispatchable_rows_drive_packed_operations() {
     exercise_kernels::<Residue7>(Elem::<Residue7>::from_residue(3).expect("in range"));
     exercise_kernels::<ResiduePrime>(Elem::<ResiduePrime>::from_raw(123_456_789));
     exercise_kernels::<ResidueWide>(Elem::<ResidueWide>::from_raw(u64::MAX));
+}
+
+// ---------------------------------------------------------------------------
+// Map constructors from generic and concrete consumers
+// ---------------------------------------------------------------------------
+
+/// Generic construction through the public `Field` bound alone: both
+/// constructors return their map by value, and every method works
+/// without naming a private proof.
+fn exercise_map_constructors<S, T>(value: Elem<S>) -> (Elem<S>, bool)
+where
+    S: Field,
+    T: Field<Characteristic = S::Characteristic>,
+{
+    let embedding = Embedding::<S, T>::new();
+    let lifted = embedding.embed(value);
+    let isomorphism = Isomorphism::<S, S>::new();
+    let cycled = isomorphism.unapply(isomorphism.apply(value));
+    (cycled, embedding.contains(lifted))
+}
+
+#[test]
+fn map_constructors_return_self_from_generic_and_concrete_code() {
+    type Aes = FiniteField<2, 8, Polynomial<AES>>;
+    let (cycled, member) = exercise_map_constructors::<Aes, Gf16>(Elem::<Aes>::from_raw(0x53));
+    assert_eq!(cycled, Elem::<Aes>::from_raw(0x53));
+    assert!(member);
+    // Concrete consumers spell the constructed types directly.
+    let map: Embedding<Aes, Gf16> = Embedding::new();
+    assert_eq!(map.relative_degree(), 2);
+    let iso: Isomorphism<Gf16, Gf16> = Isomorphism::new();
+    assert_eq!(iso.inverse().inverse().to_images(), iso.to_images());
+    // The image constructor's error type arrives from real data.
+    assert!(matches!(
+        Embedding::<Aes, Gf16>::from_images(&[]),
+        Err(ImageError { .. })
+    ));
 }
 
 // Const evaluation of the constructors, arithmetic, and conversions: these

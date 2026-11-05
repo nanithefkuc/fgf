@@ -58,7 +58,7 @@ use fgf::maps::Isomorphism;
 
 type PolynomialField = FiniteField<2, 8, Polynomial<AES>>;
 type NormalField = FiniteField<2, 8, Normal<AES, 0x20>>;
-let change = Isomorphism::<PolynomialField, NormalField>::new().unwrap();
+let change = Isomorphism::<PolynomialField, NormalField>::new();
 assert_eq!(Elem::<NormalField>::ONE.to_raw(), 0xff);
 assert_eq!(change.apply(Elem::<PolynomialField>::ONE), Elem::<NormalField>::ONE);
 let x = Elem::<PolynomialField>::from_raw(0x53);
@@ -78,7 +78,7 @@ use fgf::maps::Isomorphism;
 
 type PolynomialField = FiniteField<2, 8, Polynomial<AES>>;
 type CantorField = FiniteField<2, 8, Cantor<AES, 0x20>>;
-let change = Isomorphism::<PolynomialField, CantorField>::new().unwrap();
+let change = Isomorphism::<PolynomialField, CantorField>::new();
 let x = Elem::<PolynomialField>::from_raw(0x53);
 let y = Elem::<PolynomialField>::from_raw(0xca);
 assert_eq!(change.apply(x * y), change.apply(x) * change.apply(y));

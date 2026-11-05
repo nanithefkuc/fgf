@@ -12,7 +12,7 @@ use fgf::{Elem, FieldBuffer, FiniteField, ops};
 type F = FiniteField<17, 1>;
 let x = Elem::<F>::from_raw(24);
 assert_eq!(x.to_raw(), 7);
-assert_eq!(Elem::<F>::from_residue(17), Err(fgf::RangeError));
+assert!(matches!(Elem::<F>::from_residue(17), Err(fgf::RangeError { .. })));
 
 let source = [24u8];
 let mut destination = [0xa5u8];

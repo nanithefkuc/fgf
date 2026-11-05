@@ -97,7 +97,7 @@ let z = pair([a, b]);
 let conjugate = pair([a + linear * b, b]);
 let expected_norm = a.square() + linear * a * b + constant * b.square();
 assert_eq!(z * conjugate, pair([expected_norm, Elem::<Base>::ZERO]));
-let base_map = Embedding::<Base, Gf16>::new().unwrap();
+let base_map = Embedding::<Base, Gf16>::new();
 assert_eq!(base_map.trace(z), linear * b);
 assert_eq!(base_map.norm(z), expected_norm);
 ```

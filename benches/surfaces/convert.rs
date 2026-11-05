@@ -139,9 +139,11 @@ fn register_index<F: Field>(label: &'static str) {
                 "{}: index round trip",
                 case.case
             );
-            assert_eq!(
-                <Elem<F> as FieldElem>::from_index(F::ORDER),
-                Err(RangeError),
+            assert!(
+                matches!(
+                    <Elem<F> as FieldElem>::from_index(F::ORDER),
+                    Err(RangeError { .. })
+                ),
                 "{}: out-of-range index",
                 case.case
             );
@@ -182,9 +184,11 @@ fn register_residue<F: Field>(label: &'static str) {
                 "{}: residue round trip",
                 case.case
             );
-            assert_eq!(
-                <Elem<F> as FieldElem>::from_residue(characteristic),
-                Err(RangeError),
+            assert!(
+                matches!(
+                    <Elem<F> as FieldElem>::from_residue(characteristic),
+                    Err(RangeError { .. })
+                ),
                 "{}: out-of-range residue",
                 case.case
             );

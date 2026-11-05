@@ -15,54 +15,27 @@ use super::binary::description::apply;
 use super::extension::descriptor::{Descriptor, Node};
 use super::{Elem, Field, FieldElem, PrimeIdentity};
 
-/// The error returned when a requested embedding cannot exist.
+/// The error returned when a supplied generator-image sequence does not
+/// fix a map: the image count differs from the source's generator count,
+/// or an image fails its transported relation.
+///
+/// The unit carries no payload and draws no distinction between the two
+/// conditions. It is obtained from a rejected image sequence and compared
+/// by value; it cannot be constructed outside the crate. Outside the
+/// crate a pattern names it as `ImageError { .. }`.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EmbeddingError {
-    /// The source degree does not divide the target degree, or the map is
-    /// not a proper inclusion.
-    IncompatibleDegree {
-        /// Total degree of the source field.
-        source: u32,
-        /// Total degree of the target field.
-        target: u32,
-    },
-    /// The source and target rows share one degree: a proper embedding
-    /// cannot exist. [`Isomorphism`] names the equal-degree map.
-    EqualDegree {
-        /// Shared degree of the source and target fields.
-        degree: u32,
-    },
-    /// Neither a structural inclusion nor, in characteristic two, the
-    /// frozen reference ladder names a canonical map for the pair.
-    NoCanonicalMap,
-    /// A supplied generator image fails its transported relation, or the
-    /// image count differs from the source's generator count.
-    InvalidImages,
-}
+pub struct ImageError;
 
-impl core::fmt::Display for EmbeddingError {
+impl core::fmt::Display for ImageError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            EmbeddingError::IncompatibleDegree { source, target } => write!(
-                formatter,
-                "source degree {source} does not divide target degree {target}"
-            ),
-            EmbeddingError::EqualDegree { degree } => write!(
-                formatter,
-                "source and target share degree {degree}: use Isomorphism"
-            ),
-            EmbeddingError::NoCanonicalMap => {
-                formatter.write_str("no canonical map between the presentations")
-            }
-            EmbeddingError::InvalidImages => {
-                formatter.write_str("generator images fail the transported relations")
-            }
-        }
+        formatter.write_str(
+            "generator images do not fix a map: wrong image count or failed transported relation",
+        )
     }
 }
 
-impl core::error::Error for EmbeddingError {}
+impl core::error::Error for ImageError {}
 
 // ---------------------------------------------------------------------------
 // Generator levels
@@ -943,54 +916,63 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> core::fmt::Debug fo
 }
 
 impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
+    /// The pair's degree contract, proven during code generation and
+    /// shared by both constructors: each row validates first, source
+    /// before target, then the degrees differ and the source degree
+    /// divides the target degree.
+    const VALID: () = {
+        let () = super::Validate::<S>::OK;
+        let () = super::Validate::<T>::OK;
+        assert!(
+            S::DEGREE != T::DEGREE,
+            "Embedding requires distinct source and target degrees"
+        );
+        assert!(
+            T::DEGREE % S::DEGREE == 0,
+            "Embedding requires the source degree to divide the target degree"
+        );
+    };
+
     /// Prepare the canonical proper inclusion of `S` into `T`.
     ///
-    /// Returns, in order: [`EmbeddingError::IncompatibleDegree`] when
-    /// `S::DEGREE` does not divide `T::DEGREE`; [`EmbeddingError::EqualDegree`]
-    /// when the degrees coincide, naming [`Isomorphism`] as the map of that
-    /// pair; the structural inclusion when `S` is the prime subfield of `T`
-    /// or a row of the target own tower; the canonical ladder inclusion when
-    /// both rows are characteristic-two presentations the ladder covers; and
-    /// [`EmbeddingError::NoCanonicalMap`] otherwise. No root search runs
-    /// outside the binary ladder frozen rules.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EmbeddingError::IncompatibleDegree`] on a degree mismatch,
-    /// [`EmbeddingError::EqualDegree`] on equal degrees, and
-    /// [`EmbeddingError::NoCanonicalMap`] when no map source covers the
-    /// pair.
+    /// Returns the structural inclusion when `S` is the prime subfield of
+    /// `T` or a row of the target's own tower, and the canonical ladder
+    /// inclusion when both rows are characteristic-two presentations the
+    /// ladder covers. No root search runs outside the binary ladder's
+    /// frozen rules.
     ///
     /// # Panics
     ///
-    /// Panics when a selected image fails its transported relation on an
-    /// otherwise valid presentation. That is a crate defect, not an input
-    /// condition.
-    pub fn new() -> Result<Self, EmbeddingError> {
+    /// Panics when neither map source names a canonical map for the pair,
+    /// reporting the source and target presentation types. Panics when a
+    /// selected image fails its transported relation on an otherwise
+    /// valid presentation; that is a crate defect, not an input condition.
+    ///
+    /// A pair outside the degree contract — equal degrees, or a source
+    /// degree that does not divide the target degree — never reaches this
+    /// constructor: the rejection is a compile-time assertion, so it
+    /// surfaces at code generation (`cargo build`, `cargo test`), which
+    /// `cargo check` alone may skip.
+    // `Default` would hide a constructor that panics on uncovered pairs.
+    #[allow(clippy::new_without_default)]
+    #[must_use]
+    pub fn new() -> Self {
+        let () = Self::VALID;
         let m = S::DEGREE;
         let n = T::DEGREE;
-        if m == n {
-            return Err(EmbeddingError::EqualDegree { degree: m });
-        }
-        if n % m != 0 {
-            return Err(EmbeddingError::IncompatibleDegree {
-                source: m,
-                target: n,
-            });
-        }
         let source_descriptor = S::DESCRIPTOR;
         let target_descriptor = T::DESCRIPTOR;
         let (source_levels, source_count) = levels(source_descriptor);
         if m == 1 {
             // The prime subfield inclusion: degree-one sources hold no
             // levels, and the prime map is unique.
-            return Ok(Self::checked(
+            return Self::checked(
                 [Elem::<T>::ZERO; 8],
                 0,
                 source_descriptor,
                 &source_levels,
                 source_count,
-            ));
+            );
         }
         if let Some((images, count)) = structural_images::<T>(
             source_descriptor,
@@ -1000,13 +982,13 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
             target_descriptor,
             n as usize,
         ) {
-            return Ok(Self::checked(
+            return Self::checked(
                 images,
                 count,
                 source_descriptor,
                 &source_levels,
                 source_count,
-            ));
+            );
         }
         let characteristic = <S::Characteristic as PrimeIdentity>::CHARACTERISTIC;
         if characteristic == 2
@@ -1033,16 +1015,20 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
                         .expect("a ladder image fits the target");
                     l += 1;
                 }
-                return Ok(Self::checked(
+                return Self::checked(
                     images,
                     source_count,
                     source_descriptor,
                     &source_levels,
                     source_count,
-                ));
+                );
             }
         }
-        Err(EmbeddingError::NoCanonicalMap)
+        panic!(
+            "Embedding::new: no canonical map from {} to {}",
+            core::any::type_name::<S>(),
+            core::any::type_name::<T>()
+        );
     }
 
     /// Prepare the proper inclusion fixed by `images`: the image in `T`
@@ -1050,41 +1036,38 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// the transported relations.
     ///
     /// [`to_images`](Self::to_images) returns the stored images in the
-    /// same order, so `from_images(e.to_images())` reproduces `e`.
+    /// same order, so `from_images(e.to_images())` reproduces `e`. No
+    /// canonical map is required or searched for: any image sequence that
+    /// satisfies the transported relations fixes a map.
+    ///
+    /// The image count is checked before any transported relation, so a
+    /// wrong-length sequence rejects without reading the images.
     ///
     /// # Errors
     ///
-    /// Returns [`EmbeddingError::IncompatibleDegree`] on a degree
-    /// mismatch first, then [`EmbeddingError::EqualDegree`] on equal
-    /// degrees, then [`EmbeddingError::InvalidImages`] on a count
-    /// mismatch or a failed relation.
+    /// Returns [`ImageError`] when the image count differs from the
+    /// source's generator count, or when an image fails its transported
+    /// relation.
     ///
     /// # Panics
     ///
     /// Panics when the source holds more than eight generator levels.
     /// Presentations are capped at eight descriptor nodes, so valid rows
     /// never reach this.
-    pub fn from_images(images: &[Elem<T>]) -> Result<Self, EmbeddingError> {
-        let m = S::DEGREE;
-        let n = T::DEGREE;
-        if m == n {
-            return Err(EmbeddingError::EqualDegree { degree: m });
-        }
-        if n % m != 0 {
-            return Err(EmbeddingError::IncompatibleDegree {
-                source: m,
-                target: n,
-            });
-        }
+    ///
+    /// A pair outside the degree contract is rejected at code generation
+    /// like [`new`](Self::new).
+    pub fn from_images(images: &[Elem<T>]) -> Result<Self, ImageError> {
+        let () = Self::VALID;
         let source_descriptor = S::DESCRIPTOR;
         let (source_levels, source_count) = levels(source_descriptor);
         if images.len() != source_count {
-            return Err(EmbeddingError::InvalidImages);
+            return Err(ImageError);
         }
         let mut stored = [Elem::<T>::ZERO; 8];
         stored[..source_count].copy_from_slice(images);
         if !relations_hold(source_descriptor, &source_levels, source_count, &stored) {
-            return Err(EmbeddingError::InvalidImages);
+            return Err(ImageError);
         }
         Ok(Self {
             images: stored,
@@ -1149,7 +1132,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         let (source_levels, source_count) = levels(descriptor);
         assert!(
             level < source_count,
-            "a generator level sits below the generator count"
+            "Embedding::generator: `level` {level} is not below the generator count {source_count}"
         );
         let mut coords = [0u64; 128];
         generator_coordinates(descriptor, &source_levels[level], &mut coords);
@@ -1630,50 +1613,67 @@ fn canonical_iso_images<S: Field, T: Field<Characteristic = S::Characteristic>>(
 }
 
 impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
+    /// The pair's degree contract, proven during code generation and
+    /// shared by both constructors: each row validates first, source
+    /// before target, then the degrees are equal.
+    const VALID: () = {
+        let () = super::Validate::<S>::OK;
+        let () = super::Validate::<T>::OK;
+        assert!(
+            S::DEGREE == T::DEGREE,
+            "Isomorphism requires equal source and target degrees"
+        );
+    };
+
     /// Prepare the canonical isomorphism of `S` onto `T`.
     ///
-    /// # Errors
-    ///
-    /// Returns [`EmbeddingError::IncompatibleDegree`] unless the degrees
-    /// are equal, before any other check, and
-    /// [`EmbeddingError::NoCanonicalMap`] when no map source covers the
-    /// pair.
+    /// Returns the structural map when the presentations match and the
+    /// canonical ladder map when both rows are characteristic-two
+    /// presentations the ladder covers.
     ///
     /// # Panics
     ///
-    /// Panics when a selected image fails its transported relation on an
-    /// otherwise valid presentation. That is a crate defect, not an input
-    /// condition.
-    pub fn new() -> Result<Self, EmbeddingError> {
-        if S::DEGREE != T::DEGREE {
-            return Err(EmbeddingError::IncompatibleDegree {
-                source: S::DEGREE,
-                target: T::DEGREE,
-            });
-        }
+    /// Panics when neither map source names a canonical map for the pair,
+    /// reporting the source and target presentation types. Panics when a
+    /// selected image fails its transported relation on an otherwise
+    /// valid presentation; that is a crate defect, not an input condition.
+    ///
+    /// A pair of unequal degrees never reaches this constructor: the
+    /// rejection is a compile-time assertion, so it surfaces at code
+    /// generation (`cargo build`, `cargo test`), which `cargo check`
+    /// alone may skip.
+    // `Default` would hide a constructor that panics on uncovered pairs.
+    #[allow(clippy::new_without_default)]
+    #[must_use]
+    pub fn new() -> Self {
+        let () = Self::VALID;
         let Some((forward, count)) = canonical_iso_images::<S, T>() else {
             // Degree-one rows hold no generator levels: the prime map is
             // unique and needs no structural or ladder source.
             if S::DEGREE == 1 {
-                return Ok(Self {
+                return Self {
                     forward: [Elem::<T>::ZERO; 8],
                     reverse: [Elem::<S>::ZERO; 8],
                     forward_count: 0,
                     reverse_count: 0,
                     phantom: PhantomData,
-                });
+                };
             }
-            return Err(EmbeddingError::NoCanonicalMap);
+            panic!(
+                "Isomorphism::new: no canonical map from {} to {}",
+                core::any::type_name::<S>(),
+                core::any::type_name::<T>()
+            );
         };
         let (reverse, reverse_count) = iso_images::<S, T>(&forward, count);
-        Ok(Self {
+        Self {
             forward,
             reverse,
             // Levels are capped at eight per presentation.
             forward_count: u8::try_from(count).expect("a level count fits its byte"),
             reverse_count: u8::try_from(reverse_count).expect("a level count fits its byte"),
             phantom: PhantomData,
-        })
+        }
     }
 
     /// Prepare the isomorphism fixed by `images`: the image in `T` of
@@ -1681,35 +1681,38 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
     /// transported relations.
     ///
     /// [`to_images`](Self::to_images) returns the stored images in the
-    /// same order, so `from_images(i.to_images())` reproduces `i`.
+    /// same order, so `from_images(i.to_images())` reproduces `i`. No
+    /// canonical map is required or searched for: any image sequence
+    /// that satisfies the transported relations fixes a map.
+    ///
+    /// The image count is checked before any transported relation, so a
+    /// wrong-length sequence rejects without reading the images.
     ///
     /// # Errors
     ///
-    /// Returns [`EmbeddingError::IncompatibleDegree`] on unequal degrees
-    /// first, then [`EmbeddingError::InvalidImages`] on a count mismatch
-    /// or a failed relation.
+    /// Returns [`ImageError`] when the image count differs from the
+    /// source's generator count, or when an image fails its transported
+    /// relation.
     ///
     /// # Panics
     ///
     /// Panics when the source holds more than eight generator levels.
     /// Presentations are capped at eight descriptor nodes, so valid rows
     /// never reach this.
-    pub fn from_images(images: &[Elem<T>]) -> Result<Self, EmbeddingError> {
-        if S::DEGREE != T::DEGREE {
-            return Err(EmbeddingError::IncompatibleDegree {
-                source: S::DEGREE,
-                target: T::DEGREE,
-            });
-        }
+    ///
+    /// A pair of unequal degrees is rejected at code generation like
+    /// [`new`](Self::new).
+    pub fn from_images(images: &[Elem<T>]) -> Result<Self, ImageError> {
+        let () = Self::VALID;
         let source_descriptor = S::DESCRIPTOR;
         let (source_levels, source_count) = levels(source_descriptor);
         if images.len() != source_count {
-            return Err(EmbeddingError::InvalidImages);
+            return Err(ImageError);
         }
         let mut forward = [Elem::<T>::ZERO; 8];
         forward[..source_count].copy_from_slice(images);
         if !relations_hold(source_descriptor, &source_levels, source_count, &forward) {
-            return Err(EmbeddingError::InvalidImages);
+            return Err(ImageError);
         }
         let (reverse, reverse_count) = iso_images::<S, T>(&forward, source_count);
         Ok(Self {

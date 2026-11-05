@@ -411,8 +411,7 @@ impl Presentation {
 /// image of `0x20` and the linear coefficient stays the field one. Both
 /// images are pinned against the library's own map before anything runs.
 fn assert_transported_constants() {
-    let cantor = Isomorphism::<PolyGf8, CantorGf8>::new()
-        .expect("the canonical ladder covers the cantor byte field");
+    let cantor = Isomorphism::<PolyGf8, CantorGf8>::new();
     assert_eq!(
         cantor.apply(Elem::<PolyGf8>::from_raw(0x20)).to_raw(),
         0x80,
@@ -423,8 +422,7 @@ fn assert_transported_constants() {
         0x01,
         "the transported linear coefficient must be the cantor field one"
     );
-    let normal = Isomorphism::<PolyGf8, NormalGf8>::new()
-        .expect("the canonical ladder covers the normal byte field");
+    let normal = Isomorphism::<PolyGf8, NormalGf8>::new();
     assert_eq!(
         normal.apply(Elem::<PolyGf8>::from_raw(0x20)).to_raw(),
         0x01,

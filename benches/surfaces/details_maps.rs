@@ -383,7 +383,7 @@ where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
-    let canonical = Isomorphism::<S, T>::new().expect("canonical isomorphism exists");
+    let canonical = Isomorphism::<S, T>::new();
     let images: Vec<Elem<T>> = canonical.to_images().to_vec();
     let x = sample::<S>(&case.case);
     {
@@ -405,7 +405,7 @@ where
     A: Field,
     B: Field<Characteristic = A::Characteristic>,
 {
-    let first = Isomorphism::<A, B>::new().expect("canonical isomorphism exists");
+    let first = Isomorphism::<A, B>::new();
     let second = first.inverse();
     let x = sample::<A>(&case.case);
     {
@@ -435,7 +435,7 @@ where
     S: Field,
     T: Field<Characteristic = S::Characteristic>,
 {
-    let iso = Isomorphism::<S, T>::new().expect("canonical isomorphism exists");
+    let iso = Isomorphism::<S, T>::new();
     {
         let rebuilt =
             Isomorphism::<S, T>::from_images(iso.to_images()).expect("canonical images are valid");
