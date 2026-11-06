@@ -36,6 +36,9 @@ All notable changes to this project are documented here. The format follows
   prepared-table shapes; the `ops` module states which operations allocate.
 - `Relation::to_binary_words` reads a relation back as one coordinate word
   per coefficient over a binary base, pairing with `from_binary_words`.
+- `just package-api` regenerates the stable API inventory from the exact
+  `cargo package` archive and compares it with `api/`; `just release-accept`
+  runs it.
 - `just doc-stable` builds the default-feature rustdoc that docs.rs publishes,
   with warnings denied; `just release-accept` runs it.
 - The compile-fail recipe rejects private-module errors (`E0603`).

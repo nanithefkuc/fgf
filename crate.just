@@ -348,6 +348,35 @@ package-check:
         done
     )
 
+# Regenerate the stable API inventory from the exact `cargo package` archive
+# and compare it with the committed `api/`. The archive excludes `api/`, so
+# the committed inventory, its generators, and the recipe files are copied
+# beside the extracted source; the inventory is then derived from the
+# packaged source alone.
+[group('release')]
+package-api:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    scratch=$(mktemp -d /tmp/fgf-package-api.XXXXXXXX)
+    trap 'rm -rf "$scratch"' EXIT
+    mkdir "$scratch/source" "$scratch/package"
+    tar --exclude=.git --exclude=target --exclude=bench-records --exclude=__pycache__ --exclude=.lucid -cf - . \
+        | tar -xf - -C "$scratch/source"
+    (
+        cd "$scratch/source"
+        cargo package --allow-dirty --no-verify
+    )
+    archives=("$scratch/source/target/package/"*.crate)
+    [[ "${#archives[@]}" -eq 1 ]] || { printf 'package_archive_count count=%s\n' "${#archives[@]}" >&2; exit 1; }
+    tar -xf "${archives[0]}" -C "$scratch/package"
+    packaged=("$scratch/package"/*)
+    cp -r api justfile crate.just "${packaged[0]}/"
+    (
+        cd "${packaged[0]}"
+        just api
+    )
+    printf 'package-api: %s exposes the committed inventory\n' "$(basename "${archives[0]}")"
+
 # Build a portable benchmark artifact for interleaved remote comparisons.
 [group('bench')]
 bench-build NAME:
@@ -528,6 +557,7 @@ release-accept:
     just benchmark-check-native
     just package-check
     just api
+    just package-api
     just api-semver-release
 
 # Generate the stable inventories, their metadata, and the one-path report
