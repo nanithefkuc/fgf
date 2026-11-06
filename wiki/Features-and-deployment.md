@@ -93,7 +93,7 @@ Checked APIs can panic on invalid geometry. A multi-call workflow can have
 written output before a later call fails; it is not transactional. Arithmetic
 is variable-time and requires an independent audit before handling secrets.
 
-The [kernel reference](https://docs.rs/fgf/3.0.2/fgf/kernel/index.html) owns backend
+The [kernel reference](https://docs.rs/fgf/4.0.0/fgf/backend_for/index.html) owns backend
 query contracts. The 3.0.2 measurement record owns measured results and
 reproduction, including per-operation residue routes:
 [residues](https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md).

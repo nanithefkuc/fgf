@@ -111,5 +111,5 @@ transactional: validate it before writing if later failure must leave output
 unchanged.
 
 For repeated coefficients, continue with [preparation](Prepared-coefficients).
-The [ops reference](https://docs.rs/fgf/3.0.2/fgf/ops/index.html) owns each call's
+The [ops reference](https://docs.rs/fgf/4.0.0/fgf/ops/index.html) owns each call's
 exact validation and empty-input rules.

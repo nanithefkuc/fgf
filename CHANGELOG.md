@@ -16,6 +16,11 @@ All notable changes to this project are documented here. The format follows
   mode). `just api-update` regenerates it inside an authorized API change, and
   `just api-semver` checks the stable feature sets against the latest published
   release of the major version.
+- A `wiki/Migrating-from-3.x.md` migration guide covering paths, deletions,
+  bounds, signatures, and error changes.
+- `backend_for` is documented as a field-strategy summary; `Coeff`,
+  `CoeffVec`, and `CoeffMatrix` sizes and layouts are documented as
+  unspecified.
 - `just doc-stable` builds the default-feature rustdoc that docs.rs publishes,
   with warnings denied; `just release-accept` runs it.
 - The compile-fail recipe rejects private-module errors (`E0603`).

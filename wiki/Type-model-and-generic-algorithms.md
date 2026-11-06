@@ -92,4 +92,4 @@ const-evaluable.
 
 Continue with [coordinates and packing](Coordinates-and-packed-bytes), then
 [choose a row operation](Linear-operations-and-row-geometry). The
-[field reference](https://docs.rs/fgf/3.0.2/fgf/field/index.html) owns exact contracts.
+[field reference](https://docs.rs/fgf/4.0.0/fgf/index.html) owns exact contracts.

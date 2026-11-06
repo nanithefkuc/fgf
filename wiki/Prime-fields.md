@@ -132,4 +132,4 @@ spelling here);
 
 For a custom relation or storage choice, continue with
 [custom fields and extensions](Downstream-scalar-fields). Exact contracts live in
-the [field reference](https://docs.rs/fgf/3.0.2/fgf/field/index.html).
+the [field reference](https://docs.rs/fgf/4.0.0/fgf/index.html).

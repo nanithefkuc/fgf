@@ -97,5 +97,5 @@ defend allocation promises; these examples check arithmetic, not allocation.
 Serialize scalar coefficients, matrix dimensions, and source-major ordering.
 Rebuild preparation after loading; its opaque backend state is not a wire
 format. See [deployment](Features-and-deployment) for feature choices and the
-[ops reference](https://docs.rs/fgf/3.0.2/fgf/ops/index.html) for prepared contracts.
+[ops reference](https://docs.rs/fgf/4.0.0/fgf/ops/index.html) for prepared contracts.
 

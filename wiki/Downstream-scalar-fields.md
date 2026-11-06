@@ -71,7 +71,7 @@ shipped base, relation, and storage can use its kernels; other custom rows use
 typed scalar fallback. [Deployment](Features-and-deployment) explains backend
 queries and feature choices.
 
-The [extension reference](https://docs.rs/fgf/3.0.2/fgf/field/extension/index.html)
+The [extension reference](https://docs.rs/fgf/4.0.0/fgf/extension/index.html)
 owns validity and storage contracts. Application checks should also cover
 expected relations, nonzero inverses, and agreed wire encodings. The
 [custom-extension example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/examples/custom_extensions.rs)

@@ -279,6 +279,11 @@ pub(crate) fn x86_v2_token() -> archmage::X64V2Token {
 
 /// The backend used for a particular field's bulk operations.
 ///
+/// This is a field-strategy summary: it names the serving backend for the
+/// field's dispatched bulk row operations and does not identify the serving
+/// tier of every individual operation, which may route differently by shape
+/// or length.
+///
 /// Presentations without a kernel strategy on the selected tier report
 /// [`Backend::Scalar`] and run the typed scalar fallback: ordered-basis byte
 /// fields, degree-eight towers, custom tower specs, and pinned towers on a

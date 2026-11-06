@@ -51,6 +51,7 @@ pub(crate) trait PreparedRepr<F: FieldBuffer>: private::Sealed {
 ///
 /// The prepared representation is backend-defined and deliberately opaque:
 /// the element it multiplies by is the whole public surface ([`Coeff::value`]).
+/// Its size and layout are unspecified: consumers must not depend on them.
 ///
 /// Bound to the process's backend at construction. That is not a hazard in
 /// practice (the backend is fixed after first use), but it does mean a
@@ -173,6 +174,8 @@ impl<F: FieldBuffer> core::fmt::Debug for CoeffRef<'_, F> {
 /// Requires `alloc`: the collection owns dynamically sized storage. The
 /// operations take the borrowed [`CoeffVecRef`] view, which
 /// [`CoeffVec::as_ref`] produces for free.
+/// The prepared storage's size and layout are unspecified: consumers must
+/// not depend on them.
 #[cfg(feature = "alloc")]
 pub struct CoeffVec<F: FieldBuffer> {
     prepared: alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>,
@@ -335,6 +338,8 @@ impl<F: FieldBuffer> core::fmt::Debug for CoeffVecRef<'_, F> {
 /// Requires `alloc`: construction allocates the coefficient storage, while
 /// the operations that consume a [`CoeffMatrix`] borrow it and allocate
 /// nothing. Store one beside the coding matrix it represents.
+/// The prepared storage's size and layout are unspecified: consumers must
+/// not depend on them.
 #[cfg(feature = "alloc")]
 pub struct CoeffMatrix<F: FieldBuffer> {
     pub(super) prepared: alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>,

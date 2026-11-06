@@ -101,6 +101,6 @@ polynomial indeterminate, and custom rows need not supply one.
 
 Continue with [packing](Coordinates-and-packed-bytes), [quadratic extensions](Quadratic-towers),
 or [presentation changes](Embeddings-and-presentation-changes).
-The [binary reference](https://docs.rs/fgf/3.0.2/fgf/field/binary/index.html) owns
+The [binary reference](https://docs.rs/fgf/4.0.0/fgf/binary/index.html) owns
 parameter validity; [deployment](Features-and-deployment) explains acceleration.
 

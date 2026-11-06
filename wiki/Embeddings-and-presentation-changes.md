@@ -174,5 +174,5 @@ Run the [complete example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/exampl
 with `just example embeddings`, and the
 [basis-maps example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/examples/basis_maps.rs)
 with `just example basis_maps` for the ordered-basis presentations. The
-[embedding reference](https://docs.rs/fgf/3.0.2/fgf/field/embedding/index.html)
+[embedding reference](https://docs.rs/fgf/4.0.0/fgf/maps/index.html)
 owns map construction and error contracts.
