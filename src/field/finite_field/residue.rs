@@ -354,7 +354,7 @@ impl<const P: u64> FieldBuffer for FiniteField<P, 1, Residue> {
 // ---------------------------------------------------------------------------
 
 impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
-    /// Wrap a raw word, reducing it into canonical storage.
+    /// Wraps a raw word, reducing it into canonical storage.
     #[inline]
     #[must_use]
     pub const fn from_raw(value: u64) -> Self {
@@ -364,7 +364,7 @@ impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
         }
     }
 
-    /// Wrap an ordinary residue in `0..P`.
+    /// Wraps an ordinary residue in `0..P`.
     ///
     /// Rejects `value >= P` instead of narrowing it.
     ///
@@ -373,6 +373,7 @@ impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
     /// characteristic.
     #[inline]
     pub const fn from_residue(value: u64) -> Result<Self, RangeError> {
+        let () = Validate::<FiniteField<P, 1, Residue>>::OK;
         match super::super::check_residue(
             value,
             <PrimeCharacteristic<P> as PrimeIdentity>::CHARACTERISTIC,
@@ -426,7 +427,7 @@ impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
         }
     }
 
-    /// Square.
+    /// Squares the element.
     #[inline]
     #[must_use]
     pub const fn square(self) -> Self {
@@ -458,7 +459,7 @@ impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
         self.mul(rhs.inv())
     }
 
-    /// Raise to an unsigned integer power. `pow(_, 0) == ONE`, zero
+    /// Raises to an unsigned integer power. `pow(_, 0) == ONE`, zero
     /// included.
     #[inline]
     #[must_use]

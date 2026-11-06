@@ -498,7 +498,7 @@ pub(crate) const PINNED_AES_LEAF: ByteLogExp = serial_log_exp(0x11B, 3);
 /// The pinned Reed-Solomon log/exp leaf, built serially.
 pub(crate) const PINNED_RS_LEAF: ByteLogExp = serial_log_exp(0x11D, 2);
 
-/// Build one pinned leaf's log/exp pair without consulting any leaf table.
+/// Builds one pinned leaf's log/exp pair without consulting any leaf table.
 const fn serial_log_exp(full: u128, generator: u64) -> ByteLogExp {
     // Loop counters stay below the table sizes; the byte tower closes over
     // one byte.

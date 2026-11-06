@@ -74,9 +74,11 @@ pub(crate) const fn checked_order<const P: u64, const N: u32>() -> u128 {
 /// Every value-producing constructor, identity, and raw method validates the
 /// metadata in order: the characteristic is prime, the degree is positive
 /// and at most 64, and `P^N` fits `u128` with overflow checking. The field's
-/// `ORDER` equals that checked power. An invalid `P` or `N` therefore fails
-/// const evaluation in const contexts and panics at first value use
-/// otherwise. Merely naming an unused type evaluates nothing.
+/// `ORDER` equals that checked power. The checks are associated constants,
+/// so an invalid `P` or `N` is a compile error in any build that generates
+/// code using one of those operations, whichever branch the call would
+/// take at run time. Merely naming the type, or type-checking code that is
+/// never generated, evaluates nothing.
 pub struct FiniteField<const P: u64, const N: u32, R: FiniteFieldRepr<P, N> = Residue>(
     PhantomData<fn() -> R>,
 );
@@ -137,10 +139,10 @@ impl<const P: u64, const N: u32, R: FiniteFieldRepr<P, N>> core::fmt::Debug
 /// Sealed, like the elements: representations are crate-defined,
 /// and downstream code names a row with its public type rather than
 /// implementing this trait. `NAME` is a human-readable presentation label,
-/// distinct from the field name a [`Field`](crate::field::Field) row
+/// distinct from the field name a [`Field`](crate::Field) row
 /// reports. The representation's defining-data proof stays crate-private; it
 /// must not read the row's field identities, and it runs before any
-/// [`Field`](crate::field::Field) validation that chains it.
+/// [`Field`](crate::Field) validation that chains it.
 #[allow(private_bounds)]
 pub trait FiniteFieldRepr<const P: u64, const N: u32>:
     private::Sealed + private::FiniteFieldReprValidation<P, N> + 'static

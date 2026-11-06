@@ -13,7 +13,8 @@ Every stable item has exactly one public path. The removed modules are
 `fgf::field` and every submodule under it, `fgf::kernel`, `fgf::bits`,
 `fgf::embedding`, `fgf::cantor`, `fgf::normal`, `fgf::poly`, `fgf::tower`,
 `fgf::description`, `fgf::goldilocks`, `fgf::mersenne31`, and
-`fgf::quad_mersenne31`. `fgf::extension` remains as a facade. Destinations
+`fgf::quad_mersenne31`, `fgf::ops::map`, and `fgf::ops::map_bits`.
+`fgf::extension` remains as a facade. Destinations
 are selected by item, not by replacing a whole module prefix.
 
 | 3.x items and paths | 4.0 path |
@@ -54,18 +55,25 @@ their listed destination retain that path.
   the prime-subfield embedding's `frobenius`. The restriction rows'
   validity bitmap becomes the `Option` that `restrict` returns per element.
   The GF(2) bit/lane interop kernels behind `ops::map_bits` go with them;
-  the bit-buffer operations in `bits` are unchanged.
+  the bit-buffer operations remain under `ops::bits` (see Paths and
+  Signatures).
 - `EmbeddingError`, replaced by `fgf::maps::ImageError` (see Errors).
 - `CoeffMatrix::values()`, replaced by `to_source_major()` (see
   Signatures).
 
-Kernel internals move behind the `internals` feature: `KernelBackend`,
-`FGF_TIERS`, `has_vector_elementwise`, `vector_elementwise_min_bytes`, the
-`ParseBackendError` re-export, `BinaryDescription`, `ByteLogExp`,
-`tower::{fp_mul_alpha, fp_multiply, fp_square, fp_invert}`,
-`field::prime::{reduce, reduce_wide}`, `mersenne31::reduce`, and
-`goldilocks::{reduce, reduce_wide}`. They carry no compatibility
-guarantees. `has_vector_elementwise` and `vector_elementwise_min_bytes`
+Kernel and descriptor internals move behind the `internals` feature and
+carry no compatibility guarantees:
+
+| 3.x items and paths | `internals` path |
+| --- | --- |
+| `KernelBackend`, `FGF_TIERS`, `has_vector_elementwise`, `vector_elementwise_min_bytes`, `ParseBackendError` | `fgf::internals::kernel::{…}` |
+| `BinaryDescription`, `ByteLogExp` | `fgf::internals::field::description::{…}` |
+| `tower::{fp_mul_alpha, fp_multiply, fp_square, fp_invert}` | `fgf::internals::field::fan_paar::{…}` |
+| `field::prime::{reduce, reduce_wide}` | `fgf::internals::field::prime::{…}` |
+| `mersenne31::reduce` | `fgf::internals::field::mersenne31::reduce` |
+| `goldilocks::{reduce, reduce_wide}` | `fgf::internals::field::goldilocks::{…}` |
+
+`has_vector_elementwise` and `vector_elementwise_min_bytes`
 have no stable replacement; the backend query is
 `fgf::backend_for::<F>()`.
 
@@ -113,7 +121,9 @@ callers take an explicit row parameter such as
 
 Every `ops` function bounded `F: FieldKernels` in 3.0.2 is bounded
 `F: FieldBuffer` in 4.0. `Field::Raw` is `Send + Sync` as well as
-`Copy + Eq + Ord + Hash + Debug + 'static`. `Field` keeps `Raw`,
+`Copy + Eq + Ord + Hash + Debug + 'static`, and `ExtensionStorage::Raw`
+is `Send + Sync`.
+`Field` keeps `Raw`,
 `Characteristic`, `NAME`, `DEGREE`, and `ORDER`; `FiniteFieldRepr` keeps
 `NAME`.
 
@@ -161,3 +171,10 @@ untouched, noncanonical lanes included. `ops::mul_into_scatter` copies
 the source bytes verbatim into rows with a unit coefficient, as
 `ops::mul_into` does; Mersenne31, Goldilocks, QuadMersenne31, and
 residue rows previously canonicalized noncanonical source lanes.
+
+`Embedding::generator_count` evaluates the source row's field validation,
+so a generator query over an invalid source row no longer compiles. The
+element conversions (`from_raw`, `from_residue`, `from_index`, the byte
+decoders) and `Embedding::generator` already rejected an invalid row at
+compile time. `Relation` constructors and readouts carry coordinate data
+only; the extension row that uses a relation validates its base.

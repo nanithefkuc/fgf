@@ -33,7 +33,7 @@ explains supported degrees, relations, storage choices, and embeddings.
 
 ```toml
 [dependencies]
-fgf = "3.0.2"
+fgf = "4.0.0"
 ```
 
 Choose the field, then construct its elements. Shipped scalar arithmetic is
@@ -81,9 +81,10 @@ cargo run --example shard_recovery
 ```
 
 The API reference is on [docs.rs](https://docs.rs/fgf); guides and background
-are on the [wiki](https://github.com/nanithefkuc/fgf/wiki). Changes and
-migration from 2.x are in
-[`CHANGELOG.md`](https://github.com/nanithefkuc/fgf/blob/main/CHANGELOG.md).
+are on the [wiki](https://github.com/nanithefkuc/fgf/wiki). Changes are in
+[`CHANGELOG.md`](https://github.com/nanithefkuc/fgf/blob/main/CHANGELOG.md);
+the [3.x migration guide](https://github.com/nanithefkuc/fgf/wiki/Migrating-from-3.x)
+collects every 4.0 break.
 
 ## Features
 

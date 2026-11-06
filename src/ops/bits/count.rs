@@ -8,10 +8,8 @@ use crate::kernel::gf1;
 /// Hamming weight of the live bits `[0, bits)`.
 ///
 /// Padding bits never count, even when the buffer holds more bytes than
-/// [`bytes_for`](super::bytes_for)`(bits)`. The count is `usize`, which no buffer can
-/// overflow; the underlying `u32` popcount kernel is exact only while a
-/// segment holds at most `2^32 − 1` set bits, so the count is summed over
-/// byte-aligned segments that each stay inside that range.
+/// [`bytes_for`](super::bytes_for)`(bits)`. The count is a `usize` and is exact for
+/// every buffer length.
 ///
 /// # Panics
 /// Panics if `buf` is shorter than [`bytes_for`](super::bytes_for)`(bits)`.

@@ -21,6 +21,21 @@ All notable changes to this project are documented here. The format follows
 - `backend_for` is documented as a field-strategy summary; `Coeff`,
   `CoeffVec`, and `CoeffMatrix` sizes and layouts are documented as
   unspecified.
+- Rustdoc contracts for the 4.x freeze: `FieldBuffer::decode` states the
+  accepted byte patterns and their canonicalization per row family, and the
+  decoders link to it; contiguous matrix operations document the
+  whole-element `row_len` panic; prepared matrix accumulation documents the
+  zero-coefficient guarantee; collection `clone` documents its allocation.
+  Corrected statements: `Coeff` construction allocates nothing only once the
+  process backend is resolved; `CoeffRef` and `CoeffVecRef` promise borrowing
+  and `Copy`, not a representation size; `backend_for` no longer lists
+  which presentations report scalar, since that set may change; only canonical
+  `Embedding` inclusions commute as triangles; an invalid field row is a
+  compile error wherever code using it is generated, not a runtime panic.
+  Stable rustdoc no longer describes backend tiers, register blocking, or
+  prepared-table shapes; the `ops` module states which operations allocate.
+- `Relation::to_binary_words` reads a relation back as one coordinate word
+  per coefficient over a binary base, pairing with `from_binary_words`.
 - `just doc-stable` builds the default-feature rustdoc that docs.rs publishes,
   with warnings denied; `just release-accept` runs it.
 - The compile-fail recipe rejects private-module errors (`E0603`).
@@ -60,7 +75,8 @@ All notable changes to this project are documented here. The format follows
   | `Rijndael16`, `Rijndael32`, `Rijndael64`, `FanPaar2`, `FanPaar4`, `FanPaar8`, `FanPaar16`, `FanPaar32`, `FanPaar64`, exported at the root or under `field` or `tower` | `fgf::binary::{…}` |
   | `Extension`, `ExtensionSpec`, `ExtensionField`, `ExtensionStorage`, `Relation`, `Components`, `Packed`, `PackedPadded`, `PackedWord`, exported at the root or under `field` or `field::extension` | `fgf::extension::{…}` |
   | `QuadMersenne31`, `ComplexMersenne31`, exported at the root or under `field` or `quad_mersenne31` | `fgf::extension::{…}` |
-  | `Embedding`, `Isomorphism`, `Postcompose`, `EmbeddingError`, exported at the root or under `field`, `embedding`, or `field::embedding` | `fgf::maps::{…}` |
+  | `Embedding`, `Isomorphism`, `Postcompose`, exported at the root or under `field`, `embedding`, or `field::embedding` | `fgf::maps::{…}` |
+  | `EmbeddingError`, exported at the root or under `field`, `embedding`, or `field::embedding` | `fgf::maps::ImageError` (see the error-classification entry below) |
   | `fgf::bits::{bytes_for, xor_assign, xor_range, XorRange, xor_range_with, xor_gather, and_into, and_assign, andnot_assign, clear_range, set_range, weight, dot_product}` | `fgf::ops::bits::{…}` |
   | `KernelBackend`, `FGF_TIERS`, `has_vector_elementwise`, `ParseBackendError`, exported at the root or under `fgf::kernel`; `fgf::kernel::vector_elementwise_min_bytes` | `fgf::internals::kernel::{…}` |
   | `BinaryDescription`, `ByteLogExp`, exported at the root or under `field`, `description`, `field::description`, `field::binary`, or `field::binary::description` | `fgf::internals::field::description::{…}` |
@@ -78,8 +94,9 @@ All notable changes to this project are documented here. The format follows
 
   The removed modules are `fgf::field` with every submodule, `fgf::kernel`,
   `fgf::bits`, `fgf::embedding`, `fgf::cantor`, `fgf::normal`, `fgf::poly`,
-  `fgf::tower`, `fgf::description`, `fgf::goldilocks`, `fgf::mersenne31`, and
-  `fgf::quad_mersenne31`. `fgf::extension` remains as a facade. The source
+  `fgf::tower`, `fgf::description`, `fgf::goldilocks`, `fgf::mersenne31`,
+  `fgf::quad_mersenne31`, `fgf::ops::map`, and `fgf::ops::map_bits`.
+  `fgf::extension` remains as a facade. The source
   tree moves `src/bits.rs` to the facade `src/ops/bits.rs` and its private
   submodules `src/ops/bits/{logic,range,gather,count,geometry}.rs`, and adds
   the private `src/ops/geometry.rs` and `src/ops/tests.rs`. The new facade
@@ -234,6 +251,8 @@ All notable changes to this project are documented here. The format follows
   unit coefficient, as `ops::mul_into` does. Mersenne31, Goldilocks,
   QuadMersenne31, and residue rows canonicalized noncanonical source lanes
   instead.
+- `Embedding::generator_count` evaluates the source row's const validation,
+  so a query over an invalid source row no longer compiles.
 
 ## [3.0.2] - 2026-10-20
 

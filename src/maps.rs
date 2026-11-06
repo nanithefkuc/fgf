@@ -17,8 +17,7 @@
 //! ladder as its canonical-image rule; odd characteristic chooses no
 //! canonical map between unrelated presentations.
 //!
-//! Construction and every method are allocation-free; the prepared state is
-//! fixed arrays. Repeated application never reruns image construction.
+//! Construction and every method are allocation-free. Repeated application never reruns image construction.
 //! Map construction and evaluation are variable-time and unsuitable for
 //! secret data.
 //!

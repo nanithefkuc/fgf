@@ -149,7 +149,7 @@ pub struct Descriptor {
     root: u8,
 }
 
-/// Check storage admissibility of an extension relation: packed storages
+/// Checks storage admissibility of an extension relation: packed storages
 /// require characteristic two and supported widths, with the coordinate
 /// word filling or sitting below the word.
 const fn check_storage(storage: Storage, characteristic: u64, degree: u32) {

@@ -23,14 +23,15 @@ for raw in [0x1234u16, 0xabcd] {
 assert_eq!(prepared.value(), value);
 ```
 
-`Coeff` is inline and does not allocate. Preparation is useful for reuse, not
+`Coeff` is inline; once the process backend is resolved, constructing one
+does not allocate. Preparation is useful for reuse, not
 a requirement for every one-shot call.
 
 ## Collections encode a coefficient axis
 
 | Type | Meaning | Construction storage |
 | --- | --- | --- |
-| `Coeff<F>` | One coefficient | Inline, no allocation |
+| `Coeff<F>` | One coefficient | Inline; no allocation once the backend is resolved |
 | `CoeffVec<F>` | A sequence indexed by the consuming operation | Owned allocation; requires `alloc` |
 | `CoeffMatrix<F>` | A source-major `(sources, outputs)` matrix | Owned allocation; requires `alloc` |
 | `CoeffRef<'_, F>` | One borrowed prepared entry | Borrows its owner |
@@ -88,7 +89,7 @@ reuse that state. Source-slice arrays and destination buffers are also
 caller-owned. First-use dispatch and table initialization are separate from
 the warmed steady-state contract.
 
-The [counting-allocator tests](https://github.com/nanithefkuc/fgf/blob/v3.0.2/tests/zero_alloc.rs)
+The [counting-allocator tests](https://github.com/nanithefkuc/fgf/blob/v4.0.0/tests/zero_alloc.rs)
 defend allocation promises; these examples check arithmetic, not allocation.
 `CoeffVec` and `CoeffMatrix` require `alloc`, not `std`.
 

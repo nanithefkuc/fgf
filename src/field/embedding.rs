@@ -273,7 +273,7 @@ fn generator_coordinates(descriptor: &Descriptor, level: &Level, out: &mut [u64]
     }
 }
 
-/// Pack binary coordinate bits into a word, least significant first.
+/// Packs binary coordinate bits into a word, least significant first.
 fn pack_bits(coordinates: &[u64]) -> u64 {
     let mut word = 0u64;
     let mut i = 0;
@@ -297,7 +297,7 @@ fn unpack_bits(word: u64, out: &mut [u64]) {
 // The evaluation engine
 // ---------------------------------------------------------------------------
 
-/// Embed flattened `coords` of the presentation rooted at `at` into the
+/// Embeds flattened `coords` of the presentation rooted at `at` into the
 /// target row, through the level `images` in level order.
 fn embed_coordinates<T: Field>(
     descriptor: &Descriptor,
@@ -398,7 +398,7 @@ fn relations_hold<T: Field>(
     }
     true
 }
-/// Restrict `value` to the presentation rooted at `at`, writing its
+/// Restricts `value` to the presentation rooted at `at`, writing its
 /// flattened prime-subfield coordinates into `out`. Returns `false`
 /// exactly when `value` lies outside the image.
 fn restrict_coordinates<T: Field>(
@@ -832,7 +832,7 @@ fn is_structural_images<S: Field, T: Field>(
     true
 }
 
-/// Lift flattened coordinates one tower level outward: constant-component
+/// Lifts flattened coordinates one tower level outward: constant-component
 /// padding through an extension level, the inverse basis map through a
 /// basis leaf.
 fn lift_coordinates(descriptor: &Descriptor, at: u8, coords: &mut [u64; 128], len: &mut usize) {
@@ -877,10 +877,11 @@ fn lift_coordinates(descriptor: &Descriptor, at: u8, coords: &mut [u64; 128], le
 /// values validated against the transported relations; every other method
 /// evaluates them in the target arithmetic. Equal source and target
 /// presentations are not embeddings: [`Isomorphism`] names that map.
-/// Inclusions commute as triangles.
+/// Canonical inclusions from [`Embedding::new`] commute as triangles; maps
+/// built from caller-supplied images compose by transporting those images
+/// and need not agree with an independently chosen direct inclusion.
 ///
-/// The prepared state is fixed arrays; construction and every method are
-/// allocation-free. Repeated application never reruns image construction.
+/// Construction and every method are allocation-free. Repeated application never reruns image construction.
 ///
 /// The cached structural bit is not observable: `Clone`/`Copy` preserve
 /// it, `Debug` prints only the row names, and no constructor is `const`,
@@ -933,7 +934,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         );
     };
 
-    /// Prepare the canonical proper inclusion of `S` into `T`.
+    /// Prepares the canonical proper inclusion of `S` into `T`.
     ///
     /// Returns the structural inclusion when `S` is the prime subfield of
     /// `T` or a row of the target's own tower, and the canonical ladder
@@ -1031,7 +1032,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         );
     }
 
-    /// Prepare the proper inclusion fixed by `images`: the image in `T`
+    /// Prepares the proper inclusion fixed by `images`: the image in `T`
     /// of each generator level of `S` in level order, validated against
     /// the transported relations.
     ///
@@ -1083,7 +1084,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         })
     }
 
-    /// Check selected images against their transported relations,
+    /// Checks selected images against their transported relations,
     /// panicking on failure: construction-time validation for maps the
     /// sources guarantee.
     fn checked(
@@ -1118,6 +1119,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// The number of generator levels of `S`: zero at absolute degree one.
     #[must_use]
     pub fn generator_count() -> usize {
+        let () = super::Validate::<S>::OK;
         levels(S::DESCRIPTOR).1
     }
 
@@ -1128,6 +1130,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// Panics when `level` reaches [`generator_count`](Self::generator_count).
     #[must_use]
     pub fn generator(level: usize) -> Elem<S> {
+        let () = super::Validate::<S>::OK;
         let descriptor = S::DESCRIPTOR;
         let (source_levels, source_count) = levels(descriptor);
         assert!(
@@ -1139,7 +1142,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         Elem::<S>::from_raw(S::from_prime_coordinates(&coords[..S::DEGREE as usize]))
     }
 
-    /// Compose with the next map: `self.then(next)` applies `self`, then
+    /// Composes with the next map: `self.then(next)` applies `self`, then
     /// `next`, by image transport. The right-hand map is a proper
     /// inclusion or an isomorphism out of the middle row.
     #[must_use]
@@ -1176,7 +1179,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         T::DEGREE / S::DEGREE
     }
 
-    /// Map `value` into the target field by Horner evaluation in the
+    /// Maps `value` into the target field by Horner evaluation in the
     /// target's arithmetic, recursing into the base.
     #[must_use]
     pub fn embed(&self, value: Elem<S>) -> Elem<T> {
@@ -1203,15 +1206,13 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     ///
     /// The gate is per operation below: `QUAD_FROBENIUS`, `QUAD_TRACE`,
     /// `QUAD_NORM`, `QUAD_CONTAINS`, and `QUAD_RESTRICT` each default to
-    /// the shape and each can exclude a pair the campaign rejects, so a
-    /// losing op keeps exponentiation while the winning ops on the same
-    /// pair stay routed. Measurement (two hosts, interleaved pinned
-    /// five-round same-session campaigns, median of per-run medians)
-    /// excludes the tiny GF(4)-shaped `res2-res2q` row from the
-    /// `frobenius`, `contains`, and `restrict` arms: a single square
-    /// already, the Vieta coordinate round-trip costs more than the
-    /// power there, while its `trace` and `norm` stay routed (roughly
-    /// five to eight times faster).
+    /// the shape and each can exclude a pair, so an excluded operation keeps
+    /// exponentiation while the other operations on the same pair stay
+    /// routed. The GF(4)-shaped `res2-res2q` row is excluded from the
+    /// `frobenius`, `contains`, and `restrict` arms, where the power is
+    /// already a single square; its `trace` and `norm` stay routed. The
+    /// exclusions are measured; the 3.0.2 benchmark record holds the
+    /// results.
     const QUAD: Option<(u8, quadratic::ConjugationCoefficient)> = {
         match quadratic::conjugation_shape::<T>() {
             Some(shape) => {
@@ -1226,9 +1227,8 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     };
 
     /// Whether the relative-Frobenius arm routes through the closed form
-    /// on this pair. `false` on the tiny GF(4)-shaped row described on
-    /// [`QUAD`](Self::QUAD): the power there is a single square and the
-    /// coordinate round-trip costs more.
+    /// on this pair. `false` on the GF(4)-shaped row described on
+    /// [`QUAD`](Self::QUAD), where the power is a single square.
     const QUAD_FROBENIUS: bool = {
         match Self::QUAD {
             Some(_) => !quadratic::is_tiny_gf4::<S, T>(),
@@ -1239,7 +1239,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// Whether the membership-test arm routes through the closed form on
     /// this pair. Excluded on the same tiny row as
     /// [`QUAD_FROBENIUS`](Self::QUAD_FROBENIUS): the test is one
-    /// Frobenius there, so the power spelling wins.
+    /// Frobenius there, so it keeps the power spelling.
     const QUAD_CONTAINS: bool = {
         match Self::QUAD {
             Some(_) => !quadratic::is_tiny_gf4::<S, T>(),
@@ -1257,12 +1257,12 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         }
     };
 
-    /// Whether the trace arm routes through the closed form on this pair.
-    /// Every measured degree-2 row routes, including the tiny one.
+    /// Whether the trace arm routes through the closed form on this pair:
+    /// every degree-2 shape, including the GF(4)-shaped row.
     const QUAD_TRACE: bool = Self::QUAD.is_some();
 
-    /// Whether the norm arm routes through the closed form on this pair.
-    /// Every measured degree-2 row routes, including the tiny one.
+    /// Whether the norm arm routes through the closed form on this pair:
+    /// every degree-2 shape, including the GF(4)-shaped row.
     const QUAD_NORM: bool = Self::QUAD.is_some();
 
     /// Whether this map is the structural base-into-row inclusion,
@@ -1276,14 +1276,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     }
 
     /// Whether `value` lies in the image of this embedding: the fixed
-    /// field of the relative Frobenius.
-    ///
-    /// At relative degree two where the target row carries its own
-    /// quadratic relation over exactly this source, the fixed-point test
-    /// runs through the closed-form conjugation `(a - c1*b) - b*t` of
-    /// `x = a + b*t` under `t^2 + c1*t + c0`, which equals `x^|S|`;
-    /// every other pair keeps the power test. The arm resolves at compile
-    /// time through the degree-2 shape, with no per-call cost.
+    /// field of the relative Frobenius, `x^|S| == x`.
     #[must_use]
     pub fn contains(&self, value: Elem<T>) -> bool {
         if Self::QUAD_CONTAINS
@@ -1297,18 +1290,8 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
 
     /// The inverse of [`embed`](Self::embed) on the image, or `None`.
     ///
-    /// Components recover level by level through the trace-dual basis,
-    /// ending in the prime-subfield readout; a value outside the image
-    /// restricts to `None` without solving a linear system. At relative
-    /// degree two where the target row carries its own quadratic relation
-    /// over exactly this source, the membership pre-check runs the
-    /// closed-form conjugation, and members then read their base
-    /// coordinate back directly (the base coordinate is a component of
-    /// the closed form): no coordinate walk, no embedding-image reads,
-    /// no power on that path. Nonmembers keep the transported-relation
-    /// walk. The closed form applies only to the structural
-    /// base-into-row inclusion (see the structural check);
-    /// caller-supplied images keep the transported-relation path.
+    /// `restrict(embed(x)) == Some(x)` for every source element `x`, and
+    /// every target element outside the image restricts to `None`.
     pub fn restrict(&self, value: Elem<T>) -> Option<Elem<S>> {
         if Self::QUAD_RESTRICT
             && let Some((base_degree, coefficient)) = Self::QUAD
@@ -1344,14 +1327,6 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     }
 
     /// The relative Frobenius `x^|S|` of the extension.
-    ///
-    /// At relative degree two where the target row carries its own
-    /// quadratic relation over exactly this source, this runs the
-    /// closed-form Vieta conjugation `(a - c1*b) - b*t` for `x = a + b*t`
-    /// under `t^2 + c1*t + c0`, which equals the power `x^|S|`; every
-    /// other pair keeps exponentiation. The arm resolves at compile time
-    /// through the degree-2 shape, with no per-call cost, and applies only to
-    /// the structural inclusion (see the structural check).
     #[must_use]
     pub fn frobenius(&self, value: Elem<T>) -> Elem<T> {
         if Self::QUAD_FROBENIUS
@@ -1365,13 +1340,6 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
 
     /// The relative trace: the sum of the conjugates under the relative
     /// Frobenius, restricted to the source.
-    ///
-    /// At relative degree two where the target row carries its own
-    /// quadratic relation over exactly this source, this runs the
-    /// closed-form `2*a - c1*b`, which equals the conjugate sum
-    /// `x + x^|S|` restricted to the source; every other degree keeps
-    /// the Frobenius-sum spelling. The arm resolves at compile time
-    /// through the degree-2 shape.
     ///
     /// `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies the absolute
     /// trace.
@@ -1402,13 +1370,6 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
 
     /// The relative norm: the product of the conjugates under the relative
     /// Frobenius, restricted to the source.
-    ///
-    /// At relative degree two where the target row carries its own
-    /// quadratic relation over exactly this source, this runs the
-    /// closed-form `a^2 - c1*a*b + c0*b^2`, which equals the conjugate
-    /// product `x * x^|S|` restricted to the source; every other degree
-    /// keeps the Frobenius-product spelling. The arm resolves at compile
-    /// time through the degree-2 shape.
     ///
     /// `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies the absolute
     /// norm.
@@ -1449,7 +1410,7 @@ mod compose {
     /// that transports prepared images into its own target. Private, so
     /// only [`Embedding`] and [`Isomorphism`] qualify.
     pub(crate) trait Postcompose<Mid: Field, Out: Field> {
-        /// Map `image`: one prepared image of the left-hand map, seen as
+        /// Maps `image`: one prepared image of the left-hand map, seen as
         /// an element of the middle row.
         fn postcompose(&self, image: Elem<Mid>) -> Elem<Out>;
     }
@@ -1625,7 +1586,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         );
     };
 
-    /// Prepare the canonical isomorphism of `S` onto `T`.
+    /// Prepares the canonical isomorphism of `S` onto `T`.
     ///
     /// Returns the structural map when the presentations match and the
     /// canonical ladder map when both rows are characteristic-two
@@ -1676,7 +1637,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         }
     }
 
-    /// Prepare the isomorphism fixed by `images`: the image in `T` of
+    /// Prepares the isomorphism fixed by `images`: the image in `T` of
     /// each generator level of `S` in level order, validated against the
     /// transported relations.
     ///
@@ -1731,7 +1692,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         &self.forward[..self.forward_count as usize]
     }
 
-    /// Compose with the next isomorphism by image transport.
+    /// Composes with the next isomorphism by image transport.
     #[must_use]
     pub fn then<U: Field<Characteristic = S::Characteristic>>(
         &self,
@@ -1761,7 +1722,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         }
     }
 
-    /// Compose with the next proper inclusion: `self.then_embedding(next)`
+    /// Composes with the next proper inclusion: `self.then_embedding(next)`
     /// applies this isomorphism, then `next`, by forward-image transport.
     #[must_use]
     pub fn then_embedding<U: Field<Characteristic = S::Characteristic>>(
@@ -1801,7 +1762,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         }
     }
 
-    /// Map `value` into the target field by Horner evaluation in the
+    /// Maps `value` into the target field by Horner evaluation in the
     /// target arithmetic, recursing into the base.
     #[must_use]
     pub fn apply(&self, value: Elem<S>) -> Elem<T> {
@@ -1819,7 +1780,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         )
     }
 
-    /// Map `value` back into the source field: the total inverse.
+    /// Maps `value` back into the source field: the total inverse.
     #[must_use]
     pub fn unapply(&self, value: Elem<T>) -> Elem<S> {
         let descriptor = T::DESCRIPTOR;

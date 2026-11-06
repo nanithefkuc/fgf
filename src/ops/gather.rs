@@ -15,16 +15,15 @@ use super::CoeffVecRef;
 #[cfg(feature = "alloc")]
 use super::single::mul_into_with;
 
-/// Fold byte-offset sources out of one backing region into one row, every
+/// Folds byte-offset sources out of one backing region into one row, every
 /// coefficient implicitly one: `dst += sum(region[off..off + dst.len()])`
 /// (field addition; byte XOR only in characteristic two).
 ///
 /// The unit-coefficient gather: sources are rows of one buffer — a solved
 /// solution block, a table of packed elements — addressed by their start
 /// offsets, so a caller folds an index table without staging a slice per
-/// source. Fields whose addition is XOR hold the destination in registers
-/// across the whole source list; the rest fold one
-/// [`add_assign`](crate::ops::add_assign) per source.
+/// source. The result equals one [`add_assign`](crate::ops::add_assign) per
+/// source, in offset order.
 /// The `_offsets` in the name: the *sources* are the offset-addressed rows
 /// of one backing region; the destination is the single row that comes first.
 ///
@@ -62,14 +61,11 @@ pub fn add_gather_offsets<F: FieldBuffer>(dst: &mut [u8], offsets: &[u32], regio
     F::add_gather_offsets(RawDispatch, region, dst, offsets);
 }
 
-/// Fold many sources into one row: `dst += sum(coeffs[i] * srcs[i])`.
+/// Folds many sources into one row: `dst += sum(coeffs[i] * srcs[i])`.
 ///
 /// The transpose of [`mul_add_scatter`](crate::ops::mul_add_scatter), and the
-/// shape that rebuilds a single lost symbol from its survivors. Blocked
-/// backends hold the destination tile in registers while every source is
-/// folded in, so `dst` is read and written once per tile rather than once per
-/// source — prefer this over a loop of [`mul_add`](crate::ops::mul_add)
-/// whenever the sources share a destination.
+/// shape that rebuilds a single lost symbol from its survivors. The result
+/// equals one [`mul_add`](crate::ops::mul_add) per source.
 ///
 /// # Panics
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches
@@ -98,7 +94,7 @@ pub fn mul_add_gather<F: FieldBuffer>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: 
     F::mul_add_gather(RawDispatch, dst, coeffs, srcs);
 }
 
-/// Fold many sources into one row using prepared coefficients.
+/// Folds many sources into one row using prepared coefficients.
 ///
 /// One coefficient per source. The view comes from
 /// [`CoeffVec::as_ref`](crate::ops::CoeffVec::as_ref).
@@ -135,7 +131,7 @@ pub fn mul_add_gather_with<F: FieldBuffer>(
     F::mul_add_gather_plan(RawDispatch, dst, coeffs.values, coeffs.prepared, srcs);
 }
 
-/// Overwrite one row with a field dot product:
+/// Overwrites one row with a field dot product:
 /// `dst = sum(coeffs[i] * srcs[i])`.
 ///
 /// The overwrite counterpart of [`mul_add_gather`]: the previous destination
@@ -174,7 +170,7 @@ pub fn mul_into_gather<F: FieldBuffer>(dst: &mut [u8], coeffs: &[Elem<F>], srcs:
     F::mul_into_gather(RawDispatch, dst, coeffs, srcs);
 }
 
-/// Overwrite one row with a field dot product using prepared coefficients.
+/// Overwrites one row with a field dot product using prepared coefficients.
 ///
 /// One coefficient per source. The view comes from
 /// [`CoeffVec::as_ref`](crate::ops::CoeffVec::as_ref).

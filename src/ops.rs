@@ -1,32 +1,29 @@
 //! The public vector operation surface.
 //!
-//! Every entry is generic over [`FieldBuffer`](crate::FieldBuffer) alone,
-//! which reaches both the stable little-endian byte form and the rows'
-//! dispatched kernels. Arithmetic entries monomorphize to the row's SIMD
-//! kernel; packing (`pack`, `unpack`, `pack_to_vec`) works over the stable
-//! byte form and never builds a kernel operand. Buffers are plain `&[u8]`
-//! holding packed elements in that representation. Canonically encoded
-//! payloads need no repacking.
+//! Every entry is generic over [`FieldBuffer`](crate::FieldBuffer) alone.
+//! Buffers are plain `&[u8]` holding packed elements in the stable
+//! little-endian byte form [`FieldBuffer`](crate::FieldBuffer) defines, so
+//! canonically encoded payloads need no repacking. The process backend
+//! selects how each operation runs; results are identical on every backend.
 //!
-//! Implementations split along named axes: the operation-shape modules
-//! `single`, `scatter`, `gather`, `matrix`, `dot`, and `recip`; the
-//! `coefficient`, `packing`, and `geometry` modules; and the public
-//! [`bits`] module for bit-packed GF(2) operands.
+//! Once the process backend is resolved, no operation here allocates except
+//! `pack_to_vec`, `unpack_to_vec`, `CoeffMatrix::to_source_major`, and the
+//! constructors and `clone` of `CoeffVec` and `CoeffMatrix`, all of which
+//! require `alloc`. The first backend resolution in a
+//! process may allocate while it reads the `SIMD_BACKEND` override.
 //!
 //! `mul_add` is the fused `dst += coeff * src` (an AXPY; XOR in
 //! characteristic two). `_scatter` fans one source out to many rows,
 //! `_gather` folds many sources into one row, and `_matrix` does
-//! many-to-many with the destination held in registers across sources.
+//! many-to-many.
 //! These three shapes cover systematic encoding, symbol reconstruction,
 //! and erasure decoding respectively.
 //!
 //! # Examples
 //!
 //! Each `mul_*` call resolves its coefficient into the form the host backend
-//! wants. For GF(2^8) that is an array index; for GF(2^16) on a shuffle
-//! backend it is four nibble tables. Amortized over a large buffer that cost
-//! vanishes, but across many short buffers with the same coefficient it does
-//! not. [`Coeff`] hoists it:
+//! wants. Across many short buffers with the same coefficient, [`Coeff`]
+//! hoists that preparation out of the loop:
 //!
 //! ```
 //! use fgf::{Elem, FiniteField, binary::Rijndael16, extension::Extension, ops};
@@ -53,12 +50,14 @@
 //! residue rows `FiniteField<P, 1, Residue>`)
 //! accept every lane bit pattern a decode accepts and
 //! produce canonical lanes on output — accumulation, in-place, and tails
-//! included — with three byte-preserving exceptions: a zero coefficient
-//! fills zero lanes in overwrite and leaves the destination untouched in
-//! accumulation; a unit coefficient copies the source bytes unchanged in
-//! overwrite, adds them in accumulation, and leaves the destination
-//! untouched in place. Those paths preserve noncanonical lane bytes
-//! instead of canonicalizing them. That is the invariant a codec maintains
+//! included — with three byte-preserving exceptions, each of which keeps
+//! noncanonical lane bytes instead of canonicalizing them: a zero
+//! coefficient leaves the destination untouched in accumulation; a unit
+//! coefficient copies the source bytes unchanged in overwrite; and a unit
+//! coefficient leaves the destination untouched in place. A zero
+//! coefficient in overwrite writes canonical zero lanes, and a unit
+//! coefficient in accumulation adds the source and canonicalizes like any
+//! other accumulation. That is the invariant a codec maintains
 //! over its buffers, and it is what these kernels preserve. Scalar element
 //! arithmetic shares the same totality: the [`FieldElem`](crate::FieldElem) operations accept
 //! any raw lane value and always reduce canonically.

@@ -112,7 +112,7 @@ bits::xor_gather(&mut output, 7, 0b101, &sources);
 assert_eq!(output, [0b0010_1101]);
 ```
 
-Run the [binary syndrome example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/examples/binary_syndrome.rs)
+Run the [binary syndrome example](https://github.com/nanithefkuc/fgf/blob/v4.0.0/examples/binary_syndrome.rs)
 with `just example binary_syndrome --no-default-features`. Exact range and
 padding contracts belong to the
 [bits reference](https://docs.rs/fgf/4.0.0/fgf/ops/bits/index.html).

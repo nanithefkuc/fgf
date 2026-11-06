@@ -52,7 +52,7 @@ mod private {
         const ONE_RAW: Raw;
         /// Use-time validity check for the field's defining data.
         const VALID: ();
-        /// Reduce a raw word to canonical coordinates.
+        /// Reduces a raw word to canonical coordinates.
         fn canonical_raw(raw: Raw) -> Raw;
         /// Raw field addition, over canonical inputs.
         fn add_raw(left: Raw, right: Raw) -> Raw;
@@ -482,7 +482,7 @@ impl<F: Field> Elem<F> {
         Elem { raw: F::ONE_RAW }
     };
 
-    /// Unwrap to the canonical raw storage word.
+    /// Unwraps to the canonical raw storage word.
     #[inline]
     #[must_use]
     pub const fn to_raw(self) -> F::Raw {
@@ -548,10 +548,21 @@ pub trait FieldElem:
 {
     /// The field this is an element of.
     type Field: Field;
-    /// Wrap a raw word, canonicalizing it into storage.
+    /// Wraps a raw word, canonicalizing it into storage.
     ///
-    /// Runs the central field validation, then canonicalizes the word into
-    /// storage.
+    /// Runs the central field validation, then maps every raw word to one
+    /// canonical element:
+    ///
+    /// - prime rows ([`Mersenne31`](crate::prime::Mersenne31),
+    ///   [`Goldilocks`](crate::prime::Goldilocks), and
+    ///   `FiniteField<P, 1, Residue>`) reduce the word modulo the
+    ///   characteristic;
+    /// - flat binary rows (`FiniteField<2, N, R>` over a binary
+    ///   representation `R`) discard the bits at and above the degree;
+    /// - extension rows with [`Components`](crate::extension::Components)
+    ///   storage canonicalize each component through its base row, and packed
+    ///   storage discards the padding bits above the coordinate span and
+    ///   canonicalizes each base-sized component.
     fn from_raw(raw: <Self::Field as Field>::Raw) -> Self;
     /// The additive identity, and the absorbing element for multiplication.
     const ZERO: Self;
@@ -576,10 +587,10 @@ pub trait FieldElem:
     /// Field division. Returns zero when the divisor is zero.
     #[must_use]
     fn div(self, rhs: Self) -> Self;
-    /// Square.
+    /// Squares the element.
     #[must_use]
     fn square(self) -> Self;
-    /// Raise to an unsigned integer power by square-and-multiply.
+    /// Raises to an unsigned integer power by square-and-multiply.
     ///
     /// Present on the trait so generic code can exponentiate without knowing
     /// the field's group order. `pow(0)` is [`FieldElem::ONE`] for every
@@ -729,6 +740,7 @@ impl<F: Field> FieldElem for Elem<F> {
 
     #[inline]
     fn from_residue(value: u64) -> Result<Self, RangeError> {
+        let () = Validate::<F>::OK;
         let characteristic = <F::Characteristic as PrimeIdentity>::CHARACTERISTIC;
         let () = <F::Characteristic as private::PrimeIdentityValidation>::VALID;
         check_residue(value, characteristic)?;
@@ -744,6 +756,7 @@ impl<F: Field> FieldElem for Elem<F> {
 
     #[inline]
     fn from_index(index: u128) -> Result<Self, RangeError> {
+        let () = Validate::<F>::OK;
         if index >= F::ORDER {
             return Err(RangeError);
         }
@@ -883,12 +896,17 @@ pub trait FieldBuffer: Field + private::FieldSeal + dispatch::KernelDispatch {
     const BYTES: usize;
     /// Storage bit width of one element: `8 * BYTES`.
     const STORAGE_BITS: u32;
-    /// Decode one element from its stable little-endian byte representation.
+    /// Decodes one element from its stable little-endian byte representation.
+    ///
+    /// Every byte pattern of the right width is accepted: the lane is read as
+    /// the row's little-endian raw word (each component's lane in turn for
+    /// [`Components`](crate::extension::Components) storage) and
+    /// canonicalized as [`FieldElem::from_raw`] specifies.
     ///
     /// # Panics
     /// Panics if `bytes.len() != Self::BYTES`.
     fn decode(bytes: &[u8]) -> Elem<Self>;
-    /// Encode one element into its stable little-endian byte representation.
+    /// Encodes one element into its stable little-endian byte representation.
     ///
     /// # Panics
     /// Panics if `bytes.len() != Self::BYTES`.

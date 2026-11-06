@@ -55,7 +55,7 @@ pub const fn reduce<const P: u64>(value: u64) -> u64 {
     value % P
 }
 
-/// Reduce a `u128` to its ordinary residue modulo the prime `P`.
+/// Reduces a `u128` to its ordinary residue modulo the prime `P`.
 ///
 /// `value % P` over the widened modulus, guarded by the same primality
 /// proof as [`reduce`]. The residue is below every valid `P`, so it fits

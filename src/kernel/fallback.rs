@@ -4,7 +4,7 @@
 //! [`StorageDispatch`](crate::field::extension::storage::StorageDispatch)
 //! contracts are declarations only; this module owns every body an
 //! implementation may forward to, so a row or storage that omits an entry
-//! runs exactly the composition the contract's defaults used to carry.
+//! runs exactly the composition the contract declares as its default.
 //! Each free function reaches other entries through the row `F` — never
 //! through another fallback — so specialized overrides keep composing.
 //! The macros at the bottom emit the forwarding methods an implementation
@@ -336,8 +336,8 @@ pub(crate) fn sub_assign_scalar<F: FieldBuffer>(dst: &mut [u8], value: &F::Prepa
 /// [`StorageDispatch`](crate::field::extension::storage::StorageDispatch)
 /// entry over the row parameter `F`. Each emitted body forwards to the
 /// free function in this module holding the contract's default
-/// composition, so an implementation listing a name here keeps exactly the
-/// behavior the declaration-level default used to carry.
+/// composition, so an implementation listing a name here gets exactly the
+/// contract's default behavior.
 macro_rules! fallback_entry {
     (row backend) => {
         #[inline]

@@ -74,5 +74,5 @@ queries and feature choices.
 The [extension reference](https://docs.rs/fgf/4.0.0/fgf/extension/index.html)
 owns validity and storage contracts. Application checks should also cover
 expected relations, nonzero inverses, and agreed wire encodings. The
-[custom-extension example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/examples/custom_extensions.rs)
+[custom-extension example](https://github.com/nanithefkuc/fgf/blob/v4.0.0/examples/custom_extensions.rs)
 runs this surface as a program: `just example custom_extensions`.

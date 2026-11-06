@@ -73,7 +73,7 @@ assert_eq!(outputs, [13, 18, 13, 16, 9, 30]);
 
 For a source replacement, scatter `new_source - old_source` into existing
 outputs. Subtraction is XOR only in binary fields. The
-[streaming example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/examples/streaming_encode.rs)
+[streaming example](https://github.com/nanithefkuc/fgf/blob/v4.0.0/examples/streaming_encode.rs)
 uses this update with wider lanes.
 
 ## Offset destinations preserve unrelated frame bytes

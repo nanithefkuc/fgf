@@ -6,7 +6,7 @@
 
 use crate::field::{Elem, FieldBuffer, Validate};
 
-/// Pack field elements into their stable little-endian byte representation.
+/// Packs field elements into their stable little-endian byte representation.
 ///
 /// Element storage is canonical, so packed bytes are canonical lanes.
 /// Buffers produced here satisfy the packed-operation input contract
@@ -33,9 +33,10 @@ pub fn pack<F: FieldBuffer>(dst: &mut [u8], elems: &[Elem<F>]) {
     }
 }
 
-/// Decode packed little-endian bytes into field elements.
+/// Decodes packed little-endian bytes into field elements.
 ///
-/// Decoding canonicalizes each lane into element storage.
+/// Every lane is accepted and canonicalized as
+/// [`FieldBuffer::decode`](crate::FieldBuffer::decode) specifies.
 ///
 /// # Panics
 /// Panics unless `src.len() == dst.len() * F::BYTES`.
@@ -58,7 +59,7 @@ pub fn unpack<F: FieldBuffer>(dst: &mut [Elem<F>], src: &[u8]) {
     }
 }
 
-/// Pack field elements into a newly allocated byte vector.
+/// Packs field elements into a newly allocated byte vector.
 ///
 /// Like [`pack`], this emits canonical lanes.
 ///
@@ -77,9 +78,10 @@ pub fn pack_to_vec<F: FieldBuffer>(elems: &[Elem<F>]) -> alloc::vec::Vec<u8> {
     bytes
 }
 
-/// Decode packed little-endian bytes into a newly allocated element vector.
+/// Decodes packed little-endian bytes into a newly allocated element vector.
 ///
-/// Like [`unpack`], this canonicalizes each lane into element storage.
+/// Every lane is accepted and canonicalized as
+/// [`FieldBuffer::decode`](crate::FieldBuffer::decode) specifies.
 /// Buffers produced by [`pack`] or [`pack_to_vec`] round-trip exactly.
 ///
 /// # Panics

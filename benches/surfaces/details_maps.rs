@@ -129,6 +129,10 @@ const API_ISO_TO_IMAGES: &[&str] = &[
 const API_RELATION_FROM_COORDINATES: &[&str] = &["fgf::extension::Relation::from_coordinates"];
 const API_RELATION_FROM_BINARY_WORDS: &[&str] = &["fgf::extension::Relation::from_binary_words"];
 const API_RELATION_TO_COORDINATES: &[&str] = &["fgf::extension::Relation::to_coordinates"];
+const API_RELATION_TO_BINARY_WORDS: &[&str] = &[
+    "fgf::extension::Relation::to_binary_words",
+    "fgf::extension::Relation::from_binary_words",
+];
 
 fn register_gather_into_prepared<F: FieldBuffer>(label: &'static str) {
     let row = row_bytes::<F>();
@@ -501,6 +505,25 @@ fn run_relation_from_binary_words(case: &Case, ctx: &CaseCtx) {
     });
 }
 
+fn run_relation_to_binary_words(case: &Case, ctx: &CaseCtx) {
+    const WORDS: &[u64] = &[0x21, 0x01];
+    let relation = Relation::from_binary_words::<Gf2p8Rs>(WORDS);
+    assert_eq!(
+        relation.to_binary_words::<Gf2p8Rs>().collect::<Vec<_>>(),
+        WORDS,
+        "{}: word readback",
+        case.case
+    );
+    let backend = map_backend();
+    registry::time(case, ctx, &backend, || {
+        let held = black_box(relation);
+        fixture::observe(
+            held.to_binary_words::<Gf2p8Rs>()
+                .fold(0, |acc, word| acc ^ word),
+        );
+    });
+}
+
 fn run_relation_to_coordinates(case: &Case, ctx: &CaseCtx) {
     let relation = Relation::from_coordinates(&[3, 1]);
     assert_eq!(
@@ -614,6 +637,20 @@ pub fn register() {
         control: false,
         phase: None,
         run: run_relation_from_binary_words,
+    });
+    registry::add(Case {
+        case: "details-maps/relation-to-binary-words/gf2p16-custom-rs".to_string(),
+        api: API_RELATION_TO_BINARY_WORDS,
+        field: "gf2p16-custom-rs".to_string(),
+        operation: "relation-to-binary-words".to_string(),
+        scope: Scope::Query,
+        bytes: 0,
+        lanes: 16,
+        sources: 0,
+        destinations: 0,
+        control: false,
+        phase: None,
+        run: run_relation_to_binary_words,
     });
     registry::add(Case {
         case: "details-maps/relation-to-coordinates/gf49".to_string(),

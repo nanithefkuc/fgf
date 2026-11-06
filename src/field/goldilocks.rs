@@ -15,7 +15,7 @@ pub(crate) const MODULUS: u64 = 0xFFFF_FFFF_0000_0001;
 /// `2^32 − 1`, the residue of `2^64` modulo `p` and the fold constant.
 const EPSILON: u64 = 0xFFFF_FFFF;
 
-/// Reduce a value already in `0..2^64` to the canonical range `0..p`.
+/// Reduces a value already in `0..2^64` to the canonical range `0..p`.
 ///
 /// A single conditional subtract suffices: any `u64` exceeds `p` by less than
 /// `2^32`.
@@ -28,7 +28,7 @@ pub const fn reduce(x: u64) -> u64 {
     if x >= MODULUS { x - MODULUS } else { x }
 }
 
-/// Reduce a full 128-bit product modulo `p`, returning a canonical lane.
+/// Reduces a full 128-bit product modulo `p`, returning a canonical lane.
 ///
 /// Splits the high 64 bits at the 32-bit boundary and folds each part with
 /// `2^64 ≡ 2^32 − 1` and `2^96 ≡ −1`, the Plonky2 Goldilocks reduction. The
@@ -249,21 +249,22 @@ impl FieldBuffer for Goldilocks {
 }
 
 impl Elem<Goldilocks> {
-    /// Decode from the stable little-endian representation.
+    /// Decodes a little-endian lane: every `u64` is accepted and reduced
+    /// modulo the characteristic.
     #[inline]
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 8]) -> Self {
         Self::from_raw(u64::from_le_bytes(bytes))
     }
 
-    /// Encode to the stable little-endian representation.
+    /// Encodes to the stable little-endian representation.
     #[inline]
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 8] {
         self.raw.to_le_bytes()
     }
 
-    /// Wrap a raw lane, reducing it into canonical storage.
+    /// Wraps a raw lane, reducing it into canonical storage.
     #[inline]
     #[must_use]
     pub const fn from_raw(value: u64) -> Self {
@@ -343,7 +344,7 @@ impl Elem<Goldilocks> {
         }
     }
 
-    /// Square.
+    /// Squares the element.
     #[inline]
     #[must_use]
     pub const fn square(self) -> Self {
@@ -373,7 +374,7 @@ impl Elem<Goldilocks> {
         self.mul(rhs.inv())
     }
 
-    /// Raise to an unsigned integer power. `pow(_, 0) == ONE`.
+    /// Raises to an unsigned integer power. `pow(_, 0) == ONE`.
     #[inline]
     #[must_use]
     pub const fn pow(self, mut exponent: u128) -> Self {

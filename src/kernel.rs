@@ -284,13 +284,11 @@ pub(crate) fn x86_v2_token() -> archmage::X64V2Token {
 /// tier of every individual operation, which may route differently by shape
 /// or length.
 ///
-/// Presentations without a kernel strategy on the selected tier report
-/// [`Backend::Scalar`] and run the typed scalar fallback: ordered-basis byte
-/// fields, degree-eight towers, custom tower specs, and pinned towers on a
-/// tier their kernels do not serve. SIMD kernels are x86-64 only, so on
-/// `AArch64` and `Wasm32` every field reports [`Backend::Scalar`] and runs the
-/// portable scalar bodies (`backend()` itself still reports `simdispatch`'s
-/// process selection).
+/// A presentation with no vector strategy on the selected tier reports
+/// [`Backend::Scalar`]; [`backend()`] keeps reporting `simdispatch`'s
+/// process selection. Which presentations and
+/// tiers have a vector strategy is not part of this contract and may change
+/// within 4.x; results are identical on every backend.
 #[inline]
 #[must_use]
 pub fn backend_for<F: FieldBuffer>() -> Backend {

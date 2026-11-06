@@ -27,7 +27,7 @@ const fn fp_low_mask(bits: u32) -> u64 {
     }
 }
 
-/// Multiply by the top-level indeterminate of a `bits`-wide level.
+/// Multiplies by the top-level indeterminate of a `bits`-wide level.
 ///
 /// # Panics
 ///
@@ -500,7 +500,7 @@ macro_rules! instance_surface {
         mul: $mul:path, square: $square:path, inv: $inv:path
     ) => {
         impl Elem<$field> {
-            /// Wrap a raw storage word, keeping the coordinate bits.
+            /// Wraps a raw storage word, keeping the coordinate bits.
             #[inline]
             #[must_use]
             pub const fn from_raw(value: $raw) -> Self {
@@ -508,14 +508,15 @@ macro_rules! instance_surface {
                 Elem { raw: value & $mask }
             }
 
-            /// Decode from the stable little-endian representation.
+            /// Decodes the stable little-endian representation, discarding
+            /// the bits outside the coordinate span like [`Elem::from_raw`].
             #[inline]
             #[must_use]
             pub const fn from_bytes(bytes: [u8; $bytes]) -> Self {
                 Self::from_raw(<$raw>::from_le_bytes(bytes))
             }
 
-            /// Encode to the stable little-endian representation.
+            /// Encodes to the stable little-endian representation.
             #[inline]
             #[must_use]
             pub const fn to_bytes(self) -> [u8; $bytes] {
@@ -554,7 +555,7 @@ macro_rules! instance_surface {
                 }
             }
 
-            /// Square.
+            /// Squares the element.
             #[inline]
             #[must_use]
             pub const fn square(self) -> Self {
@@ -582,7 +583,7 @@ macro_rules! instance_surface {
                 self.mul(rhs.inv())
             }
 
-            /// Raise to an unsigned integer power. `pow(_, 0) == ONE`.
+            /// Raises to an unsigned integer power. `pow(_, 0) == ONE`.
             #[must_use]
             pub const fn pow(self, mut exponent: u128) -> Self {
                 let mut base = self;
@@ -623,11 +624,11 @@ macro_rules! instance_surface {
 }
 
 /// Emit the component conversions of one wide instance, matching
-/// [`ExtensionField<2>`](crate::ExtensionField) as `const` methods.
+/// [`ExtensionField<2>`](crate::extension::ExtensionField) as `const` methods.
 macro_rules! instance_components {
     ($field:ty, $base:ty, $raw:ty, $baseraw:ty, $half:literal) => {
         impl Elem<$field> {
-            /// Construct `a + b*t` from its base-field components `[a, b]`.
+            /// Constructs `a + b*t` from its base-field components `[a, b]`.
             #[inline]
             #[must_use]
             pub const fn from_components(components: [Elem<$base>; 2]) -> Self {
@@ -637,7 +638,7 @@ macro_rules! instance_components {
                 Elem { raw }
             }
 
-            /// Return the components `[a, b]` of `a + b*t`.
+            /// The components `[a, b]` of `a + b*t`.
             #[inline]
             #[must_use]
             // Splitting the raw word into halves: the truncation IS the
@@ -765,7 +766,7 @@ instance_generator!(
 // resolve Fan-Paar factors in coefficient preparation.
 
 impl Elem<FanPaar8Field> {
-    /// Multiply by this level's indeterminate `X`.
+    /// Multiplies by this level's indeterminate `X`.
     #[allow(clippy::cast_possible_truncation)]
     #[inline]
     #[must_use]
@@ -777,7 +778,7 @@ impl Elem<FanPaar8Field> {
 }
 
 impl Elem<FanPaar16Field> {
-    /// Multiply by this level's indeterminate `X`.
+    /// Multiplies by this level's indeterminate `X`.
     #[allow(clippy::cast_possible_truncation)]
     #[inline]
     #[must_use]
@@ -789,7 +790,7 @@ impl Elem<FanPaar16Field> {
 }
 
 impl Elem<FanPaar32Field> {
-    /// Multiply by this level's indeterminate `X`.
+    /// Multiplies by this level's indeterminate `X`.
     #[allow(clippy::cast_possible_truncation)]
     #[inline]
     #[must_use]

@@ -322,7 +322,7 @@ macro_rules! degree_row {
 macro_rules! small_row {
     ($n:literal, $mask:expr) => {
         impl<R: BinaryRepr<$n>> Elem<FiniteField<2, $n, R>> {
-            /// Wrap a raw storage word, keeping the low `N` coordinate bits.
+            /// Wraps a raw storage word, keeping the low `N` coordinate bits.
             ///
             /// Referencing this constructor evaluates the representation's
             /// validity check, so invalid defining data fails to compile at
@@ -337,14 +337,15 @@ macro_rules! small_row {
                 Elem { raw: value & $mask }
             }
 
-            /// Decode from the stable single-byte representation.
+            /// Decodes the stable single-byte representation, discarding the
+            /// bits at and above the degree like [`Elem::from_raw`].
             #[inline]
             #[must_use]
             pub const fn from_bytes(bytes: [u8; 1]) -> Self {
                 Self::from_raw(bytes[0])
             }
 
-            /// Encode to the stable single-byte representation.
+            /// Encodes to the stable single-byte representation.
             #[inline]
             #[must_use]
             pub const fn to_bytes(self) -> [u8; 1] {
@@ -391,7 +392,7 @@ macro_rules! small_row {
                 }
             }
 
-            /// Square.
+            /// Squares the element.
             #[inline]
             #[must_use]
             pub const fn square(self) -> Self {
@@ -429,7 +430,7 @@ macro_rules! small_row {
                 self.mul(rhs.inv())
             }
 
-            /// Raise to an unsigned integer power.
+            /// Raises to an unsigned integer power.
             #[must_use]
             pub const fn pow(self, mut exponent: u128) -> Self {
                 let mut base = self;
@@ -489,6 +490,8 @@ impl<R: BinaryRepr<1>> Elem<FiniteField<2, 1, R>> {
     /// Returns [`RangeError`] when `value` is two or more.
     #[inline]
     pub const fn from_residue(value: u64) -> Result<Self, RangeError> {
+        let () = Validate::<FiniteField<2, 1, R>>::OK;
+        let () = R::VALID;
         match super::check_residue(value, 2) {
             Ok(checked) => Ok(Elem {
                 raw: residue_row_raw::<R>(checked),

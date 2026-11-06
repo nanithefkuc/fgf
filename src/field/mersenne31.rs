@@ -12,7 +12,7 @@ use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, RangeEr
 /// The field modulus, the Mersenne prime `2^31 − 1`.
 pub(crate) const MODULUS: u32 = 0x7FFF_FFFF;
 
-/// Reduce an arbitrary 32-bit lane to the canonical range `0..p`.
+/// Reduces an arbitrary 32-bit lane to the canonical range `0..p`.
 ///
 /// `2^31 ≡ 1 (mod p)`, so folding the top bit into the low 31 bits and one
 /// conditional subtract suffices for any `u32`.
@@ -218,21 +218,22 @@ impl FieldBuffer for Mersenne31 {
 }
 
 impl Elem<Mersenne31> {
-    /// Decode a raw little-endian lane, reducing it into canonical storage.
+    /// Decodes a little-endian lane: every `u32` is accepted and reduced
+    /// modulo the characteristic.
     #[inline]
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 4]) -> Self {
         Self::from_raw(u32::from_le_bytes(bytes))
     }
 
-    /// Encode to the stable little-endian representation.
+    /// Encodes to the stable little-endian representation.
     #[inline]
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 4] {
         self.raw.to_le_bytes()
     }
 
-    /// Wrap a raw lane, reducing it into canonical storage.
+    /// Wraps a raw lane, reducing it into canonical storage.
     #[inline]
     #[must_use]
     pub const fn from_raw(value: u32) -> Self {
@@ -304,7 +305,7 @@ impl Elem<Mersenne31> {
         }
     }
 
-    /// Square.
+    /// Squares the element.
     #[inline]
     #[must_use]
     pub const fn square(self) -> Self {
@@ -334,7 +335,7 @@ impl Elem<Mersenne31> {
         self.mul(rhs.inv())
     }
 
-    /// Raise to an unsigned integer power. `pow(_, 0) == ONE`.
+    /// Raises to an unsigned integer power. `pow(_, 0) == ONE`.
     #[inline]
     #[must_use]
     pub const fn pow(self, mut exponent: u128) -> Self {

@@ -491,6 +491,7 @@ pub struct fgf::extension::Relation
 impl fgf::extension::Relation
 pub const fn fgf::extension::Relation::from_binary_words<B: fgf::binary::BinaryField>(&[u64]) -> Self
 pub const fn fgf::extension::Relation::from_coordinates(&[u64]) -> Self
+pub fn fgf::extension::Relation::to_binary_words<B: fgf::binary::BinaryField>(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = u64> + '_
 pub const fn fgf::extension::Relation::to_coordinates(&self) -> &[u64]
 impl core::clone::Clone for fgf::extension::Relation
 pub fn fgf::extension::Relation::clone(&self) -> Self

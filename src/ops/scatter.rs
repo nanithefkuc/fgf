@@ -11,7 +11,7 @@ use super::geometry::check_pair;
 #[cfg(feature = "alloc")]
 use super::CoeffVecRef;
 
-/// Fan one source out to many rows: `rows[j] += coeffs[j] * src`.
+/// Fans one source out to many rows: `rows[j] += coeffs[j] * src`.
 ///
 /// `rows` is a flat buffer of `coeffs.len()` contiguous rows, each `row_len`
 /// bytes and the same length as `src`. This is the systematic-encode shape:
@@ -46,7 +46,7 @@ pub fn mul_add_scatter<F: FieldBuffer>(
     F::mul_add_scatter(RawDispatch, &mut rows[..used], row_len, coeffs, src);
 }
 
-/// Overwrite many rows from one source: `rows[j] = coeffs[j] * src`.
+/// Overwrites many rows from one source: `rows[j] = coeffs[j] * src`.
 ///
 /// The overwrite counterpart of [`mul_add_scatter`]: the previous contents
 /// of the rows are ignored, so callers need not zero them. `rows` is a flat
@@ -84,7 +84,7 @@ pub fn mul_into_scatter<F: FieldBuffer>(
     F::mul_into_scatter(RawDispatch, &mut rows[..used], row_len, coeffs, src);
 }
 
-/// Fan one source out to many rows using prepared coefficients.
+/// Fans one source out to many rows using prepared coefficients.
 ///
 /// Unlike [`mul_add_scatter`], repeated calls do not rebuild backend-specific
 /// coefficient tables. The view comes from

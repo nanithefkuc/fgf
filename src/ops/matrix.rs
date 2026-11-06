@@ -12,15 +12,11 @@ use super::geometry::check_width;
 #[cfg(feature = "alloc")]
 use super::CoeffMatrix;
 
-/// Apply many sources to many rows: for each `(coeffs, src)` term,
+/// Applies many sources to many rows: for each `(coeffs, src)` term,
 /// `rows[j] += coeffs[j] * src` for every `j` in `0..nrows`.
 ///
-/// Semantically a [`mul_add_scatter`](crate::ops::mul_add_scatter) per term.
-/// The difference is memory traffic: blocked backends keep a destination tile
-/// in registers while every source is folded in, so the destination is read
-/// and written once per tile rather than once per term. That is the whole
-/// game once `nrows * row_len` exceeds L1 — which is the normal case for
-/// erasure reconstruction.
+/// Equal to a [`mul_add_scatter`](crate::ops::mul_add_scatter) per term, as
+/// one call: the erasure-reconstruction shape.
 ///
 /// A zero-length row with zero-length sources is a valid zero-work shape and
 /// a no-op; the structural checks above still apply. When every coefficient
@@ -29,7 +25,8 @@ use super::CoeffMatrix;
 ///
 /// # Panics
 /// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes, every
-/// term supplies `nrows` coefficients, and every source is `row_len` bytes.
+/// term supplies `nrows` coefficients, and every source is `row_len` bytes;
+/// or if `row_len` is not a whole number of elements.
 pub fn mul_add_matrix<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
@@ -65,7 +62,7 @@ pub fn mul_add_matrix<F: FieldBuffer>(
     F::mul_add_matrix(RawDispatch, &mut rows[..used], row_len, nrows, terms);
 }
 
-/// Apply many sources to many rows using a prepared source-major coefficient
+/// Applies many sources to many rows using a prepared source-major coefficient
 /// matrix.
 ///
 /// The matrix must have dimensions `(srcs.len(), n)` in `(sources, outputs)`:
@@ -74,10 +71,13 @@ pub fn mul_add_matrix<F: FieldBuffer>(
 /// [`coeffs.output_count()`](CoeffMatrix::output_count) — it is not a
 /// parameter.
 ///
+/// When every coefficient is zero the destination bytes are unchanged,
+/// noncanonical lanes included.
+///
 /// # Panics
 /// Panics unless `rows` holds at least `coeffs.output_count()` rows of
 /// `row_len` bytes, `coeffs.source_count() == srcs.len()`, and every source
-/// is `row_len` bytes.
+/// is `row_len` bytes; or if `row_len` is not a whole number of elements.
 #[cfg(feature = "alloc")]
 pub fn mul_add_matrix_with<F: FieldBuffer>(
     rows: &mut [u8],
@@ -124,17 +124,16 @@ pub fn mul_add_matrix_with<F: FieldBuffer>(
     );
 }
 
-/// Overwrite many rows with field dot products: for each output row `j`,
+/// Overwrites many rows with field dot products: for each output row `j`,
 /// `rows[j] = sum_t coeffs[t][j] * src[t]`.
 ///
 /// The overwrite counterpart of [`mul_add_matrix`] and the erasure-encode
 /// shape: the previous destination is ignored, so callers need not zero it.
-/// A register-blocked backend seeds accumulators from zero and writes each row
-/// once, with no destination read and no separate `fill(0)`.
 ///
 /// # Panics
 /// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes, every
-/// term supplies `nrows` coefficients, and every source is `row_len` bytes.
+/// term supplies `nrows` coefficients, and every source is `row_len` bytes;
+/// or if `row_len` is not a whole number of elements.
 pub fn mul_into_matrix<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
@@ -174,7 +173,7 @@ pub fn mul_into_matrix<F: FieldBuffer>(
     F::mul_into_matrix(RawDispatch, &mut rows[..used], row_len, nrows, terms);
 }
 
-/// Overwrite many rows with field dot products using a prepared source-major
+/// Overwrites many rows with field dot products using a prepared source-major
 /// coefficient matrix: `rows[j] = sum_t coeffs[t][j] * src[t]`.
 ///
 /// The overwrite counterpart of [`mul_add_matrix_with`]. The matrix must have
@@ -184,7 +183,7 @@ pub fn mul_into_matrix<F: FieldBuffer>(
 /// # Panics
 /// Panics unless `rows` holds at least `coeffs.output_count()` rows of
 /// `row_len` bytes, `coeffs.source_count() == srcs.len()`, and every source
-/// is `row_len` bytes.
+/// is `row_len` bytes; or if `row_len` is not a whole number of elements.
 #[cfg(feature = "alloc")]
 pub fn mul_into_matrix_with<F: FieldBuffer>(
     rows: &mut [u8],
@@ -235,14 +234,14 @@ pub fn mul_into_matrix_with<F: FieldBuffer>(
     );
 }
 
-/// Apply many sources to many disjoint rows scattered through `dst`: for each
+/// Applies many sources to many disjoint rows scattered through `dst`: for each
 /// `(coeffs, src)` term, `dst[row_starts[j]..][..row_len] += coeffs[j] * src`
 /// for every `j` in `0..row_starts.len()`.
 ///
 /// The reconstruction shape when recovered rows land at scattered positions in
 /// a larger buffer — their natural slots in a codeword. Unlike
 /// [`mul_add_matrix`], no contiguous staging buffer and copy-out is required:
-/// a blocked backend writes each recovered row straight to its final location.
+/// each recovered row is written in place.
 ///
 /// `row_starts` must address pairwise-disjoint, in-bounds rows of `row_len`
 /// bytes, each starting on an element boundary. Disjointness is the safety
@@ -288,7 +287,7 @@ pub fn mul_add_matrix_at<F: FieldBuffer>(
     F::mul_add_matrix_at(RawDispatch, dst, row_len, row_starts, terms);
 }
 
-/// Apply many sources to many disjoint rows scattered through `dst` using a
+/// Applies many sources to many disjoint rows scattered through `dst` using a
 /// prepared source-major coefficient matrix: for each source `s`,
 /// `dst[row_starts[j]..][..row_len] += coeffs[s * outputs + j] * srcs[s]`.
 ///
@@ -299,6 +298,9 @@ pub fn mul_add_matrix_at<F: FieldBuffer>(
 ///
 /// A zero-length row is a valid zero-work shape and a no-op; the structural
 /// checks above (including disjointness of the named rows) still apply.
+///
+/// When every coefficient is zero the destination bytes are unchanged,
+/// noncanonical lanes included.
 ///
 /// # Panics
 /// Panics unless every `row_starts[j] + row_len <= dst.len()`, every row start
@@ -351,7 +353,7 @@ pub fn mul_add_matrix_at_with<F: FieldBuffer>(
     );
 }
 
-/// Overwrite many disjoint rows scattered through `dst` with field dot
+/// Overwrites many disjoint rows scattered through `dst` with field dot
 /// products: for each output row `j`,
 /// `dst[row_starts[j]..][..row_len] = sum_t coeffs[t][j] * src[t]`.
 ///
@@ -404,7 +406,7 @@ pub fn mul_into_matrix_at<F: FieldBuffer>(
     F::mul_into_matrix_at(RawDispatch, dst, row_len, row_starts, terms);
 }
 
-/// Overwrite many disjoint rows scattered through `dst` with field dot
+/// Overwrites many disjoint rows scattered through `dst` with field dot
 /// products using a prepared source-major coefficient matrix:
 /// `dst[row_starts[j]..][..row_len] = sum_t coeffs[t][j] * srcs[t]`.
 ///

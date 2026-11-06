@@ -4,13 +4,15 @@
 //! GF(P^N) as a relative degree-`D` extension of the base row `S::Base`.
 //! [`ExtensionSpec`] is open and data-only: a base row, a storage
 //! selection, a name, and the relation. The defining relation is
-//! validated in const at first value use — the field metadata first
+//! validated by associated constants that every value-producing operation
+//! evaluates — the field metadata first
 //! (prime characteristic, binary degree cap, cardinality bound), then
 //! the base's validity, the characteristic agreement, the degree
 //! identity, the relation's length and coordinate range, storage
 //! admissibility, the descriptor capacity, and finally the
-//! irreducibility of the relation over its base — so an invalid row fails
-//! to compile in const contexts and panics at first use otherwise.
+//! irreducibility of the relation over its base — so an invalid row is a
+//! compile error in any build that generates code using it. Merely naming
+//! the type evaluates nothing.
 //!
 //! # Layout
 //!
@@ -44,17 +46,14 @@
 //! [`ExtensionField::to_components`] convert against the base. Generic and
 //! custom rows carry const identities and `to_raw`, and no const element
 //! arithmetic. Rows with a byte form implement
-//! [`FieldBuffer`](crate::FieldBuffer) and the packed operation surface
-//! over the dispatch contract behind [`FieldBuffer`](crate::FieldBuffer), reporting the scalar
-//! backend.
+//! [`FieldBuffer`](crate::FieldBuffer) and the packed operation surface.
 //!
 //! The shipped instances — the Rijndael and Fan-Paar towers in
 //! [`binary`](crate::binary) and [`QuadMersenne31`] — are rows of
-//! this family with specialized scalar bodies, a full `const` element
-//! surface, a checked generator, and their vector kernels. A row whose
-//! descriptor equals a shipped instance's — the same base presentations,
-//! relations, and storages at every level — runs that instance's body and
-//! kernels, so equal presentations produce equal bytes.
+//! this family with a full `const` element surface and a checked
+//! generator. A row whose descriptor equals a shipped instance's — the same
+//! base presentations, relations, and storages at every level — produces
+//! the same bytes as that instance in every operation.
 //!
 //! # Preconditions
 //!

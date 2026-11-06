@@ -112,7 +112,7 @@ payload separately if exact byte preservation matters.
 
 Continue with [row operations](Linear-operations-and-row-geometry). The
 [packing reference](https://docs.rs/fgf/4.0.0/fgf/ops/index.html) owns exact sizes
-and errors. The [packed no-allocation example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/examples/packed_no_alloc.rs)
+and errors. The [packed no-allocation example](https://github.com/nanithefkuc/fgf/blob/v4.0.0/examples/packed_no_alloc.rs)
 runs this surface against the library without `std` or `alloc`:
 `just example packed_no_alloc --no-default-features`.
 

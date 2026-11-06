@@ -45,7 +45,7 @@ pub(crate) trait KernelDispatch: Field {
     /// *out* of the hot call rather than adding one.
     type Prepared: Clone + Send + Sync + core::fmt::Debug;
 
-    /// Resolve a coefficient into the form this host's backend wants.
+    /// Resolves a coefficient into the form this host's backend wants.
     fn prepare(_proof: RawDispatch, coeff: Elem<Self>) -> Self::Prepared;
 
     /// Recover the coefficient a [`KernelDispatch::Prepared`] was built from.

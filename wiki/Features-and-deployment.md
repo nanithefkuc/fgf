@@ -22,7 +22,7 @@ For portable prepared operations:
 
 ```toml
 [dependencies]
-fgf = { version = "=3.0.2", default-features = false, features = ["alloc"] }
+fgf = { version = "=4.0.0", default-features = false, features = ["alloc"] }
 ```
 
 Omit `features = ["alloc"]` for scalar arithmetic and caller-owned storage
@@ -44,14 +44,13 @@ type NormalField = FiniteField<2, 8, Normal<AES, 0x20>>;
 println!("process: {:?}", backend());
 println!("polynomial: {:?}", backend_for::<PolynomialField>());
 println!("normal: {:?}", backend_for::<NormalField>());
-assert_eq!(backend_for::<NormalField>(), fgf::Backend::Scalar);
 ```
 
 `backend()` reports process selection; `backend_for::<F>()` reports the field's
 implemented tier. Neither traces every call: short rows can use a narrower
 path, vector loops can finish with scalar tails, and elementwise support differs
-from fixed-coefficient support. Ordered-basis rows and custom extensions not
-matching a shipped instance use scalar fallback.
+from fixed-coefficient support. Which presentations have a vector strategy can
+change within 4.x; results are identical on every backend.
 
 `SIMD_BACKEND` requests a downgrade when selection first occurs. The cached
 selection does not change per call; unsupported upgrades are ignored. For a
@@ -93,7 +92,7 @@ Checked APIs can panic on invalid geometry. A multi-call workflow can have
 written output before a later call fails; it is not transactional. Arithmetic
 is variable-time and requires an independent audit before handling secrets.
 
-The [kernel reference](https://docs.rs/fgf/4.0.0/fgf/backend_for/index.html) owns backend
+The [kernel reference](https://docs.rs/fgf/4.0.0/fgf/fn.backend_for.html) owns backend
 query contracts. The 3.0.2 measurement record owns measured results and
 reproduction, including per-operation residue routes:
 [residues](https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md).

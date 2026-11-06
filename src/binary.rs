@@ -3,12 +3,10 @@
 //! GF(2^N) under the flat representation `R` is the canonical family row
 //! [`FiniteField<2, N, R>`](crate::FiniteField), and
 //! [`Elem`](crate::Elem) over it is its element. [`BinaryRepr`] is the
-//! sealed vocabulary of flat binary representations: it extends the
-//! family's presentation metadata with the descriptor and, at degree
-//! eight, the discrete-logarithm tables. [`BinaryField`] adds the canonical
-//! coordinate conversions shared by every binary field, flat rows and
-//! characteristic-two extension rows alike, and [`BinaryDegree`] pins the
-//! exact degree generic code may build on. The shipped quadratic towers
+//! sealed vocabulary of flat binary representations. [`BinaryField`] is
+//! the bound every binary field satisfies, flat rows and characteristic-two
+//! extension rows alike, and [`BinaryDegree`] pins the exact degree generic
+//! code may build on. The shipped quadratic towers
 //! ([`Rijndael16`] and the [`FanPaar`](FanPaar2) family) are
 //! extension rows of the [`extension`](crate::extension) family.
 //!
@@ -21,7 +19,7 @@
 //!
 //! | Constant | Polynomial | Convention |
 //! | --- | --- | --- |
-//! | [`AES`] | `0x11B` | AES/Rijndael; the field `GF2P8MULB` multiplies natively |
+//! | [`AES`] | `0x11B` | AES/Rijndael |
 //! | [`RS`] | `0x11D` | Intel ISA-L, `klauspost/reedsolomon`, QR codes |
 //!
 //! Any other degree-8 irreducible polynomial is spelled directly, such as

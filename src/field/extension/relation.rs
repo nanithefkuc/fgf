@@ -57,6 +57,10 @@ impl Relation {
     /// first, so `[constant, linear]` names `t^2 + linear*t + constant` in
     /// the base's own packing.
     ///
+    /// Only `B::DEGREE` is read; the relation is coordinate data. The base
+    /// row is validated where the relation is used: an [`Extension`](crate::extension::Extension) over an
+    /// invalid base fails const validation like any other invalid row.
+    ///
     /// # Panics
     ///
     /// Panics when a word holds bits at or above the base's degree, or the
@@ -100,6 +104,36 @@ impl Relation {
     #[must_use]
     pub const fn to_coordinates(&self) -> &[u64] {
         self.coordinates.split_at(self.len as usize).0
+    }
+
+    /// The relation as one coordinate word per coefficient over the binary
+    /// base `B`, constant term first: the form
+    /// [`from_binary_words`](Self::from_binary_words) accepts.
+    ///
+    /// Allocation-free; the words are assembled as the iterator advances.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the coordinate count is not a multiple of `B::DEGREE`, or
+    /// a coordinate is not a bit.
+    pub fn to_binary_words<B: BinaryField>(&self) -> impl ExactSizeIterator<Item = u64> + '_ {
+        let degree = <B as Field>::DEGREE as usize;
+        let coordinates = self.to_coordinates();
+        assert!(
+            coordinates.len().is_multiple_of(degree),
+            "Relation::to_binary_words: relation of {} coordinates is not a whole number of degree-{degree} words",
+            coordinates.len()
+        );
+        assert!(
+            coordinates.iter().all(|&bit| bit <= 1),
+            "Relation::to_binary_words: relation holds a coordinate that is not a bit"
+        );
+        coordinates.chunks_exact(degree).map(|chunk| {
+            chunk
+                .iter()
+                .enumerate()
+                .fold(0u64, |word, (i, &bit)| word | (bit << i))
+        })
     }
 }
 

@@ -50,11 +50,11 @@ The application supplies coefficients and recovery decisions; `fgf` is not a cod
 | Larger fields from base components | [Quadratic towers](Quadratic-towers) |
 | Value-preserving field conversions, trace, or norm | [Embeddings](Embeddings-and-presentation-changes) |
 | A custom extension relation or storage | [Custom fields](Downstream-scalar-fields) |
-| Upgrade an existing application | [Migrating from 2.x](Migrating-from-2.x) |
+| Upgrade an existing application | [Migrating from 3.x](Migrating-from-3.x); from 2.x, [Migrating from 2.x](Migrating-from-2.x) first |
 
 Rust blocks are self-contained unless marked as historical text; pages identify
 `alloc` requirements. Local type aliases are examples, not extra crate exports.
-The [example programs](https://github.com/nanithefkuc/fgf/tree/v3.0.2/examples)
+The [example programs](https://github.com/nanithefkuc/fgf/tree/v4.0.0/examples)
 run from a checkout with `just example NAME` or `just examples`.
 
 [Installation](https://github.com/nanithefkuc/fgf/blob/main/README.md) and

@@ -37,7 +37,7 @@ const fn limb_canonical(x: u32) -> u32 {
     mersenne31::reduce(x)
 }
 
-/// Add two canonical limbs: one conditional subtract, no re-reduction.
+/// Adds two canonical limbs: one conditional subtract, no re-reduction.
 ///
 /// Storage is canonical by construction: `Elem::from_raw` reduces through
 /// [`raw_canonical`], buffer decodes funnel into `from_raw`, and every
@@ -50,7 +50,7 @@ const fn limb_add(a: u32, b: u32) -> u32 {
     if s >= MODULUS { s - MODULUS } else { s }
 }
 
-/// Subtract two canonical limbs: the wrapping add of `p` absorbs the borrow.
+/// Subtracts two canonical limbs: the wrapping add of `p` absorbs the borrow.
 ///
 /// As for [`limb_add`]: inputs are canonical by construction.
 #[inline]
@@ -60,7 +60,7 @@ const fn limb_sub(a: u32, b: u32) -> u32 {
     if s >= MODULUS { s - MODULUS } else { s }
 }
 
-/// Negate a canonical limb, with `neg(0) == 0`.
+/// Negates a canonical limb, with `neg(0) == 0`.
 ///
 /// As for [`limb_add`]: the input is canonical by construction.
 #[inline]
@@ -69,7 +69,7 @@ const fn limb_neg(a: u32) -> u32 {
     if a == 0 { 0 } else { MODULUS - a }
 }
 
-/// Multiply two canonical limbs, folding the 62-bit product with `2^31 ≡ 1`.
+/// Multiplies two canonical limbs, folding the 62-bit product with `2^31 ≡ 1`.
 ///
 /// As for [`limb_add`]: the inputs are canonical by construction.
 #[inline]
@@ -137,7 +137,7 @@ pub(crate) const fn raw_mul(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
     ]
 }
 
-/// Reduce a nonnegative product sum below `2p²` with two Mersenne folds.
+/// Reduces a nonnegative product sum below `2p²` with two Mersenne folds.
 #[inline]
 #[must_use]
 #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
@@ -241,7 +241,7 @@ impl Elem<QuadMersenne31> {
     /// The imaginary unit `i` with `i² = −1`.
     pub const I: Self = Elem { raw: [0, 1] };
 
-    /// Wrap raw limbs `[re, im]`, reducing each into canonical storage.
+    /// Wraps raw limbs `[re, im]`, reducing each into canonical storage.
     #[inline]
     #[must_use]
     pub const fn from_raw(value: [u32; 2]) -> Self {
@@ -251,7 +251,8 @@ impl Elem<QuadMersenne31> {
         }
     }
 
-    /// Decode from stable little-endian `[re, im]`.
+    /// Decodes little-endian `[re, im]`: every `u32` limb is accepted and
+    /// reduced modulo the characteristic.
     #[inline]
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 8]) -> Self {
@@ -260,7 +261,7 @@ impl Elem<QuadMersenne31> {
         Self::from_raw([re, im])
     }
 
-    /// Encode to stable little-endian `[re, im]`.
+    /// Encodes to stable little-endian `[re, im]`.
     #[inline]
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 8] {
@@ -269,7 +270,7 @@ impl Elem<QuadMersenne31> {
         [re[0], re[1], re[2], re[3], im[0], im[1], im[2], im[3]]
     }
 
-    /// Build from base-field components `[re, im]`.
+    /// Builds from base-field components `[re, im]`.
     #[inline]
     #[must_use]
     pub const fn from_components(components: [Elem<Mersenne31>; 2]) -> Self {
@@ -293,8 +294,8 @@ impl Elem<QuadMersenne31> {
     /// The row's `const` conjugate: the defining relation is `t^2 + 1`,
     /// so `c1 = 0` and the routed `(a - c1*b) - b*t` reduces to `a - b*t`.
     /// Equals `Embedding<Mersenne31, QuadMersenne31>::frobenius` at this
-    /// element. The routed trace and norm have no inherent spelling here:
-    /// use the embedding maps.
+    /// element. The trace has no inherent spelling here: use the embedding
+    /// map; the norm is [`norm`](Self::norm).
     #[inline]
     #[must_use]
     pub const fn conjugate(self) -> Self {
@@ -357,7 +358,7 @@ impl Elem<QuadMersenne31> {
         }
     }
 
-    /// Square over canonical storage: `(a+bi)² = (a²−b²) + 2ab·i`, no
+    /// Squares over canonical storage: `(a+bi)² = (a²−b²) + 2ab·i`, no
     /// re-reduction of the inputs.
     #[inline]
     #[must_use]
@@ -387,7 +388,7 @@ impl Elem<QuadMersenne31> {
         self.mul(rhs.inv())
     }
 
-    /// Raise to an unsigned integer power. `pow(_, 0) == ONE`.
+    /// Raises to an unsigned integer power. `pow(_, 0) == ONE`.
     #[inline]
     #[must_use]
     pub const fn pow(self, mut exponent: u128) -> Self {

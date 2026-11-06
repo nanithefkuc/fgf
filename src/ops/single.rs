@@ -24,7 +24,7 @@ pub fn add_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     F::add_assign(RawDispatch, dst, src);
 }
 
-/// Add pairwise rows: `dst_row[j] += src_row[j]` for every row.
+/// Adds pairwise rows: `dst_row[j] += src_row[j]` for every row.
 ///
 /// Both buffers are interpreted as the same number of contiguous
 /// `row_len`-byte rows. Semantically identical to [`add_assign`] — row
@@ -77,7 +77,7 @@ pub fn sub_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     F::sub_assign(RawDispatch, dst, src);
 }
 
-/// Subtract pairwise rows: `dst_row[j] -= src_row[j]` for every row.
+/// Subtracts pairwise rows: `dst_row[j] -= src_row[j]` for every row.
 ///
 /// The row-geometry counterpart of [`sub_assign`], mirroring
 /// [`add_assign_rows`]: both buffers hold the same number of contiguous
@@ -226,10 +226,7 @@ pub fn mul_assign_with<F: FieldBuffer>(dst: &mut [u8], coeff: &impl PreparedCoef
 
 /// Elementwise product: `dst[i] = a[i] * b[i]`.
 ///
-/// Both operands vary per lane, so there is no coefficient to broadcast and
-/// no nibble table to index. GFNI multiplies the vectors directly; the AVX-512
-/// and AVX2 backends use a lane-parallel shift/reduce sequence. Shuffle-only
-/// x86 backends and non-x86 targets fall back to the scalar reference path.
+/// Both operands vary per lane, so there is no coefficient to prepare.
 ///
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.

@@ -11,9 +11,7 @@ use crate::field::FiniteFieldRepr;
 
 /// The AES/Rijndael polynomial `x^8 + x^4 + x^3 + x + 1`.
 ///
-/// It is the field the x86 `GF2P8MULB` instruction implements, so
-/// `FiniteField<2, 8, Polynomial<AES>>` multiplies with one instruction per vector
-/// on GFNI hosts. Its derived generator is `0x03`.
+/// Its derived generator is `0x03`.
 pub const AES: u128 = 0x11B;
 
 /// The `0x11D` Reed–Solomon convention, `x^8 + x^4 + x^3 + x^2 + 1`.
