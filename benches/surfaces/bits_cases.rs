@@ -308,11 +308,11 @@ fn run_xor_range(case: &Case, ctx: &CaseCtx) {
     {
         let mut expected = dst.clone();
         xor_range_oracle(&mut expected, &src, from, to);
-        bits::xor_range(&mut dst, &src, bits, from, to);
+        bits::xor_range(&mut dst, bits, from, to, &src);
         assert_eq!(dst, expected, "{}: range oracle", case.case);
     }
     registry::time(case, ctx, fgf::backend().name(), || {
-        bits::xor_range(black_box(&mut dst), black_box(&src), bits, from, to);
+        bits::xor_range(black_box(&mut dst), bits, from, to, black_box(&src));
         fixture::observe(dst.len());
     });
 }
@@ -328,11 +328,11 @@ fn run_xor_range_prepared(case: &Case, ctx: &CaseCtx) {
     {
         let mut expected = dst.clone();
         xor_range_oracle(&mut expected, &src, from, to);
-        bits::xor_range_with(&mut dst, &src, &range);
+        bits::xor_range_with(&mut dst, &range, &src);
         assert_eq!(dst, expected, "{}: prepared range oracle", case.case);
     }
     registry::time(case, ctx, fgf::backend().name(), || {
-        bits::xor_range_with(black_box(&mut dst), black_box(&src), &range);
+        bits::xor_range_with(black_box(&mut dst), &range, black_box(&src));
         fixture::observe(dst.len());
     });
 }
@@ -528,10 +528,10 @@ fn run_empty_range(case: &Case, ctx: &CaseCtx) {
     let src = packed_bits(8, 64, fixture::lcg(&mut seed));
     {
         let untouched = dst.clone();
-        bits::xor_range(&mut dst, &src, 64, 31, 31);
+        bits::xor_range(&mut dst, 64, 31, 31, &src);
         assert_eq!(dst, untouched, "{}: empty range is a no-op", case.case);
         let range = XorRange::new(64, 0, 0);
-        bits::xor_range_with(&mut dst, &src, &range);
+        bits::xor_range_with(&mut dst, &range, &src);
         assert_eq!(
             dst, untouched,
             "{}: prepared empty range is a no-op",
@@ -539,7 +539,7 @@ fn run_empty_range(case: &Case, ctx: &CaseCtx) {
         );
     }
     registry::time(case, ctx, BACKEND, || {
-        bits::xor_range(black_box(&mut dst), black_box(&src), 64, 31, 31);
+        bits::xor_range(black_box(&mut dst), 64, 31, 31, black_box(&src));
         fixture::observe(dst.len());
     });
 }

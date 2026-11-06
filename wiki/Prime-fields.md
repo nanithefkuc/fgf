@@ -94,7 +94,7 @@ ops::pack::<Mersenne31>(&mut packed_a, &a);
 ops::pack::<Mersenne31>(&mut packed_b, &b);
 let challenge = ops::Coeff::<Mersenne31>::new(Elem::<Mersenne31>::from_raw(13));
 let mut output = [0u8; 12];
-ops::mul_elementwise::<Mersenne31>(&mut output, &packed_a, &packed_b);
+ops::mul_elementwise_into::<Mersenne31>(&mut output, &packed_a, &packed_b);
 ops::mul_add_with::<Mersenne31>(&mut output, &challenge, &packed_a);
 ops::sub_assign::<Mersenne31>(&mut output, &packed_a);
 let mut values = [Elem::<Mersenne31>::ZERO; 3];

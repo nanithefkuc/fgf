@@ -164,6 +164,26 @@ All notable changes to this project are documented here. The format follows
   and the packed surface) and `reference` (arithmetic against the
   independent schoolbook and brute-force references), replacing the
   separate `tests/extension_reference.rs` binary.
+- **Breaking:** `ops::bits::xor_range`, `ops::bits::xor_range_with`, and
+  `ops::add_gather_offsets` take the destination, then geometry, then
+  prepared state, then sources. Migration: `xor_range(dst, src, bits, from,
+  to)` becomes `xor_range(dst, bits, from, to, src)`,
+  `xor_range_with(dst, src, range)` becomes `xor_range_with(dst, range,
+  src)`, and `add_gather_offsets(dst, region, offsets)` becomes
+  `add_gather_offsets(dst, offsets, region)`. Behavior is unchanged.
+- **Breaking:** `ops::mul_elementwise` is `ops::mul_elementwise_into` and
+  `ops::div_elementwise` is `ops::div_elementwise_into`, matching the `_into`
+  overwrite spelling of `mul_into`, `inv_into`, and `bits::and_into`.
+  Migration: rename the calls; arguments and behavior are unchanged, and
+  panic messages name the new operation.
+- **Breaking:** `CoeffMatrix::values` is replaced by
+  `CoeffMatrix::to_source_major`, which returns the source-major
+  coefficients as a `Vec` and pairs with `from_source_major`. Migration:
+  `matrix.values().collect::<Vec<_>>()` becomes `matrix.to_source_major()`;
+  `get_at` and `source` read single coefficients without allocating.
+- `ops::mul_add_matrix` and `ops::mul_add_matrix_at` return after
+  validation when every coefficient is zero, leaving the destination bytes
+  untouched, noncanonical lanes included.
 
 ### Removed
 
@@ -205,6 +225,10 @@ All notable changes to this project are documented here. The format follows
   irreducibility validation, allowing degree-64 `Packed<u64>` rows to
   compile under the default const-evaluation lint while retaining
   compile-time rejection of reducible relations.
+- `ops::mul_into_scatter` copies the source bytes verbatim into rows with a
+  unit coefficient, as `ops::mul_into` does. Mersenne31, Goldilocks,
+  QuadMersenne31, and residue rows canonicalized noncanonical source lanes
+  instead.
 
 ## [3.0.2] - 2026-10-20
 

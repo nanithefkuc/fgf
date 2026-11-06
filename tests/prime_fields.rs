@@ -279,7 +279,7 @@ fn quad_mersenne31_ops_canonicalize_raw_limbs() {
         assert_eq!(got, zip(&dst_raw, &src_raw, sub), "sub_assign len {len}");
 
         let mut got = vec![0u8; len];
-        ops::mul_elementwise::<QuadMersenne31>(&mut got, &dst, &src);
+        ops::mul_elementwise_into::<QuadMersenne31>(&mut got, &dst, &src);
         assert_eq!(
             got,
             zip(&dst_raw, &src_raw, mul),

@@ -233,15 +233,15 @@ pub fn mul_assign_with<F: FieldBuffer>(dst: &mut [u8], coeff: &impl PreparedCoef
 ///
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
-pub fn mul_elementwise<F: FieldBuffer>(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    check_pair::<F>("mul_elementwise", "dst", dst.len(), "a", a.len());
-    check_pair::<F>("mul_elementwise", "dst", dst.len(), "b", b.len());
+pub fn mul_elementwise_into<F: FieldBuffer>(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    check_pair::<F>("mul_elementwise_into", "dst", dst.len(), "a", a.len());
+    check_pair::<F>("mul_elementwise_into", "dst", dst.len(), "b", b.len());
     F::mul_elementwise(RawDispatch, dst, a, b);
 }
 
 /// In-place elementwise product: `dst[i] *= src[i]`.
 ///
-/// The two-slice spelling of [`mul_elementwise`]: the destination is also the
+/// The two-slice spelling of [`mul_elementwise_into`]: the destination is also the
 /// first operand, so consumers composing lane-parallel Horner steps update
 /// their accumulator without a second output buffer.
 ///

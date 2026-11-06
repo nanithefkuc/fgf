@@ -1,10 +1,9 @@
 //! Byte-lane inner product: fold two packed rows into one element.
 //!
-//! The two-row reduction to go with [`mul_elementwise`](crate::ops::mul_elementwise):
+//! The two-row reduction to go with [`mul_elementwise_into`](crate::ops::mul_elementwise_into):
 //! where that call varies the product per lane, this one sums it into a
-//! single [`Elem`]. The name keeps the short scalar-noun spelling
-//! (`dot_product`, like `pack` and `mul_elementwise`, overwrites without an
-//! `_into` suffix) and stays distinct from bit-packed
+//! single [`Elem`]. The name keeps the short scalar-noun spelling and stays
+//! distinct from bit-packed
 //! [`bits::dot_product`](crate::ops::bits::dot_product), which folds an AND
 //! parity over live bits rather than a field sum over lanes.
 

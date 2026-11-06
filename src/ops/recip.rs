@@ -73,9 +73,9 @@ pub fn inv_assign<F: FieldBuffer>(dst: &mut [u8]) {
 /// # Panics
 ///
 /// Panics on a length mismatch or a partial trailing element.
-pub fn div_elementwise<F: FieldBuffer>(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    check_pair::<F>("div_elementwise", "dst", dst.len(), "a", a.len());
-    check_pair::<F>("div_elementwise", "dst", dst.len(), "b", b.len());
+pub fn div_elementwise_into<F: FieldBuffer>(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    check_pair::<F>("div_elementwise_into", "dst", dst.len(), "a", a.len());
+    check_pair::<F>("div_elementwise_into", "dst", dst.len(), "b", b.len());
     batch_divide_into::<F>(dst, a, b);
 }
 

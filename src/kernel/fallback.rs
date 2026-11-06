@@ -11,7 +11,7 @@
 //! lists by operation name.
 
 use crate::field::dispatch::{KernelDispatch, RawDispatch};
-use crate::field::{Elem, Field, FieldBuffer, PrimeIdentity};
+use crate::field::{Elem, Field, FieldBuffer, FieldElem, PrimeIdentity};
 
 use super::{bytes, prime};
 
@@ -42,6 +42,10 @@ pub(crate) fn sub_assign_rows<F: KernelDispatch>(dst: &mut [u8], src: &[u8], _ro
 }
 
 /// One source overwrites many rows through the fused single-row kernel.
+///
+/// Zero and unit coefficients take the same shortcuts as
+/// [`crate::ops::mul_into`]: a zero row is filled with zero bytes and a unit
+/// row receives the source bytes verbatim, noncanonical lanes included.
 pub(crate) fn mul_into_scatter<F: KernelDispatch>(
     rows: &mut [u8],
     row_len: usize,
@@ -49,7 +53,13 @@ pub(crate) fn mul_into_scatter<F: KernelDispatch>(
     src: &[u8],
 ) {
     for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-        F::mul_into(RawDispatch, row, &F::prepare(RawDispatch, coeff), src);
+        if coeff.is_zero() {
+            row.fill(0);
+        } else if coeff.is_one() {
+            row.copy_from_slice(src);
+        } else {
+            F::mul_into(RawDispatch, row, &F::prepare(RawDispatch, coeff), src);
+        }
     }
 }
 

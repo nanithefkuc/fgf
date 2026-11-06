@@ -49,7 +49,7 @@ let mut received = [0x01u8, 0xfe];
 assert_eq!(bits::weight(&received, 10), 2);
 let source = [0x01u8, 0x02];
 let live = bits::XorRange::new(10, 0, 10);
-bits::xor_range_with(&mut received, &source, &live);
+bits::xor_range_with(&mut received, &live, &source);
 assert_eq!(received, [0, 0xfc]);
 assert_eq!(bits::weight(&received, 10), 0);
 ```

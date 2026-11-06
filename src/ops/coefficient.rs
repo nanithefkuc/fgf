@@ -431,10 +431,13 @@ impl<F: FieldBuffer> CoeffMatrix<F> {
         })
     }
 
-    /// Iterate over the original field elements in source-major order.
-    #[must_use = "iterators are lazy and do nothing unless consumed"]
-    pub fn values(&self) -> impl ExactSizeIterator<Item = Elem<F>> + '_ {
-        self.values.iter().copied()
+    /// The original field elements in source-major order, the layout
+    /// [`from_source_major`](Self::from_source_major) accepts.
+    ///
+    /// Allocates one `Vec` of [`len`](Self::len) elements.
+    #[must_use]
+    pub fn to_source_major(&self) -> alloc::vec::Vec<Elem<F>> {
+        self.values.to_vec()
     }
 }
 

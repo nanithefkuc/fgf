@@ -1462,7 +1462,7 @@ fn coeff_matrix_preserves_shape_and_reuses_entries() {
     assert_eq!((matrix.source_count(), matrix.output_count()), (2, 3));
     assert_eq!(matrix.len(), values.len());
     assert!(!matrix.is_empty());
-    assert_eq!(matrix.values().collect::<Vec<_>>(), values);
+    assert_eq!(matrix.to_source_major(), values);
     assert!(matrix.get_at(2, 0).is_none());
 
     let coeff = matrix.get_at(0, 2).expect("coefficient exists");
@@ -1712,7 +1712,7 @@ fn elementwise_products_match_field_arithmetic_for_gf8<const POLY: u128>() {
         let b = noise(len, 0x355);
         let mut got = vec![0; len];
         let mut want = vec![0; len];
-        ops::mul_elementwise::<FiniteField<2, 8, Polynomial<POLY>>>(&mut got, &a, &b);
+        ops::mul_elementwise_into::<FiniteField<2, 8, Polynomial<POLY>>>(&mut got, &a, &b);
         for ((d, &x), &y) in want.iter_mut().zip(&a).zip(&b) {
             *d = Elem::<FiniteField<2, 8, Polynomial<POLY>>>::from_raw(x)
                 .mul(Elem::<FiniteField<2, 8, Polynomial<POLY>>>::from_raw(y))
@@ -1734,7 +1734,7 @@ fn elementwise_products_match_field_arithmetic() {
             let b = noise(len, 0x357);
             let mut got = vec![0; len];
             let mut want = vec![0; len];
-            ops::mul_elementwise::<Gf16>(&mut got, &a, &b);
+            ops::mul_elementwise_into::<Gf16>(&mut got, &a, &b);
             for ((d, x), y) in want
                 .chunks_exact_mut(2)
                 .zip(a.chunks_exact(2))
@@ -2008,7 +2008,7 @@ fn check_wide_field_ops<F: fgf::FieldBuffer>(coeffs: &[Elem<F>]) {
     assert_eq!(into, assign, "{} mul_into/mul_assign", F::NAME);
 
     let mut elementwise = vec![0u8; row_len];
-    ops::mul_elementwise::<F>(&mut elementwise, &src0, &src1);
+    ops::mul_elementwise_into::<F>(&mut elementwise, &src0, &src1);
     for ((got, a), b) in elementwise
         .chunks_exact(F::BYTES)
         .zip(src0.chunks_exact(F::BYTES))
@@ -2215,7 +2215,7 @@ fn check_prime_ops<F: FieldBuffer>(lens: &[usize], coeffs: &[Elem<F>]) {
             canon::<F>(&mut b);
             let mut got = vec![0u8; len];
             let mut want = vec![0u8; len];
-            ops::mul_elementwise::<F>(&mut got, &src, &b);
+            ops::mul_elementwise_into::<F>(&mut got, &src, &b);
             oracle_mul_elementwise::<F>(&mut want, &src, &b);
             assert_eq!(got, want, "mul_elementwise len {len}");
         }
@@ -3268,17 +3268,17 @@ fn scattered_rejects_source_length_mismatch() {
 }
 
 #[test]
-#[should_panic(expected = "mul_elementwise: dst is 8 bytes but a is 7 bytes")]
+#[should_panic(expected = "mul_elementwise_into: dst is 8 bytes but a is 7 bytes")]
 fn elementwise_rejects_first_operand_mismatch() {
     let mut dst = vec![0u8; 8];
-    ops::mul_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &[0u8; 7], &[0u8; 8]);
+    ops::mul_elementwise_into::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &[0u8; 7], &[0u8; 8]);
 }
 
 #[test]
-#[should_panic(expected = "mul_elementwise: dst is 8 bytes but b is 9 bytes")]
+#[should_panic(expected = "mul_elementwise_into: dst is 8 bytes but b is 9 bytes")]
 fn elementwise_rejects_second_operand_mismatch() {
     let mut dst = vec![0u8; 8];
-    ops::mul_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &[0u8; 8], &[0u8; 9]);
+    ops::mul_elementwise_into::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &[0u8; 8], &[0u8; 9]);
 }
 
 #[test]
@@ -3894,7 +3894,7 @@ fn check_add_gather<F: FieldBuffer>(seed: u64) {
         for (set, &offsets) in offset_sets.iter().enumerate() {
             let mut got = noise(live, seed.wrapping_add(0xa9a) ^ set as u64);
             let mut want = got.clone();
-            ops::add_gather_offsets::<F>(&mut got, &region, offsets);
+            ops::add_gather_offsets::<F>(&mut got, offsets, &region);
             oracle_add_gather_offsets::<F>(&mut want, &region, offsets);
             assert_eq!(got, want, "{}: len {live}, set {set}", F::NAME);
         }
@@ -3906,7 +3906,7 @@ fn check_add_gather<F: FieldBuffer>(seed: u64) {
             let offsets = [0, 2, 0];
             let mut got = noise(live, seed.wrapping_add(0x123));
             let mut want = got.clone();
-            ops::add_gather_offsets::<F>(&mut got, &region, &offsets);
+            ops::add_gather_offsets::<F>(&mut got, &offsets, &region);
             oracle_add_gather_offsets::<F>(&mut want, &region, &offsets);
             assert_eq!(got, want, "{}: len {live}, partial overlap", F::NAME);
         }
@@ -3950,7 +3950,7 @@ fn add_gather_extreme_patterns_match_oracle() {
     let offsets = [0u32, 0, live as u32, live as u32, 0];
     let mut got = vec![0xffu8; live];
     let mut want = got.clone();
-    ops::add_gather_offsets::<FiniteField<2, 8, Polynomial<AES>>>(&mut got, &region, &offsets);
+    ops::add_gather_offsets::<FiniteField<2, 8, Polynomial<AES>>>(&mut got, &offsets, &region);
     oracle_add_gather_offsets::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, &region, &offsets);
     assert_eq!(got, want);
 }
@@ -3960,7 +3960,7 @@ fn add_gather_extreme_patterns_match_oracle() {
 fn add_gather_rejects_offset_out_of_region() {
     let region = [0u8; 80];
     let mut dst = [0u8; 40];
-    ops::add_gather_offsets::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &region, &[0, 48]);
+    ops::add_gather_offsets::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &[0, 48], &region);
 }
 
 /// Empty destination with valid offsets is a no-op, not an error.
@@ -3968,7 +3968,7 @@ fn add_gather_rejects_offset_out_of_region() {
 fn add_gather_accepts_empty_destination() {
     let region = [0x11u8; 16];
     let mut dst: [u8; 0] = [];
-    ops::add_gather_offsets::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &region, &[0, 8]);
+    ops::add_gather_offsets::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &[0, 8], &region);
 }
 
 // ---------------------------------------------------------------------------
@@ -4022,7 +4022,7 @@ fn basis_bulk_matches_scalar_for<F: FieldBuffer>() {
             F::encode(d, F::decode(x).mul(F::decode(y)));
         }
         let mut got = vec![0u8; len];
-        ops::mul_elementwise::<F>(&mut got, &a, &b);
+        ops::mul_elementwise_into::<F>(&mut got, &a, &b);
         assert_eq!(got, want, "mul_elementwise at {len}");
         let mut assign = a.clone();
         ops::mul_elementwise_assign::<F>(&mut assign, &b);
@@ -4119,7 +4119,7 @@ fn basis_prepared_matches_one_shot_for<F: FieldBuffer>() {
     let mut got = vec![0u8; 2 * 64];
     let mut want = got.clone();
     ops::mul_add_matrix_with::<F>(&mut got, 64, &matrix, &matrix_srcs);
-    let flat: Vec<Elem<F>> = matrix.values().collect();
+    let flat: Vec<Elem<F>> = matrix.to_source_major();
     let terms: Vec<(&[Elem<F>], &[u8])> = (0..2)
         .map(|t| (&flat[t * 2..(t + 1) * 2], src.as_slice()))
         .collect();
@@ -4451,7 +4451,7 @@ fn fallback_single_row_matches_scalar_for<F: FieldBuffer>() {
         let mut want = vec![0u8; len];
         oracle_elementwise::<F>(&mut want, &src, &b);
         let mut got = vec![0u8; len];
-        ops::mul_elementwise::<F>(&mut got, &src, &b);
+        ops::mul_elementwise_into::<F>(&mut got, &src, &b);
         assert_eq!(got, want, "{}: mul_elementwise at {elems}", F::NAME);
         let mut got = src.clone();
         ops::mul_elementwise_assign::<F>(&mut got, &b);
@@ -4493,7 +4493,7 @@ fn fallback_single_row_matches_scalar_for<F: FieldBuffer>() {
         let mut want = dst.clone();
         oracle_add_gather_offsets::<F>(&mut want, &region, &offsets);
         let mut got = dst.clone();
-        ops::add_gather_offsets::<F>(&mut got, &region, &offsets);
+        ops::add_gather_offsets::<F>(&mut got, &offsets, &region);
         assert_eq!(got, want, "{}: add_gather_offsets at {elems}", F::NAME);
 
         // Pack/unpack round trip: canonical coordinates are fixed points.
@@ -5056,7 +5056,7 @@ fn check_inv_div_rows<F: FieldBuffer>(tag: &str, seed: u64) {
         {
             let mut got = vec![0u8; len];
             let mut want = vec![0u8; len];
-            ops::div_elementwise::<F>(&mut got, &src, &sparse_den);
+            ops::div_elementwise_into::<F>(&mut got, &src, &sparse_den);
             oracle_div_elementwise::<F>(&mut want, &src, &sparse_den);
             assert_eq!(got, want, "{tag}: div_elementwise at {n} elements");
         }
@@ -5129,7 +5129,7 @@ fn inv_div_all_zero_rows_stay_zero() {
         ops::inv_into::<FiniteField<2, 8, Polynomial<AES>>>(&mut got, &zeros);
         assert_eq!(got, zeros, "all-zero inv_into at {len} bytes");
         let mut got = vec![0xA5u8; len];
-        ops::div_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(&mut got, &ones, &zeros);
+        ops::div_elementwise_into::<FiniteField<2, 8, Polynomial<AES>>>(&mut got, &ones, &zeros);
         assert_eq!(got, zeros, "divide by all-zero at {len} bytes");
     }
     // Prime-field all-zero rows behave the same way.
@@ -5138,7 +5138,7 @@ fn inv_div_all_zero_rows_stay_zero() {
     ops::inv_into::<Mersenne31>(&mut got, &zeros31);
     assert_eq!(got, zeros31, "m31 all-zero inv_into");
     let mut got = vec![0xA5u8; 64];
-    ops::div_elementwise::<Mersenne31>(&mut got, &zeros31, &zeros31);
+    ops::div_elementwise_into::<Mersenne31>(&mut got, &zeros31, &zeros31);
     assert_eq!(got, zeros31, "m31 zero over zero");
 }
 
@@ -5154,7 +5154,7 @@ fn inv_div_accept_raw_prime_aliases() {
     assert_eq!(got, [0x01, 0x00, 0x00, 0x00], "inv(1) == 1");
     let mut got = [0u8; 4];
     let mut want = [0u8; 4];
-    ops::div_elementwise::<Mersenne31>(&mut got, &alias, &alias);
+    ops::div_elementwise_into::<Mersenne31>(&mut got, &alias, &alias);
     oracle_div_elementwise::<Mersenne31>(&mut want, &alias, &alias);
     assert_eq!(got, want, "m31 alias div folds like the scalar field");
     assert_eq!(got, [0x01, 0x00, 0x00, 0x00], "1 / 1 == 1");
@@ -5173,13 +5173,253 @@ fn inv_assign_rejects_partial_trailing_element() {
 }
 
 #[test]
-#[should_panic(expected = "div_elementwise: dst is 4 bytes but b is 3 bytes")]
+#[should_panic(expected = "div_elementwise_into: dst is 4 bytes but b is 3 bytes")]
 fn div_elementwise_rejects_divisor_mismatch() {
-    ops::div_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(&mut [0u8; 4], &[0u8; 4], &[0u8; 3]);
+    ops::div_elementwise_into::<FiniteField<2, 8, Polynomial<AES>>>(
+        &mut [0u8; 4],
+        &[0u8; 4],
+        &[0u8; 3],
+    );
 }
 
 #[test]
 #[should_panic(expected = "div_elementwise_assign: dst is 4 bytes but src is 5 bytes")]
 fn div_elementwise_assign_rejects_length_mismatch() {
     ops::div_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut [0u8; 4], &[0u8; 5]);
+}
+
+// ---------------------------------------------------------------------------
+// Zero and unit coefficients over noncanonical bytes
+// ---------------------------------------------------------------------------
+
+/// Element counts straddling the prime and quadratic lane widths.
+const ALIAS_LANES: [usize; 8] = [1, 7, 8, 9, 16, 17, 64, 65];
+
+type MersenneResidue = FiniteField<0x7fff_ffff, 1, Residue>;
+type GoldilocksResidue = FiniteField<0xffff_ffff_0000_0001, 1, Residue>;
+
+/// Accumulating with only zero coefficients leaves every destination byte as
+/// it was, including bytes that do not encode a canonical element, in every
+/// one-shot and prepared row composition.
+fn check_zero_accumulation_preserves_destination<F: FieldBuffer>() {
+    let zero = Elem::<F>::ZERO;
+    for lanes in ALIAS_LANES {
+        let row_len = lanes * F::BYTES;
+        let nrows = 3;
+        let src = noise(row_len, 0x5a00 ^ lanes as u64);
+        let srcs = [src.as_slice(), src.as_slice()];
+        let zeros = [zero; 3];
+        let terms = [(zeros.as_slice(), src.as_slice()), (&zeros[..], &src[..])];
+        let untouched = vec![0xffu8; nrows * row_len];
+        let label = |op: &str| format!("{}: {op} at {lanes} lanes", F::NAME);
+
+        let mut got = untouched[..row_len].to_vec();
+        ops::mul_add::<F>(&mut got, zero, &src);
+        assert_eq!(got, untouched[..row_len], "{}", label("mul_add"));
+        ops::mul_add_with::<F>(&mut got, &ops::Coeff::new(zero), &src);
+        assert_eq!(got, untouched[..row_len], "{}", label("mul_add_with"));
+        ops::mul_add_gather::<F>(&mut got, &zeros[..2], &srcs);
+        assert_eq!(got, untouched[..row_len], "{}", label("mul_add_gather"));
+
+        let mut got = untouched.clone();
+        ops::mul_add_scatter::<F>(&mut got, row_len, &zeros, &src);
+        assert_eq!(got, untouched, "{}", label("mul_add_scatter"));
+        ops::mul_add_matrix::<F>(&mut got, row_len, nrows, &terms);
+        assert_eq!(got, untouched, "{}", label("mul_add_matrix"));
+        let starts = [2 * row_len, 0, row_len];
+        ops::mul_add_matrix_at::<F>(&mut got, row_len, &starts, &terms);
+        assert_eq!(got, untouched, "{}", label("mul_add_matrix_at"));
+
+        #[cfg(feature = "alloc")]
+        {
+            let vector = ops::CoeffVec::<F>::new(&zeros);
+            ops::mul_add_scatter_with::<F>(&mut got, row_len, vector.as_ref(), &src);
+            assert_eq!(got, untouched, "{}", label("mul_add_scatter_with"));
+            let pair = ops::CoeffVec::<F>::new(&zeros[..2]);
+            ops::mul_add_gather_with::<F>(&mut got[..row_len], pair.as_ref(), &srcs);
+            assert_eq!(got, untouched, "{}", label("mul_add_gather_with"));
+            let matrix = ops::CoeffMatrix::<F>::from_source_major(2, nrows, &[zero; 6]);
+            ops::mul_add_matrix_with::<F>(&mut got, row_len, &matrix, &srcs);
+            assert_eq!(got, untouched, "{}", label("mul_add_matrix_with"));
+            ops::mul_add_matrix_at_with::<F>(&mut got, row_len, &starts, &matrix, &srcs);
+            assert_eq!(got, untouched, "{}", label("mul_add_matrix_at_with"));
+        }
+    }
+}
+
+#[test]
+fn zero_accumulation_preserves_noncanonical_destination_bytes() {
+    check_zero_accumulation_preserves_destination::<Mersenne31>();
+    check_zero_accumulation_preserves_destination::<Goldilocks>();
+    check_zero_accumulation_preserves_destination::<QuadMersenne31>();
+    check_zero_accumulation_preserves_destination::<MersenneResidue>();
+    check_zero_accumulation_preserves_destination::<GoldilocksResidue>();
+    check_zero_accumulation_preserves_destination::<FiniteField<101, 1, Residue>>();
+    check_zero_accumulation_preserves_destination::<FiniteField<2, 1, Residue>>();
+    check_zero_accumulation_preserves_destination::<FiniteField<2, 8, Polynomial<AES>>>();
+}
+
+/// Scatter and matrix rows whose coefficients are all zero keep their bytes
+/// while the other rows accumulate, one-shot and prepared.
+fn check_zero_rows_preserve_destination<F: FieldBuffer>(general: Elem<F>) {
+    let (zero, one) = (Elem::<F>::ZERO, Elem::<F>::ONE);
+    for lanes in ALIAS_LANES {
+        let row_len = lanes * F::BYTES;
+        let mut src = noise(row_len, 0x5b00 ^ lanes as u64);
+        src[..F::BYTES].fill(0xff);
+        let mut rows = noise(4 * row_len, 0x5c00 ^ lanes as u64);
+        rows[..row_len].fill(0xff);
+        rows[3 * row_len..].fill(0xff);
+        let mut want = rows.clone();
+        oracle_mul_add::<F>(&mut want[row_len..2 * row_len], one, &src);
+        oracle_mul_add::<F>(&mut want[2 * row_len..3 * row_len], general, &src);
+        let coeffs = [zero, one, general, zero];
+        let label = |op: &str| format!("{}: {op} at {lanes} lanes", F::NAME);
+
+        let mut got = rows.clone();
+        ops::mul_add_scatter::<F>(&mut got, row_len, &coeffs, &src);
+        assert_eq!(got, want, "{}", label("mul_add_scatter"));
+        let mut got = rows.clone();
+        ops::mul_add_matrix::<F>(&mut got, row_len, 4, &[(&coeffs, &src)]);
+        assert_eq!(got, want, "{}", label("mul_add_matrix"));
+
+        #[cfg(feature = "alloc")]
+        {
+            let mut got = rows.clone();
+            let vector = ops::CoeffVec::<F>::new(&coeffs);
+            ops::mul_add_scatter_with::<F>(&mut got, row_len, vector.as_ref(), &src);
+            assert_eq!(got, want, "{}", label("mul_add_scatter_with"));
+            let mut got = rows.clone();
+            let matrix = ops::CoeffMatrix::<F>::from_source_major(1, 4, &coeffs);
+            ops::mul_add_matrix_with::<F>(&mut got, row_len, &matrix, &[&src]);
+            assert_eq!(got, want, "{}", label("mul_add_matrix_with"));
+        }
+
+        // Scattered rows, out of order, with untouched gaps at `row_len` and
+        // `3 * row_len`; zero rows and gaps hold noncanonical bytes.
+        let starts = [4 * row_len, 0, 2 * row_len, 5 * row_len];
+        let mut frame = noise(6 * row_len, 0x5d00 ^ lanes as u64);
+        frame[row_len..2 * row_len].fill(0xff);
+        frame[3 * row_len..].fill(0xff);
+        let mut want = frame.clone();
+        oracle_mul_add::<F>(&mut want[..row_len], one, &src);
+        oracle_mul_add::<F>(&mut want[2 * row_len..3 * row_len], general, &src);
+        let mut got = frame.clone();
+        ops::mul_add_matrix_at::<F>(&mut got, row_len, &starts, &[(&coeffs, &src)]);
+        assert_eq!(got, want, "{}", label("mul_add_matrix_at"));
+        #[cfg(feature = "alloc")]
+        {
+            let mut got = frame.clone();
+            let matrix = ops::CoeffMatrix::<F>::from_source_major(1, 4, &coeffs);
+            ops::mul_add_matrix_at_with::<F>(&mut got, row_len, &starts, &matrix, &[&src]);
+            assert_eq!(got, want, "{}", label("mul_add_matrix_at_with"));
+        }
+    }
+}
+
+#[test]
+fn zero_rows_preserve_noncanonical_destination_bytes() {
+    check_zero_rows_preserve_destination::<Mersenne31>(Elem::<Mersenne31>::from_raw(0x1234_5678));
+    check_zero_rows_preserve_destination::<Goldilocks>(Elem::<Goldilocks>::from_raw(
+        0x1234_5678_9abc_def0,
+    ));
+    let two = Elem::<QuadMersenne31>::ONE.add(Elem::ONE);
+    check_zero_rows_preserve_destination::<QuadMersenne31>(two);
+    check_zero_rows_preserve_destination::<MersenneResidue>(Elem::<MersenneResidue>::from_raw(3));
+    check_zero_rows_preserve_destination::<GoldilocksResidue>(Elem::<GoldilocksResidue>::from_raw(
+        3,
+    ));
+    type Small = FiniteField<101, 1, Residue>;
+    check_zero_rows_preserve_destination::<Small>(Elem::<Small>::from_raw(3));
+}
+
+/// Runs `op` on a copy of `dst`, requiring a panic whose message contains
+/// `fragment` and an unchanged destination.
+fn rejects_untouched(dst: &[u8], fragment: &str, op: impl FnOnce(&mut [u8])) {
+    let mut got = dst.to_vec();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| op(&mut got)));
+    let payload = outcome.expect_err("invalid geometry must panic");
+    let message = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+        .unwrap_or_default();
+    assert!(message.contains(fragment), "{fragment}: {message}");
+    assert_eq!(got, dst, "{fragment}: destination untouched");
+}
+
+/// All-zero coefficients do not skip validation: every geometry error the
+/// matrix operations report for live coefficients is still reported, before
+/// any destination byte changes.
+#[test]
+fn zero_coefficient_matrices_still_validate_geometry() {
+    type F = Mersenne31;
+    let zero = [Elem::<F>::ZERO; 3];
+    let src = [0xffu8; 8];
+    let short = [0xffu8; 4];
+    let dst = vec![0xffu8; 24];
+    let good = (zero.as_slice(), src.as_slice());
+
+    rejects_untouched(&dst[..23], "mul_add_matrix: rows is 23 bytes", |d| {
+        ops::mul_add_matrix::<F>(d, 8, 3, &[good]);
+    });
+    rejects_untouched(&dst, "mul_add_matrix: term supplies 2 coefficients", |d| {
+        ops::mul_add_matrix::<F>(d, 8, 3, &[good, (&zero[..2], &src)]);
+    });
+    rejects_untouched(&dst, "mul_add_matrix: source is 4 bytes", |d| {
+        ops::mul_add_matrix::<F>(d, 8, 3, &[good, (&zero, &short)]);
+    });
+    rejects_untouched(&dst, "mul_add_matrix_at: row", |d| {
+        ops::mul_add_matrix_at::<F>(d, 8, &[0, 8, 20], &[good]);
+    });
+    rejects_untouched(&dst, "is not a whole number", |d| {
+        ops::mul_add_matrix_at::<F>(d, 8, &[0, 8, 14], &[good]);
+    });
+    rejects_untouched(&dst, "overlap", |d| {
+        ops::mul_add_matrix_at::<F>(d, 8, &[0, 8, 12], &[good]);
+    });
+    rejects_untouched(
+        &dst,
+        "mul_add_matrix_at: term supplies 2 coefficients",
+        |d| {
+            ops::mul_add_matrix_at::<F>(d, 8, &[0, 8, 16], &[good, (&zero[..2], &src)]);
+        },
+    );
+    rejects_untouched(&dst, "mul_add_matrix_at: source is 4 bytes", |d| {
+        ops::mul_add_matrix_at::<F>(d, 8, &[0, 8, 16], &[good, (&zero, &short)]);
+    });
+}
+
+/// Overwrite scatter writes zero rows as canonical zero and unit rows as the
+/// source bytes verbatim, noncanonical lanes included, and leaves rows past
+/// the coefficient list alone.
+fn check_unit_overwrite_scatter_copies_source<F: FieldBuffer>() {
+    let coeffs = [Elem::<F>::ZERO, Elem::<F>::ONE];
+    for lanes in ALIAS_LANES {
+        let row_len = lanes * F::BYTES;
+        let src = vec![0xffu8; row_len];
+        let mut rows = vec![0xa5u8; 3 * row_len];
+        ops::mul_into_scatter::<F>(&mut rows, row_len, &coeffs, &src);
+        let label = format!("{}: mul_into_scatter at {lanes} lanes", F::NAME);
+        assert!(
+            rows[..row_len].iter().all(|&byte| byte == 0),
+            "{label}: zero row"
+        );
+        assert_eq!(&rows[row_len..2 * row_len], &src[..], "{label}: unit row");
+        assert!(
+            rows[2 * row_len..].iter().all(|&byte| byte == 0xa5),
+            "{label}: tail"
+        );
+    }
+}
+
+#[test]
+fn unit_overwrite_scatter_preserves_noncanonical_source_bytes() {
+    check_unit_overwrite_scatter_copies_source::<Mersenne31>();
+    check_unit_overwrite_scatter_copies_source::<Goldilocks>();
+    check_unit_overwrite_scatter_copies_source::<QuadMersenne31>();
+    check_unit_overwrite_scatter_copies_source::<FiniteField<101, 1, Residue>>();
+    check_unit_overwrite_scatter_copies_source::<FiniteField<2, 1, Residue>>();
+    check_unit_overwrite_scatter_copies_source::<MersenneResidue>();
+    check_unit_overwrite_scatter_copies_source::<GoldilocksResidue>();
 }

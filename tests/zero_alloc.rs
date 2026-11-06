@@ -365,7 +365,7 @@ fn assert_prime_steady_state_zero_alloc<F: FieldBuffer>(coeff: Elem<F>) {
     ops::add_assign::<F>(&mut dst, &src);
     ops::sub_assign::<F>(&mut dst, &src);
     ops::mul_add_gather::<F>(&mut dst, &coeffs, &refs);
-    ops::mul_elementwise::<F>(&mut ew, &src, &b);
+    ops::mul_elementwise_into::<F>(&mut ew, &src, &b);
     let mut scatter_rows = noise(4 * len, 0x444);
     ops::mul_add_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
     ops::mul_into_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
@@ -375,7 +375,7 @@ fn assert_prime_steady_state_zero_alloc<F: FieldBuffer>(coeff: Elem<F>) {
         ops::add_assign::<F>(&mut dst, &src);
         ops::sub_assign::<F>(&mut dst, &src);
         ops::mul_add_gather::<F>(&mut dst, &coeffs, &refs);
-        ops::mul_elementwise::<F>(&mut ew, &src, &b);
+        ops::mul_elementwise_into::<F>(&mut ew, &src, &b);
         ops::mul_into_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
     });
     assert_eq!(allocations, 0, "prime steady-state op allocated");
@@ -562,7 +562,7 @@ fn bits_steady_state_allocates_nothing() {
 
     // Warm dispatch before counting.
     fgf::ops::bits::xor_assign(&mut dst, &a);
-    fgf::ops::bits::xor_range(&mut dst, &a, bits, 100, 4000);
+    fgf::ops::bits::xor_range(&mut dst, bits, 100, 4000, &a);
     fgf::ops::bits::and_into(&mut dst, &a, &b);
     fgf::ops::bits::and_assign(&mut dst, &a);
     fgf::ops::bits::andnot_assign(&mut dst, &a);
@@ -574,7 +574,7 @@ fn bits_steady_state_allocates_nothing() {
 
     let allocations = count_allocations(|| {
         fgf::ops::bits::xor_assign(&mut dst, &a);
-        fgf::ops::bits::xor_range(&mut dst, &a, bits, 100, 4000);
+        fgf::ops::bits::xor_range(&mut dst, bits, 100, 4000, &a);
         fgf::ops::bits::and_into(&mut dst, &a, &b);
         fgf::ops::bits::and_assign(&mut dst, &a);
         fgf::ops::bits::andnot_assign(&mut dst, &a);
@@ -762,7 +762,7 @@ fn assert_extension_packed_surface_zero_alloc<F: FieldBuffer>(coeff: Elem<F>) {
     // Warm dispatch and every path before counting.
     ops::add_assign::<F>(&mut dst, &src);
     ops::add_assign_rows::<F>(&mut dst, row_len, &src);
-    ops::add_gather_offsets::<F>(&mut dst, &region, &offsets);
+    ops::add_gather_offsets::<F>(&mut dst, &offsets, &region);
     ops::sub_assign::<F>(&mut dst, &src);
     ops::sub_assign_rows::<F>(&mut dst, row_len, &src);
     ops::mul_add::<F>(&mut dst, coeff, &src);
@@ -775,7 +775,7 @@ fn assert_extension_packed_surface_zero_alloc<F: FieldBuffer>(coeff: Elem<F>) {
     ops::mul_add_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
     ops::mul_into_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
     ops::mul_into_matrix_at::<F>(&mut at_rows, row_len, &row_starts, &terms);
-    ops::mul_elementwise::<F>(&mut ew, &src, &other);
+    ops::mul_elementwise_into::<F>(&mut ew, &src, &other);
     ops::mul_elementwise_assign::<F>(&mut ew, &other);
     ops::add_assign_scalar::<F>(&mut dst, coeff);
     ops::sub_assign_scalar::<F>(&mut dst, coeff);
@@ -792,7 +792,7 @@ fn assert_extension_packed_surface_zero_alloc<F: FieldBuffer>(coeff: Elem<F>) {
     let allocations = count_allocations(|| {
         ops::add_assign::<F>(&mut dst, &src);
         ops::add_assign_rows::<F>(&mut dst, row_len, &src);
-        ops::add_gather_offsets::<F>(&mut dst, &region, &offsets);
+        ops::add_gather_offsets::<F>(&mut dst, &offsets, &region);
         ops::sub_assign::<F>(&mut dst, &src);
         ops::sub_assign_rows::<F>(&mut dst, row_len, &src);
         ops::mul_add::<F>(&mut dst, coeff, &src);
@@ -805,7 +805,7 @@ fn assert_extension_packed_surface_zero_alloc<F: FieldBuffer>(coeff: Elem<F>) {
         ops::mul_add_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
         ops::mul_into_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
         ops::mul_into_matrix_at::<F>(&mut at_rows, row_len, &row_starts, &terms);
-        ops::mul_elementwise::<F>(&mut ew, &src, &other);
+        ops::mul_elementwise_into::<F>(&mut ew, &src, &other);
         ops::mul_elementwise_assign::<F>(&mut ew, &other);
         ops::add_assign_scalar::<F>(&mut dst, coeff);
         ops::sub_assign_scalar::<F>(&mut dst, coeff);
@@ -901,19 +901,19 @@ fn inv_div_rows_steady_state_allocate_nothing() {
     // Warm dispatch before counting.
     ops::inv_into::<Gf8>(&mut dst, &src);
     ops::inv_assign::<Gf8>(&mut dst_assign);
-    ops::div_elementwise::<Gf8>(&mut dst_div, &num, &den);
+    ops::div_elementwise_into::<Gf8>(&mut dst_div, &num, &den);
     ops::div_elementwise_assign::<Gf8>(&mut dst_div, &den);
     ops::inv_into::<Mersenne31>(&mut dst31, &src31);
-    ops::div_elementwise::<Goldilocks>(&mut dst_div, &num_g, &den_g);
+    ops::div_elementwise_into::<Goldilocks>(&mut dst_div, &num_g, &den_g);
     ops::inv_assign::<ResiduePrime>(&mut dst);
 
     let allocations = count_allocations(|| {
         ops::inv_into::<Gf8>(&mut dst, &src);
         ops::inv_assign::<Gf8>(&mut dst_assign);
-        ops::div_elementwise::<Gf8>(&mut dst_div, &num, &den);
+        ops::div_elementwise_into::<Gf8>(&mut dst_div, &num, &den);
         ops::div_elementwise_assign::<Gf8>(&mut dst_div, &den);
         ops::inv_into::<Mersenne31>(&mut dst31, &src31);
-        ops::div_elementwise::<Goldilocks>(&mut dst_div, &num_g, &den_g);
+        ops::div_elementwise_into::<Goldilocks>(&mut dst_div, &num_g, &den_g);
         ops::inv_assign::<ResiduePrime>(&mut dst);
     });
     assert_eq!(allocations, 0, "batch reciprocal/division rows allocated");

@@ -137,7 +137,7 @@ fn check_elementwise<F: FieldBuffer>(coeffs: &[Elem<F>]) {
             canon::<F>(&mut b);
             let mut got = vec![0u8; len];
             let mut want = vec![0u8; len];
-            ops::mul_elementwise::<F>(&mut got, &src, &b);
+            ops::mul_elementwise_into::<F>(&mut got, &src, &b);
             oracle_mul_elementwise::<F>(&mut want, &src, &b);
             assert_eq!(got, want, "mul_elementwise len {len}");
 
@@ -326,7 +326,7 @@ fn check_shapes<F: FieldBuffer>(coeffs: &[Elem<F>]) {
             let mut got = noise(live, 0x2a2);
             canon::<F>(&mut got);
             let mut want = got.clone();
-            ops::add_gather_offsets::<F>(&mut got, &region, &offsets);
+            ops::add_gather_offsets::<F>(&mut got, &offsets, &region);
             for &start in &offsets {
                 oracle_add_assign::<F>(&mut want, &region[start as usize..start as usize + live]);
             }
@@ -512,7 +512,7 @@ fn check_alias_lanes<F: FieldBuffer>(modulus: u64, aliases: &[u64], coeff: Elem<
 
     let mut got = vec![0u8; len];
     let mut want = vec![0u8; len];
-    ops::mul_elementwise::<F>(&mut got, &alias_buf, &other);
+    ops::mul_elementwise_into::<F>(&mut got, &alias_buf, &other);
     oracle_mul_elementwise::<F>(&mut want, &alias_buf, &other);
     assert_eq!(got, want, "mul_elementwise of aliases");
     assert_canonical(&got, "mul_elementwise");
@@ -844,7 +844,7 @@ fn empty_buffers_are_no_ops() {
     ops::mul_add::<P7>(&mut dst, Elem::<P7>::ONE, &src);
     ops::add_assign::<P7>(&mut dst, &src);
     ops::sub_assign::<P7>(&mut dst, &src);
-    ops::mul_elementwise::<P7>(&mut dst, &src, &src);
+    ops::mul_elementwise_into::<P7>(&mut dst, &src, &src);
     ops::mul_assign::<P7>(&mut dst, Elem::<P7>::ZERO);
     assert!(dst.is_empty());
     // Empty gather writes nothing and must not panic.
@@ -880,7 +880,7 @@ fn four_byte_elementwise_matches_u128_oracle() {
             w.copy_from_slice(&((x as u128 * y as u128 % P as u128) as u32).to_le_bytes());
         }
         let mut got = vec![0u8; lanes * 4];
-        ops::mul_elementwise::<Row>(&mut got, &a, &b);
+        ops::mul_elementwise_into::<Row>(&mut got, &a, &b);
         assert_eq!(got, want, "mul_elementwise lanes {lanes}");
         for lane in got.chunks_exact(4) {
             assert!(

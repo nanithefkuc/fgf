@@ -292,7 +292,7 @@ fn exercise_byte_operations<F: FieldBuffer>(a: Elem<F>, b: Elem<F>) {
     // Offset gather over one backing region.
     let region = [row.clone(), other.clone()].concat();
     let mut dst = row.clone();
-    ops::add_gather_offsets::<F>(&mut dst, &region, &[0, row.len() as u32]);
+    ops::add_gather_offsets::<F>(&mut dst, &[0, row.len() as u32], &region);
     let mut want = row.clone();
     for source in [&row, &other] {
         want = binary_oracle::<F>(&want, source, add);
@@ -332,7 +332,7 @@ fn exercise_byte_operations<F: FieldBuffer>(a: Elem<F>, b: Elem<F>) {
     );
 
     let mut dst = row.clone();
-    ops::mul_elementwise::<F>(&mut dst, &row, &other);
+    ops::mul_elementwise_into::<F>(&mut dst, &row, &other);
     assert_eq!(
         dst,
         binary_oracle::<F>(&row, &other, mul),
@@ -461,7 +461,7 @@ fn exercise_byte_operations<F: FieldBuffer>(a: Elem<F>, b: Elem<F>) {
     ops::inv_assign::<F>(&mut dst);
     assert_eq!(dst, unary_oracle::<F>(&row, |x| x.inv()), "inv_assign");
     let mut dst = vec![0u8; row.len()];
-    ops::div_elementwise::<F>(&mut dst, &row, &other);
+    ops::div_elementwise_into::<F>(&mut dst, &row, &other);
     assert_eq!(
         dst,
         binary_oracle::<F>(&row, &other, div),
@@ -576,7 +576,7 @@ fn exercise_byte_operations<F: FieldBuffer>(a: Elem<F>, b: Elem<F>) {
                 .collect::<Vec<_>>(),
             vec![one, a]
         );
-        assert_eq!(matrix.values().collect::<Vec<_>>(), vec![a, b, one, a]);
+        assert_eq!(matrix.to_source_major(), vec![a, b, one, a]);
         let mut rows = matrix_base.clone();
         ops::mul_add_matrix_with::<F>(&mut rows, matrix_row_len, &matrix, &terms_sources);
         assert_eq!(
@@ -649,7 +649,7 @@ fn exercise_byte_operations<F: FieldBuffer>(a: Elem<F>, b: Elem<F>) {
     ops::mul_add::<F>(&mut [], a, &[]);
     ops::mul_assign::<F>(&mut [], a);
     ops::mul_into::<F>(&mut [], a, &[]);
-    ops::mul_elementwise::<F>(&mut [], &[], &[]);
+    ops::mul_elementwise_into::<F>(&mut [], &[], &[]);
     ops::mul_elementwise_assign::<F>(&mut [], &[]);
     ops::mul_add_scatter::<F>(&mut [], 0, &[], &[]);
     ops::mul_into_scatter::<F>(&mut [], 0, &[], &[]);
@@ -661,7 +661,7 @@ fn exercise_byte_operations<F: FieldBuffer>(a: Elem<F>, b: Elem<F>) {
     ops::mul_into_matrix_at::<F>(&mut [], width, &[], &[]);
     ops::inv_into::<F>(&mut [], &[]);
     ops::inv_assign::<F>(&mut []);
-    ops::div_elementwise::<F>(&mut [], &[], &[]);
+    ops::div_elementwise_into::<F>(&mut [], &[], &[]);
     ops::div_elementwise_assign::<F>(&mut [], &[]);
     assert_eq!(ops::dot_product::<F>(&[], &[]), zero, "empty dot product");
     ops::pack::<F>(&mut [], &[]);

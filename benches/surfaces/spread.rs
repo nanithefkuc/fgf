@@ -89,7 +89,7 @@ const API_COEFFMATRIX_ACCESSORS: &[&str] = &[
     "fgf::ops::CoeffMatrix::is_empty",
     "fgf::ops::CoeffMatrix::get_at",
     "fgf::ops::CoeffMatrix::source",
-    "fgf::ops::CoeffMatrix::values",
+    "fgf::ops::CoeffMatrix::to_source_major",
 ];
 const API_ZERO_ROUTES: &[&str] = &[
     "fgf::ops::mul_add_scatter",
@@ -841,15 +841,15 @@ fn register_gather_offsets<F: FieldBuffer>(label: &'static str) {
                     fixture::write_lanes::<F>(&mut expected, &lanes);
                 }
                 let mut fresh = fixture::packed::<F>(ORACLE_ROW_LANES, 0x119);
-                ops::add_gather_offsets::<F>(&mut fresh, &oracle_region, &oracle_offsets);
+                ops::add_gather_offsets::<F>(&mut fresh, &oracle_offsets, &oracle_region);
                 fixture::assert_bytes_equal(&case.case, &fresh, &expected);
             }
             let backend = fields::backend_name::<F>();
             registry::time(case, ctx, &backend, || {
                 ops::add_gather_offsets::<F>(
                     black_box(&mut dst),
-                    black_box(&region),
                     black_box(&offsets),
+                    black_box(&region),
                 );
                 fixture::observe(dst.len());
             });
@@ -1020,7 +1020,7 @@ fn register_containers() {
                     assert!(matrix.get_at(NSOURCES, 0).is_none());
                     assert_eq!(matrix.source(1).map(|v| v.len()), Some(NROWS));
                     assert!(matrix.source(NSOURCES).is_none());
-                    assert_eq!(matrix.values().count(), NROWS * NSOURCES);
+                    assert_eq!(matrix.to_source_major().len(), NROWS * NSOURCES);
                     assert!(!matrix.is_empty());
                     let backend = fields::backend_name::<$F>();
                     registry::time(case, ctx, &backend, || {

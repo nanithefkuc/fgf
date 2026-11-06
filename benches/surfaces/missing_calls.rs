@@ -40,7 +40,7 @@ const API_COEFFVEC_VALUES: &[&str] = &["fgf::ops::CoeffVec::values"];
 const API_COEFFVECREF_VALUES: &[&str] = &["fgf::ops::CoeffVecRef::values"];
 const API_COEFFMATRIX_OUTPUT_COUNT: &[&str] = &["fgf::ops::CoeffMatrix::output_count"];
 const API_COEFFMATRIX_IS_EMPTY: &[&str] = &["fgf::ops::CoeffMatrix::is_empty"];
-const API_COEFFMATRIX_VALUES: &[&str] = &["fgf::ops::CoeffMatrix::values"];
+const API_COEFFMATRIX_TO_SOURCE_MAJOR: &[&str] = &["fgf::ops::CoeffMatrix::to_source_major"];
 const API_MATRIX_INTO_ONE_SHOT: &[&str] = &["fgf::ops::mul_into_matrix"];
 
 fn row_bytes<F: FieldBuffer>() -> usize {
@@ -316,20 +316,20 @@ fn run_coeffmatrix_is_empty(case: &Case, ctx: &CaseCtx) {
     });
 }
 
-fn run_coeffmatrix_values(case: &Case, ctx: &CaseCtx) {
+fn run_coeffmatrix_to_source_major(case: &Case, ctx: &CaseCtx) {
     let cs = nontrivial_coeffs::<Gf2p16Rijndael>(&case.case, SOURCES * OUTPUTS);
     let matrix = CoeffMatrix::<Gf2p16Rijndael>::from_source_major(SOURCES, OUTPUTS, &cs);
     {
-        let collected: Vec<Elem<Gf2p16Rijndael>> = matrix.values().collect();
+        let collected: Vec<Elem<Gf2p16Rijndael>> = matrix.to_source_major();
         assert_eq!(
             collected, cs,
-            "{}: values reproduce the source-major order",
+            "{}: to_source_major reproduces the source-major order",
             case.case
         );
     }
     let backend = scalar_backend();
     registry::time(case, ctx, &backend, || {
-        let _ = fixture::observe(black_box(&matrix).values());
+        let _ = fixture::observe(black_box(&matrix).to_source_major());
     });
 }
 
@@ -459,12 +459,12 @@ pub fn register() {
         run_coeffmatrix_is_empty,
     );
     add_query_case(
-        "scalar/collection-coeffmatrix-values/gf2p16-rijndael".to_string(),
+        "scalar/collection-coeffmatrix-to-source-major/gf2p16-rijndael".to_string(),
         "gf2p16-rijndael",
-        "coefficient matrix value iterator",
-        API_COEFFMATRIX_VALUES,
+        "coefficient matrix source-major vector",
+        API_COEFFMATRIX_TO_SOURCE_MAJOR,
         SOURCES * OUTPUTS,
-        run_coeffmatrix_values,
+        run_coeffmatrix_to_source_major,
     );
 
     macro_rules! bulk {

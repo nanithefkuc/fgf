@@ -766,7 +766,7 @@ fn run_panels() {
         let b = AlignedBuf::noise(BYTES, 0x607);
         let mut dst = AlignedBuf::noise(BYTES, 0x608);
         bench_region("gf8d elementwise (dst = a*b)", BYTES, || {
-            ops::mul_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(
+            ops::mul_elementwise_into::<FiniteField<2, 8, Polynomial<RS>>>(
                 black_box(dst.as_mut_slice()),
                 black_box(a.as_slice()),
                 black_box(b.as_slice()),
@@ -779,7 +779,7 @@ fn run_panels() {
             );
         });
         bench_region("gf8b elementwise (dst = a*b)", BYTES, || {
-            ops::mul_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(
+            ops::mul_elementwise_into::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(dst.as_mut_slice()),
                 black_box(a.as_slice()),
                 black_box(b.as_slice()),

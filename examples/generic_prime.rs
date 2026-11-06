@@ -41,7 +41,7 @@ fn main() {
 
     // output[i] = a[i]*b[i] + challenge*a[i], with the coefficient prepared
     // once and reused.
-    ops::mul_elementwise::<Prime>(&mut output, &packed_a, &packed_b);
+    ops::mul_elementwise_into::<Prime>(&mut output, &packed_a, &packed_b);
     let prepared = ops::Coeff::<Prime>::new(challenge);
     ops::mul_add_with::<Prime>(&mut output, &prepared, &packed_a);
 

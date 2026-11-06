@@ -80,12 +80,12 @@ pub use dot::dot_product;
 pub use gather::{add_gather_offsets, mul_add_gather, mul_into_gather};
 pub use matrix::{mul_add_matrix, mul_add_matrix_at, mul_into_matrix, mul_into_matrix_at};
 pub use packing::{pack, unpack};
-pub use recip::{div_elementwise, div_elementwise_assign, inv_assign, inv_into};
+pub use recip::{div_elementwise_assign, div_elementwise_into, inv_assign, inv_into};
 pub use scatter::{mul_add_scatter, mul_into_scatter};
 pub use single::{
     add_assign, add_assign_rows, add_assign_scalar, mul_add, mul_add_with, mul_assign,
-    mul_assign_with, mul_elementwise, mul_elementwise_assign, mul_into, mul_into_with, sub_assign,
-    sub_assign_rows, sub_assign_scalar,
+    mul_assign_with, mul_elementwise_assign, mul_elementwise_into, mul_into, mul_into_with,
+    sub_assign, sub_assign_rows, sub_assign_scalar,
 };
 
 #[cfg(feature = "alloc")]

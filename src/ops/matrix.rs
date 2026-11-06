@@ -5,7 +5,7 @@
 //! offset-addressed rows for writes straight into a codeword buffer.
 
 use crate::field::dispatch::RawDispatch;
-use crate::field::{Elem, FieldBuffer};
+use crate::field::{Elem, FieldBuffer, FieldElem};
 
 use super::geometry::check_width;
 
@@ -23,7 +23,9 @@ use super::CoeffMatrix;
 /// erasure reconstruction.
 ///
 /// A zero-length row with zero-length sources is a valid zero-work shape and
-/// a no-op; the structural checks above still apply.
+/// a no-op; the structural checks above still apply. When every coefficient
+/// is zero the call returns after validation and leaves `rows` untouched,
+/// noncanonical bytes included.
 ///
 /// # Panics
 /// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes, every
@@ -57,7 +59,7 @@ pub fn mul_add_matrix<F: FieldBuffer>(
             src.len()
         );
     }
-    if nrows == 0 || row_len == 0 || terms.is_empty() {
+    if nrows == 0 || row_len == 0 || terms.is_empty() || all_zero(terms) {
         return;
     }
     F::mul_add_matrix(RawDispatch, &mut rows[..used], row_len, nrows, terms);
@@ -248,6 +250,8 @@ pub fn mul_into_matrix_with<F: FieldBuffer>(
 ///
 /// A zero-length row is a valid zero-work shape and a no-op; the structural
 /// checks above (including disjointness of the named rows) still apply.
+/// When every coefficient is zero the call returns after validation and
+/// leaves `dst` untouched, noncanonical bytes included.
 /// The `_at` in the name: the destination rows are addressed by explicit
 /// offsets into `dst`, not held contiguously from its start.
 ///
@@ -278,7 +282,7 @@ pub fn mul_add_matrix_at<F: FieldBuffer>(
             src.len()
         );
     }
-    if nrows == 0 || row_len == 0 || terms.is_empty() {
+    if nrows == 0 || row_len == 0 || terms.is_empty() || all_zero(terms) {
         return;
     }
     F::mul_add_matrix_at(RawDispatch, dst, row_len, row_starts, terms);
@@ -498,6 +502,13 @@ fn check_at<F: FieldBuffer>(name: &str, dst_len: usize, row_len: usize, row_star
             );
         }
     }
+}
+
+/// Whether every term's coefficients are zero, making accumulation a no-op.
+fn all_zero<F: FieldBuffer>(terms: &[(&[Elem<F>], &[u8])]) -> bool {
+    terms
+        .iter()
+        .all(|(coeffs, _)| coeffs.iter().all(|coeff| coeff.is_zero()))
 }
 
 #[cfg(all(test, feature = "alloc"))]

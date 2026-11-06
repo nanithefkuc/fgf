@@ -26,11 +26,11 @@ fn check_range(name: &str, bits: usize, from: usize, to: usize) {
 /// Panics if the slices differ in length, if `from > to`, if `to > bits`,
 /// or if the buffers are shorter than [`bytes_for`](super::bytes_for)`(bits)`.
 #[inline]
-pub fn xor_range(dst: &mut [u8], src: &[u8], bits: usize, from: usize, to: usize) {
+pub fn xor_range(dst: &mut [u8], bits: usize, from: usize, to: usize, src: &[u8]) {
     check_pair("bits::xor_range", "dst", dst.len(), "src", src.len());
     check_range("bits::xor_range", bits, from, to);
     check_holds("bits::xor_range", "dst", dst.len(), bits);
-    xor_range_with(dst, src, &XorRange::new(bits, from, to));
+    xor_range_with(dst, &XorRange::new(bits, from, to), src);
 }
 
 /// A prepared bit range for repeated `dst ^= src`: the window and end
@@ -83,7 +83,7 @@ impl XorRange {
 ///
 /// Panics if either buffer is shorter than the planned window.
 #[inline]
-pub fn xor_range_with(dst: &mut [u8], src: &[u8], range: &XorRange) {
+pub fn xor_range_with(dst: &mut [u8], range: &XorRange, src: &[u8]) {
     let end = range.window.end;
     if end == 0 {
         return;

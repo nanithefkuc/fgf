@@ -109,7 +109,7 @@ fn wrap_boundary_public_ops_match_u128_oracle() {
         .map(|i| family[(i + 1) % family.len()])
         .collect();
     let mut got = vec![0u8; src.len()];
-    ops::mul_elementwise::<Goldilocks>(&mut got, &src, &lanes_bytes(&shifted));
+    ops::mul_elementwise_into::<Goldilocks>(&mut got, &src, &lanes_bytes(&shifted));
     check_lanes(
         "mul_elementwise",
         0,

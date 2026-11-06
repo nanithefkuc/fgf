@@ -532,7 +532,7 @@ fn run_slice_field<Fg, Fp>(
     );
 
     let mut check_f = vec![0u8; n * elem_bytes];
-    ops::mul_elementwise::<Fg>(&mut check_f, a_f.as_slice(), b_f.as_slice());
+    ops::mul_elementwise_into::<Fg>(&mut check_f, a_f.as_slice(), b_f.as_slice());
     let mut check_v = vec![Fp::ZERO; n];
     p3_elementwise::<Fp>(&mut check_v, a_v.as_slice(), b_v.as_slice());
     assert_canon::<Fg, Fp>(
@@ -648,7 +648,7 @@ fn run_slice_field<Fg, Fp>(
         LABELS[2],
         bytes,
         || {
-            ops::mul_elementwise::<Fg>(
+            ops::mul_elementwise_into::<Fg>(
                 black_box(d_f[2].as_mut_slice()),
                 black_box(a_f.as_slice()),
                 black_box(b_f.as_slice()),
@@ -861,7 +861,7 @@ fn run_quadratic(control_row: bool) {
     );
     {
         let mut check_f = vec![0u8; n * elem_bytes];
-        ops::mul_elementwise::<QuadMersenne31>(&mut check_f, a_f.as_slice(), b_f.as_slice());
+        ops::mul_elementwise_into::<QuadMersenne31>(&mut check_f, a_f.as_slice(), b_f.as_slice());
         let mut check_v = vec![PeSlot::default(); d_v[2].as_slice().len()];
         pe_elementwise(&mut check_v, a_v.as_slice(), b_v.as_slice());
         assert_canon::<QuadMersenne31, Ext>(
@@ -959,7 +959,7 @@ fn run_quadratic(control_row: bool) {
         LABELS[2],
         bytes,
         || {
-            ops::mul_elementwise::<QuadMersenne31>(
+            ops::mul_elementwise_into::<QuadMersenne31>(
                 black_box(d_f[2].as_mut_slice()),
                 black_box(a_f.as_slice()),
                 black_box(b_f.as_slice()),

@@ -705,8 +705,8 @@ pub fn fgf::ops::bits::set_range(&mut [u8], usize, usize, usize)
 pub fn fgf::ops::bits::weight(&[u8], usize) -> usize
 pub fn fgf::ops::bits::xor_assign(&mut [u8], &[u8])
 pub fn fgf::ops::bits::xor_gather(&mut [u8], usize, u64, &[&[u8]])
-pub fn fgf::ops::bits::xor_range(&mut [u8], &[u8], usize, usize, usize)
-pub fn fgf::ops::bits::xor_range_with(&mut [u8], &[u8], &fgf::ops::bits::XorRange)
+pub fn fgf::ops::bits::xor_range(&mut [u8], usize, usize, usize, &[u8])
+pub fn fgf::ops::bits::xor_range_with(&mut [u8], &fgf::ops::bits::XorRange, &[u8])
 pub struct fgf::ops::Coeff<F: fgf::FieldBuffer>
 impl<F: fgf::FieldBuffer> fgf::ops::Coeff<F>
 pub fn fgf::ops::Coeff<F>::new(fgf::Elem<F>) -> Self
@@ -733,7 +733,7 @@ pub fn fgf::ops::CoeffMatrix<F>::len(&self) -> usize
 pub const fn fgf::ops::CoeffMatrix<F>::output_count(&self) -> usize
 pub fn fgf::ops::CoeffMatrix<F>::source(&self, usize) -> core::option::Option<fgf::ops::CoeffVecRef<'_, F>>
 pub const fn fgf::ops::CoeffMatrix<F>::source_count(&self) -> usize
-pub fn fgf::ops::CoeffMatrix<F>::values(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = fgf::Elem<F>> + '_
+pub fn fgf::ops::CoeffMatrix<F>::to_source_major(&self) -> alloc::vec::Vec<fgf::Elem<F>>
 impl<F: fgf::FieldBuffer> core::clone::Clone for fgf::ops::CoeffMatrix<F>
 pub fn fgf::ops::CoeffMatrix<F>::clone(&self) -> Self
 impl<F: fgf::FieldBuffer> core::fmt::Debug for fgf::ops::CoeffMatrix<F>
@@ -810,9 +810,9 @@ pub fn fgf::ops::CoeffRef<'_, F>::value(&self) -> fgf::Elem<F>
 pub fn fgf::ops::add_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
 pub fn fgf::ops::add_assign_rows<F: fgf::FieldBuffer>(&mut [u8], usize, &[u8])
 pub fn fgf::ops::add_assign_scalar<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>)
-pub fn fgf::ops::add_gather_offsets<F: fgf::FieldBuffer>(&mut [u8], &[u8], &[u32])
-pub fn fgf::ops::div_elementwise<F: fgf::FieldBuffer>(&mut [u8], &[u8], &[u8])
+pub fn fgf::ops::add_gather_offsets<F: fgf::FieldBuffer>(&mut [u8], &[u32], &[u8])
 pub fn fgf::ops::div_elementwise_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::div_elementwise_into<F: fgf::FieldBuffer>(&mut [u8], &[u8], &[u8])
 pub fn fgf::ops::dot_product<F: fgf::FieldBuffer>(&[u8], &[u8]) -> fgf::Elem<F>
 pub fn fgf::ops::inv_assign<F: fgf::FieldBuffer>(&mut [u8])
 pub fn fgf::ops::inv_into<F: fgf::FieldBuffer>(&mut [u8], &[u8])
@@ -828,8 +828,8 @@ pub fn fgf::ops::mul_add_scatter_with<F: fgf::FieldBuffer>(&mut [u8], usize, fgf
 pub fn fgf::ops::mul_add_with<F: fgf::FieldBuffer>(&mut [u8], &impl fgf::ops::PreparedCoefficient<F>, &[u8])
 pub fn fgf::ops::mul_assign<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>)
 pub fn fgf::ops::mul_assign_with<F: fgf::FieldBuffer>(&mut [u8], &impl fgf::ops::PreparedCoefficient<F>)
-pub fn fgf::ops::mul_elementwise<F: fgf::FieldBuffer>(&mut [u8], &[u8], &[u8])
 pub fn fgf::ops::mul_elementwise_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::mul_elementwise_into<F: fgf::FieldBuffer>(&mut [u8], &[u8], &[u8])
 pub fn fgf::ops::mul_into<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>, &[u8])
 pub fn fgf::ops::mul_into_gather<F: fgf::FieldBuffer>(&mut [u8], &[fgf::Elem<F>], &[&[u8]])
 pub fn fgf::ops::mul_into_gather_with<F: fgf::FieldBuffer>(&mut [u8], fgf::ops::CoeffVecRef<'_, F>, &[&[u8]])

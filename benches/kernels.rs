@@ -902,11 +902,11 @@ fn bench_gf2_bits() {
         let from = bits / 4;
         let to = bits - bits / 8;
         bench("  bits::xor_range  5/8    packed", bytes, || {
-            fgf::ops::bits::xor_range(black_box(&mut dst), black_box(&a), bits, from, to);
+            fgf::ops::bits::xor_range(black_box(&mut dst), bits, from, to, black_box(&a));
         });
         let plan = fgf::ops::bits::XorRange::new(bits, from, to);
         bench("  bits::XorRange   5/8    packed", bytes, || {
-            fgf::ops::bits::xor_range_with(black_box(&mut dst), black_box(&a), black_box(&plan));
+            fgf::ops::bits::xor_range_with(black_box(&mut dst), black_box(&plan), black_box(&a));
         });
         bench("  ops::add_assign  gf8b control", bytes, || {
             ops::add_assign::<FiniteField<2, 8, Polynomial<AES>>>(
@@ -939,10 +939,10 @@ fn bench_gf2_short_rows() {
             let off = i * 2 * ROW_BYTES;
             fgf::ops::bits::xor_range(
                 black_box(&mut dst[off..off + ROW_BYTES]),
-                black_box(&src[off..off + ROW_BYTES]),
                 bits,
                 61,
                 69,
+                black_box(&src[off..off + ROW_BYTES]),
             );
         }
     });
@@ -952,8 +952,8 @@ fn bench_gf2_short_rows() {
             let off = i * 2 * ROW_BYTES;
             fgf::ops::bits::xor_range_with(
                 black_box(&mut dst[off..off + ROW_BYTES]),
-                black_box(&src[off..off + ROW_BYTES]),
                 black_box(&plan),
+                black_box(&src[off..off + ROW_BYTES]),
             );
         }
     });
@@ -1922,7 +1922,7 @@ where
     }
 }
 
-/// Elementwise panels for one four-byte row: `mul_elementwise` and
+/// Elementwise panels for one four-byte row: `mul_elementwise_into` and
 /// `mul_elementwise_assign` at short lengths, with the same
 /// region, placement, and oracle discipline as the single-row panels.
 #[allow(clippy::cast_possible_truncation)]
@@ -1952,7 +1952,7 @@ where
             .map(|(&a, &b)| ((a as u128 * b as u128) % modulus) as u64)
             .collect();
         let mut probe = vec![0u8; len];
-        ops::mul_elementwise::<F>(&mut probe, &a0, &b0);
+        ops::mul_elementwise_into::<F>(&mut probe, &a0, &b0);
         prime_check(
             &probe,
             bytes,
@@ -2049,7 +2049,7 @@ where
             &a0,
             &b0,
             |dst, a, b| {
-                ops::mul_elementwise::<F>(dst, a, b);
+                ops::mul_elementwise_into::<F>(dst, a, b);
             },
         );
         // Direct column: the vector body through `internals` with the
@@ -2669,14 +2669,14 @@ fn run_panels() {
                 );
             });
             bench("elementwise                gf8b", len, || {
-                ops::mul_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(
+                ops::mul_elementwise_into::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut product),
                     black_box(&src),
                     black_box(&rhs),
                 );
             });
             bench("elementwise               gf16b", len, || {
-                ops::mul_elementwise::<Gf16>(
+                ops::mul_elementwise_into::<Gf16>(
                     black_box(&mut product),
                     black_box(&src),
                     black_box(&rhs),
@@ -2742,7 +2742,7 @@ fn run_panels() {
                 );
             });
             bench("elementwise                  m31", len, || {
-                ops::mul_elementwise::<Mersenne31>(
+                ops::mul_elementwise_into::<Mersenne31>(
                     black_box(&mut product),
                     black_box(&src),
                     black_box(&rhs),
@@ -2772,7 +2772,7 @@ fn run_panels() {
                 );
             });
             bench("elementwise                  gld", len, || {
-                ops::mul_elementwise::<Goldilocks>(
+                ops::mul_elementwise_into::<Goldilocks>(
                     black_box(&mut product),
                     black_box(&src),
                     black_box(&rhs),
@@ -2802,7 +2802,7 @@ fn run_panels() {
                 );
             });
             bench("elementwise                 qm31", len, || {
-                ops::mul_elementwise::<QuadMersenne31>(
+                ops::mul_elementwise_into::<QuadMersenne31>(
                     black_box(&mut product),
                     black_box(&src),
                     black_box(&rhs),

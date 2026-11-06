@@ -63,7 +63,7 @@ fn combine<F: FieldBuffer>(a: [Elem<F>; 4], b: [Elem<F>; 4], challenge: Elem<F>)
 
     // output[i] = a[i]*b[i] + challenge*a[i]. Output storage and prepared
     // state can be retained for subsequent vectors with the same geometry.
-    ops::mul_elementwise::<F>(&mut output, &packed_a, &packed_b);
+    ops::mul_elementwise_into::<F>(&mut output, &packed_a, &packed_b);
     ops::mul_add_with::<F>(&mut output, &prepared, &packed_a);
     let mut elements = [Elem::<F>::ZERO; 4];
     ops::unpack::<F>(&mut elements, &output);

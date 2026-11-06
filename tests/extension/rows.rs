@@ -432,7 +432,7 @@ fn packed_surface_matches_element_arithmetic() {
 
     // Elementwise multiplication.
     let mut product = buffer;
-    ops::mul_elementwise::<Gf49>(&mut product, &buffer, &buffer);
+    ops::mul_elementwise_into::<Gf49>(&mut product, &buffer, &buffer);
     ops::unpack(&mut double, &product);
     for (element, pair) in double.iter().zip(&rows) {
         assert_eq!(*element, pair.0 * pair.0);
@@ -475,7 +475,7 @@ fn packed_surface_matches_element_arithmetic() {
     let mut region = [0u8; 4 * LANE];
     region[..2 * LANE].copy_from_slice(&buffer[..2 * LANE]);
     let source = region;
-    ops::add_gather_offsets::<Gf49>(&mut region[2 * LANE..], &source, &[0, 0]);
+    ops::add_gather_offsets::<Gf49>(&mut region[2 * LANE..], &[0, 0], &source);
     ops::unpack(&mut double[..2], &region[2 * LANE..]);
     assert_eq!(double[0], flat[0] + flat[0]);
     assert_eq!(double[1], flat[1] + flat[1]);
@@ -494,7 +494,7 @@ fn packed_surface_matches_element_arithmetic() {
     ops::unpack(&mut unpacked, &packed_buffer);
     assert_eq!(unpacked[0].to_raw(), 0);
     assert_eq!(unpacked[1].to_raw(), 0);
-    ops::mul_elementwise::<Packed16>(&mut packed_buffer, &packed_source, &packed_source);
+    ops::mul_elementwise_into::<Packed16>(&mut packed_buffer, &packed_source, &packed_source);
     ops::unpack(&mut unpacked, &packed_buffer);
     let first = Elem::<Packed16>::from_raw(0x1234);
     let second = Elem::<Packed16>::from_raw(0x0F0F);

@@ -34,7 +34,7 @@ use super::single::mul_into_with;
 /// // Two 2-byte rows in one backing region, folded into `dst`.
 /// let region = [0x01u8, 0x02, 0x10, 0x20];
 /// let mut dst = [0x40u8, 0x80];
-/// ops::add_gather_offsets::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &region, &[0, 2]);
+/// ops::add_gather_offsets::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &[0, 2], &region);
 /// assert_eq!(dst, [0x51, 0xa2]);
 /// ```
 ///
@@ -45,7 +45,7 @@ use super::single::mul_into_with;
 /// `region` and `dst` borrow disjoint memory by construction, as with every
 /// two-slice operation in this crate.
 #[inline]
-pub fn add_gather_offsets<F: FieldBuffer>(dst: &mut [u8], region: &[u8], offsets: &[u32]) {
+pub fn add_gather_offsets<F: FieldBuffer>(dst: &mut [u8], offsets: &[u32], region: &[u8]) {
     check_width::<F>("add_gather_offsets", "dst", dst.len());
     let live = dst.len();
     for (index, &start) in offsets.iter().enumerate() {

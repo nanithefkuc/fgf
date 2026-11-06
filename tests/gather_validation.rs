@@ -46,7 +46,7 @@ fn invalid_later_offset_never_mutates() {
     let region = noise(256, 0x51);
     let dst = noise(32, 0x52);
     rejects_without_mutating(&dst, |got| {
-        ops::add_gather_offsets::<Gf8>(got, &region, &[0, 64, 4_096]);
+        ops::add_gather_offsets::<Gf8>(got, &[0, 64, 4_096], &region);
     });
 }
 
@@ -57,7 +57,7 @@ fn non_xor_residue_field_rejects_before_mutation() {
     let region = noise(256, 0x53);
     let dst = noise(64, 0x54);
     rejects_without_mutating(&dst, |got| {
-        ops::add_gather_offsets::<Goldilocks>(got, &region, &[0, 8, 65_536]);
+        ops::add_gather_offsets::<Goldilocks>(got, &[0, 8, 65_536], &region);
     });
 }
 
@@ -81,11 +81,11 @@ fn overflowing_offset_rejects_before_mutation_on_32_bit() {
     let region = noise(0x3c, 0x55);
     let dst = vec![0xa5u8; 0x3c];
     rejects_without_mutating(&dst, |got| {
-        ops::add_gather_offsets::<Gf8>(got, &region, &[0, u32::MAX]);
+        ops::add_gather_offsets::<Gf8>(got, &[0, u32::MAX], &region);
     });
     let region = noise(64, 0x56);
     let dst = vec![0xa5u8; 64];
     rejects_without_mutating(&dst, |got| {
-        ops::add_gather_offsets::<Goldilocks>(got, &region, &[0, u32::MAX]);
+        ops::add_gather_offsets::<Goldilocks>(got, &[0, u32::MAX], &region);
     });
 }

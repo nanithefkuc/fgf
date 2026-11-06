@@ -232,10 +232,10 @@ mod imp {
 
     fn bench_mul_elementwise(c: &mut Criterion) {
         let Some(token) = X64V3Token::summon() else {
-            eprintln!("skipping mul_elementwise: no AVX2 on this host");
+            eprintln!("skipping mul_elementwise_into: no AVX2 on this host");
             return;
         };
-        let mut g = group(c, "mul_elementwise");
+        let mut g = group(c, "mul_elementwise_into");
         for &len in ROWS {
             let a = canonical(len, 0x7000 + len as u64);
             let b = canonical(len, 0x9000 + len as u64);
@@ -243,9 +243,9 @@ mod imp {
             bench_row(
                 &mut g,
                 len,
-                "mul_elementwise",
+                "mul_elementwise_into",
                 &base,
-                |dst| ops::mul_elementwise::<QuadMersenne31>(dst, &a, &b),
+                |dst| ops::mul_elementwise_into::<QuadMersenne31>(dst, &a, &b),
                 |dst| x86::quad_mersenne31::mul_elementwise_avx2(token, dst, &a, &b),
             );
         }

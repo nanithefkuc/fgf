@@ -16,9 +16,9 @@ the same flow with their [lane encoding](Coordinates-and-packed-bytes).
 | `out[o] += c[o] * src` | One source, many outputs | `mul_add_scatter` |
 | `dst = sum(c[s] * src[s])` | Many sources, one output | `mul_into_gather` |
 | `out[o] = sum(c[s,o] * src[s])` | Many sources, many outputs | `mul_into_matrix` |
-| `dst[i] = a[i] * b[i]` | Two varying operands | `mul_elementwise` |
+| `dst[i] = a[i] * b[i]` | Two varying operands | `mul_elementwise_into` |
 | `dst[i] = 1 / src[i]` | One row, reciprocal lanes | `inv_into` / `inv_assign` |
-| `dst[i] = a[i] / b[i]` | Two varying operands | `div_elementwise` / `div_elementwise_assign` |
+| `dst[i] = a[i] / b[i]` | Two varying operands | `div_elementwise_into` / `div_elementwise_assign` |
 | `sum(a[i] * b[i])` | Two rows, one element | `dot_product` |
 
 Overwrite calls need no pre-zeroing. Accumulation needs a deliberate starting

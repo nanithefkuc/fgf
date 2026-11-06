@@ -59,11 +59,11 @@ const API_MUL_INTO: &[&str] = &["fgf::ops::mul_into"];
 const API_MUL_INTO_WITH: &[&str] = &["fgf::ops::mul_into_with", "fgf::ops::Coeff::new"];
 const API_MUL_ASSIGN: &[&str] = &["fgf::ops::mul_assign"];
 const API_MUL_ASSIGN_WITH: &[&str] = &["fgf::ops::mul_assign_with", "fgf::ops::Coeff::new"];
-const API_ELEMENTWISE: &[&str] = &["fgf::ops::mul_elementwise"];
+const API_ELEMENTWISE: &[&str] = &["fgf::ops::mul_elementwise_into"];
 const API_ELEMENTWISE_ASSIGN: &[&str] = &["fgf::ops::mul_elementwise_assign"];
 const API_INV_INTO: &[&str] = &["fgf::ops::inv_into"];
 const API_INV_ASSIGN: &[&str] = &["fgf::ops::inv_assign"];
-const API_DIV_ELEMENTWISE: &[&str] = &["fgf::ops::div_elementwise"];
+const API_DIV_ELEMENTWISE: &[&str] = &["fgf::ops::div_elementwise_into"];
 const API_DIV_ELEMENTWISE_ASSIGN: &[&str] = &["fgf::ops::div_elementwise_assign"];
 const API_DOT_PRODUCT: &[&str] = &["fgf::ops::dot_product"];
 const API_SUB_ROWS: &[&str] = &["fgf::ops::sub_assign_rows"];
@@ -448,13 +448,13 @@ fn register_elementwise<F: FieldBuffer>(label: &'static str) {
                 &case.case,
                 |d, s| {
                     let left = d.to_vec();
-                    ops::mul_elementwise::<F>(d, &left, s);
+                    ops::mul_elementwise_into::<F>(d, &left, s);
                 },
                 |x, y| x * y,
             );
             let backend = fields::backend_name::<F>();
             registry::time(case, ctx, &backend, || {
-                ops::mul_elementwise::<F>(black_box(&mut dst), black_box(&a), black_box(&b));
+                ops::mul_elementwise_into::<F>(black_box(&mut dst), black_box(&a), black_box(&b));
                 fixture::observe(dst.len());
             });
         },
@@ -589,14 +589,14 @@ fn register_div_elementwise<F: FieldBuffer>(label: &'static str) {
                     .zip(fixture::lanes::<F>(&orb))
                     .map(|(x, y)| x.div(y))
                     .collect();
-                ops::div_elementwise::<F>(&mut got, &ora, &orb);
+                ops::div_elementwise_into::<F>(&mut got, &ora, &orb);
                 let mut encoded = vec![0u8; got.len()];
                 fixture::write_lanes::<F>(&mut encoded, &expected);
                 fixture::assert_bytes_equal(&case.case, &got, &encoded);
             }
             let backend = fields::backend_name::<F>();
             registry::time(case, ctx, &backend, || {
-                ops::div_elementwise::<F>(black_box(&mut dst), black_box(&a), black_box(&b));
+                ops::div_elementwise_into::<F>(black_box(&mut dst), black_box(&a), black_box(&b));
                 fixture::observe(dst.len());
             });
         },

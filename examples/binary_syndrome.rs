@@ -52,7 +52,7 @@ fn main() {
     );
     // Range operations change only their window, preserving the padding bit.
     let live_bits = bits::XorRange::new(LENGTH, 0, LENGTH);
-    bits::xor_range_with(&mut with_padding, &codeword, &live_bits);
+    bits::xor_range_with(&mut with_padding, &live_bits, &codeword);
     assert_eq!(with_padding, [0x80]);
     println!("Logical-length queries ignore padding; range XOR preserves it.");
 }

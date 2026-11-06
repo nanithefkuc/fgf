@@ -142,13 +142,13 @@ fn lsb_first_layout_fingerprint_is_frozen() {
     }
 }
 
-/// The plan's named known-answer: a cross-byte `xor_range(_, _, 5, 13)`
+/// The plan's named known-answer: a cross-byte `xor_range(_, 16, 5, 13, _)`
 /// touching two bytes and leaving bits `0..5` and `13..` untouched.
 #[test]
 fn xor_range_cross_byte_kat() {
     let src = [0xffu8, 0xff];
     let mut dst = [0b1010_1010u8, 0b0101_0101];
-    bits::xor_range(&mut dst, &src, 16, 5, 13);
+    bits::xor_range(&mut dst, 16, 5, 13, &src);
 
     // Byte 0: bits 0..5 keep 01010, bits 5..8 flip 101.
     assert_eq!(dst[0], 0b1010_1010 ^ 0b1110_0000);
@@ -253,21 +253,21 @@ fn range_ops_match_per_bit_oracle() {
                     put(&mut oracle, i, flipped);
                 }
             }
-            bits::xor_range(&mut dst, &src, bits_len, from, to);
+            bits::xor_range(&mut dst, bits_len, from, to, &src);
             assert_eq!(dst, oracle, "xor_range {from}..{to} of {bits_len}");
             assert_padding_zero(&dst, bits_len);
 
             let mut split = base.clone();
             let plan = bits::XorRange::new(bits_len, from, to);
-            bits::xor_range_with(&mut split, &src, &plan);
+            bits::xor_range_with(&mut split, &plan, &src);
             assert_eq!(split, dst, "xor_range_with {from}..{to} of {bits_len}");
             // The plan applies repeatedly and to buffers of different
             // lengths: a longer `src` contributes nothing past its live
             // bits, exactly like the one-shot form.
             let mut long_src = src.clone();
             long_src.resize(src.len() + 8, 0xA5);
-            bits::xor_range_with(&mut split, &long_src, &plan);
-            bits::xor_range(&mut dst, &src, bits_len, from, to);
+            bits::xor_range_with(&mut split, &plan, &long_src);
+            bits::xor_range(&mut dst, bits_len, from, to, &src);
             assert_eq!(split, dst, "repeated apply {from}..{to} of {bits_len}");
             assert_padding_zero(&split, bits_len);
 
@@ -415,19 +415,19 @@ fn xor_rejects_length_mismatch() {
 #[test]
 #[should_panic(expected = "bits::xor_range: dst is 2 bytes but src is 3 bytes")]
 fn xor_range_rejects_length_mismatch() {
-    bits::xor_range(&mut [0u8; 2], &[0u8; 3], 16, 0, 8);
+    bits::xor_range(&mut [0u8; 2], 16, 0, 8, &[0u8; 3]);
 }
 
 #[test]
 #[should_panic(expected = "bits::xor_range: range start 9 exceeds end 5")]
 fn xor_range_rejects_inverted_range() {
-    bits::xor_range(&mut [0u8; 2], &[0u8; 2], 16, 9, 5);
+    bits::xor_range(&mut [0u8; 2], 16, 9, 5, &[0u8; 2]);
 }
 
 #[test]
 #[should_panic(expected = "bits::xor_range: range end 13 exceeds the 8 live bits")]
 fn xor_range_rejects_range_past_live_bits() {
-    bits::xor_range(&mut [0u8; 1], &[0u8; 1], 8, 5, 13);
+    bits::xor_range(&mut [0u8; 1], 8, 5, 13, &[0u8; 1]);
 }
 
 #[test]
@@ -448,12 +448,12 @@ fn range_xor_rejects_range_past_live_bits() {
 )]
 fn xor_range_with_rejects_short_buffers() {
     let plan = bits::XorRange::new(13, 5, 13);
-    bits::xor_range_with(&mut [0u8; 1], &[0u8; 1], &plan);
+    bits::xor_range_with(&mut [0u8; 1], &plan, &[0u8; 1]);
 }
 #[test]
 #[should_panic(expected = "bits::xor_range: 13 bits need at least 2 bytes but dst holds 1")]
 fn xor_range_rejects_short_buffer() {
-    bits::xor_range(&mut [0u8; 1], &[0u8; 1], 13, 5, 13);
+    bits::xor_range(&mut [0u8; 1], 13, 5, 13, &[0u8; 1]);
 }
 
 #[test]
