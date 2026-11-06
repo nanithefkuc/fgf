@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-11-06
+
+The 4.x stable surface: one public path per item, sealed trait plumbing,
+`FieldBuffer` as the sole byte-operation bound, and the crate's error
+classification. Every item and guarantee listed here holds for all of 4.x.
+The [3.x migration guide](https://github.com/nanithefkuc/fgf/wiki/Migrating-from-3.x)
+collects every breaking change below.
+
 ### Added
 
 - A committed stable API inventory under `api/`, generated for the portable,
@@ -2030,7 +2038,8 @@ behaviour.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v3.0.2...HEAD
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v4.0.0...HEAD
+[4.0.0]: https://github.com/nanithefkuc/fgf/compare/v3.0.2...v4.0.0
 [3.0.2]: https://github.com/nanithefkuc/fgf/compare/v3.0.1...v3.0.2
 [3.0.1]: https://github.com/nanithefkuc/fgf/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/nanithefkuc/fgf/compare/v2.1.0...v3.0.0
