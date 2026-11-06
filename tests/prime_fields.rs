@@ -8,9 +8,15 @@
 //! over `u64` and multiplies by the schoolbook `(a+bi)(c+di)` expansion.
 
 use core::hint::black_box;
-use fgf::field::{goldilocks, is_prime, mersenne31};
-use fgf::kernel::vector_elementwise_min_bytes;
-use fgf::{Elem, Goldilocks, Mersenne31, QuadMersenne31, has_vector_elementwise, ops};
+use fgf::extension::QuadMersenne31;
+use fgf::prime::{Goldilocks, Mersenne31, PrimeIdentity, is_prime};
+use fgf::{Elem, Field, ops};
+
+/// The Mersenne31 characteristic, read through the prime identity.
+const M31_P: u64 = <<Mersenne31 as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC;
+
+/// The Goldilocks characteristic, read through the prime identity.
+const GLD_P: u64 = <<Goldilocks as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC;
 
 /// Primality by trial division up to `√n`.
 fn trial_division_prime(n: u64) -> bool {
@@ -273,7 +279,7 @@ fn quad_mersenne31_ops_canonicalize_raw_limbs() {
         assert_eq!(got, zip(&dst_raw, &src_raw, sub), "sub_assign len {len}");
 
         let mut got = vec![0u8; len];
-        ops::mul_elementwise::<QuadMersenne31>(&mut got, &dst, &src);
+        ops::mul_elementwise_into::<QuadMersenne31>(&mut got, &dst, &src);
         assert_eq!(
             got,
             zip(&dst_raw, &src_raw, mul),
@@ -332,19 +338,6 @@ fn quad_mersenne31_ops_canonicalize_raw_limbs() {
             );
         }
     }
-}
-
-/// The elementwise vector threshold is a whole number of elements, and it
-/// is nonzero exactly when a vector kernel serves the elementwise product.
-#[test]
-fn quad_mersenne31_elementwise_threshold_is_consistent() {
-    let threshold = vector_elementwise_min_bytes::<QuadMersenne31>();
-    assert_eq!(threshold % 8, 0, "threshold {threshold} splits an element");
-    assert_eq!(
-        threshold != 0,
-        has_vector_elementwise::<QuadMersenne31>(),
-        "threshold {threshold} disagrees with elementwise eligibility"
-    );
 }
 
 /// The identity predicates read the canonical limbs: zero reports zero and
@@ -445,15 +438,9 @@ fn quad_scalar_operations_accept_raw_aliases() {
 /// `from_raw` fold to non-canonical lanes, in `const` context too.
 #[test]
 fn prime_rows_canonical_matches_from_raw() {
-    const M31_RAW: [u32; 6] = [
-        0,
-        1,
-        mersenne31::MODULUS - 1,
-        mersenne31::MODULUS,
-        mersenne31::MODULUS + 1,
-        u32::MAX,
-    ];
-    for raw in M31_RAW {
+    let m31_lane = u32::try_from(M31_P).expect("the Mersenne31 characteristic fits its lane");
+    let m31_raw: [u32; 6] = [0, 1, m31_lane - 1, m31_lane, m31_lane + 1, u32::MAX];
+    for raw in m31_raw {
         let reduced = Elem::<Mersenne31>::from_raw(raw);
         assert_eq!(reduced.canonical(), reduced, "m31 canonical {raw:#x}");
         assert_eq!(
@@ -468,19 +455,12 @@ fn prime_rows_canonical_matches_from_raw() {
         "0xFFFF_FFFF folds to one"
     );
     assert_eq!(
-        Elem::<Mersenne31>::from_raw(mersenne31::MODULUS).to_raw(),
+        Elem::<Mersenne31>::from_raw(m31_lane).to_raw(),
         0,
         "modulus folds to zero"
     );
-    const GLD_RAW: [u64; 6] = [
-        0,
-        1,
-        goldilocks::MODULUS - 1,
-        goldilocks::MODULUS,
-        goldilocks::MODULUS + 1,
-        u64::MAX,
-    ];
-    for raw in GLD_RAW {
+    let gld_raw: [u64; 6] = [0, 1, GLD_P - 1, GLD_P, GLD_P + 1, u64::MAX];
+    for raw in gld_raw {
         let reduced = Elem::<Goldilocks>::from_raw(raw);
         assert_eq!(
             reduced.canonical(),
@@ -494,7 +474,7 @@ fn prime_rows_canonical_matches_from_raw() {
         );
     }
     assert_eq!(
-        Elem::<Goldilocks>::from_raw(goldilocks::MODULUS).to_raw(),
+        Elem::<Goldilocks>::from_raw(GLD_P).to_raw(),
         0,
         "modulus folds to zero"
     );

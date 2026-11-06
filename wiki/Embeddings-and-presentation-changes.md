@@ -13,11 +13,13 @@ Embed the smaller field through a root of its defining polynomial in the
 target, not by treating its coordinates as a byte prefix:
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Embedding, Polynomial};
+use fgf::{FiniteField, Elem};
+use fgf::binary::{AES, Polynomial};
+use fgf::maps::Embedding;
 
 type Small = FiniteField<2, 4, Polynomial<0x13>>;
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
-let inclusion = Embedding::<Small, Aes>::new().unwrap();
+let inclusion = Embedding::<Small, Aes>::new();
 let x = Elem::<Small>::from_raw(2);
 let image = inclusion.embed(x);
 assert_eq!(image.to_raw(), 0x5c);
@@ -34,11 +36,13 @@ outside this particular subfield.
 AES-to-RS conversion preserves arithmetic, not raw bytes:
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Isomorphism, Polynomial, RS};
+use fgf::{FiniteField, Elem};
+use fgf::binary::{AES, Polynomial, RS};
+use fgf::maps::Isomorphism;
 
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
 type Rs = FiniteField<2, 8, Polynomial<RS>>;
-let change = Isomorphism::<Aes, Rs>::new().unwrap();
+let change = Isomorphism::<Aes, Rs>::new();
 let a = Elem::<Aes>::from_raw(0x53);
 let b = Elem::<Aes>::from_raw(0xca);
 assert_eq!(change.apply(a * b), change.apply(a) * change.apply(b));
@@ -57,14 +61,17 @@ not tuning options. `then` composes by image transport, so the composed
 inclusion equals the direct one:
 
 ```rust
-use fgf::{AES, Elem, Embedding, Extension, FiniteField, Polynomial, Rijndael16, Rijndael64};
+use fgf::{Elem, FiniteField};
+use fgf::binary::{AES, Polynomial, Rijndael16, Rijndael64};
+use fgf::extension::Extension;
+use fgf::maps::Embedding;
 
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
 type Mid = FiniteField<2, 16, Extension<Rijndael16, 2>>;
 type Wide = FiniteField<2, 64, Extension<Rijndael64, 2>>;
-let first = Embedding::<Aes, Mid>::new().unwrap();
-let second = Embedding::<Mid, Wide>::new().unwrap();
-let direct = Embedding::<Aes, Wide>::new().unwrap();
+let first = Embedding::<Aes, Mid>::new();
+let second = Embedding::<Mid, Wide>::new();
+let direct = Embedding::<Aes, Wide>::new();
 let composed = first.then(&second);
 let x = Elem::<Aes>::from_raw(0x53);
 assert_eq!(composed.embed(x), direct.embed(x));
@@ -79,16 +86,19 @@ composes the other order, an isomorphism into a proper inclusion;
 `Isomorphism::then` composes two isomorphisms:
 
 ```rust
-use fgf::{AES, Elem, Embedding, Extension, FiniteField, Isomorphism, Polynomial, RS, Rijndael16};
+use fgf::{Elem, FiniteField};
+use fgf::binary::{AES, Polynomial, RS, Rijndael16};
+use fgf::extension::Extension;
+use fgf::maps::{Embedding, Isomorphism};
 
 type Nibble = FiniteField<2, 4, Polynomial<0x13>>;
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
 type Rs = FiniteField<2, 8, Polynomial<RS>>;
 type Tower = FiniteField<2, 16, Extension<Rijndael16, 2>>;
 
-let lift = Embedding::<Nibble, Aes>::new().unwrap();
-let swap = Isomorphism::<Aes, Rs>::new().unwrap();
-let raise = Embedding::<Rs, Tower>::new().unwrap();
+let lift = Embedding::<Nibble, Aes>::new();
+let swap = Isomorphism::<Aes, Rs>::new();
+let raise = Embedding::<Rs, Tower>::new();
 
 let into_rs = lift.then(&swap);
 let nibble = Elem::<Nibble>::from_raw(2);
@@ -106,11 +116,14 @@ For source order `q` and relative extension degree `r`, relative Frobenius sends
 In the Rijndael degree-sixteen relation `t² + t + 0x20 = 0`, the conjugate of `a + b*t` is `(a + b) + b*t`. Its trace is `b`; its norm is `a² + a*b + 0x20*b²`.
 
 ```rust
-use fgf::{AES, Elem, Embedding, Extension, FiniteField, Polynomial, Rijndael16};
+use fgf::{Elem, FiniteField};
+use fgf::binary::{AES, Polynomial, Rijndael16};
+use fgf::extension::Extension;
+use fgf::maps::Embedding;
 
 type Base = FiniteField<2, 8, Polynomial<AES>>;
 type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
-let map = Embedding::<Base, Gf16>::new().unwrap();
+let map = Embedding::<Base, Gf16>::new();
 let a = Elem::<Base>::from_raw(0x53);
 let b = Elem::<Base>::from_raw(0xca);
 let z = Elem::<Gf16>::from_components([a, b]);
@@ -128,38 +141,38 @@ Embedding from polynomial GF(2) gives absolute trace and norm.
 
 Prepare a map once and reuse it. Construction and application use fixed-size
 arrays without allocation. `from_images` checks caller-supplied generator
-images when a canonical map is unavailable.
+images when a canonical map is unavailable, and no canonical map is required:
+any image sequence that satisfies the transported relations fixes a map.
 
-An `Embedding` needs a source degree that strictly divides the target
-degree, and an `Isomorphism` needs equal degrees; each constructor rejects
-the pair the other owns, reporting `EqualDegree` and `IncompatibleDegree`
-respectively. Restrict through a valid smaller-to-larger map rather than
-constructing the reverse inclusion:
+Degree contracts reject at code generation, not at runtime: an `Embedding`
+needs a source degree that strictly divides the target degree, and an
+`Isomorphism` needs equal degrees, so an impossible pair fails the build
+(`cargo build` and `cargo test` catch it; `cargo check` alone may skip it).
+On a pair inside the contracts that no structural or ladder rule covers,
+canonical construction panics instead of guessing; restrict through a valid
+smaller-to-larger map rather than constructing the reverse inclusion:
 
 ```rust
-use fgf::{AES, Embedding, EmbeddingError, Extension, FiniteField, Isomorphism, Polynomial, RS, Rijndael16};
+use fgf::{Elem, FiniteField};
+use fgf::binary::{AES, Polynomial};
+use fgf::extension::Extension;
+use fgf::maps::Embedding;
 
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
-type Rs = FiniteField<2, 8, Polynomial<RS>>;
-type Large = FiniteField<2, 16, Extension<Rijndael16, 2>>;
-assert_eq!(
-    Embedding::<Aes, Rs>::new().unwrap_err(),
-    EmbeddingError::EqualDegree { degree: 8 },
-);
-assert_eq!(
-    Isomorphism::<Aes, Large>::new().unwrap_err(),
-    EmbeddingError::IncompatibleDegree { source: 8, target: 16 },
-);
-assert_eq!(
-    Embedding::<Large, Aes>::new().unwrap_err(),
-    EmbeddingError::IncompatibleDegree { source: 16, target: 8 },
-);
+type Gf16 = FiniteField<2, 16, Extension<fgf::binary::Rijndael16, 2>>;
+let tower = Embedding::<Aes, Gf16>::new();
+let byte = tower.restrict(Elem::<Gf16>::from_components([
+    Elem::<Aes>::from_raw(0x53),
+    Elem::<Aes>::ZERO,
+])).unwrap();
+
+// A wrong-count image sequence rejects with `ImageError` as a value.
+assert!(Embedding::<Aes, Gf16>::from_images(&[]).is_err());
 ```
 
-Run the [complete example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/examples/embeddings.rs)
+Run the [complete example](https://github.com/nanithefkuc/fgf/blob/v4.0.0/examples/embeddings.rs)
 with `just example embeddings`, and the
-[basis-maps example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/examples/basis_maps.rs)
+[basis-maps example](https://github.com/nanithefkuc/fgf/blob/v4.0.0/examples/basis_maps.rs)
 with `just example basis_maps` for the ordered-basis presentations. The
-[embedding reference](https://docs.rs/fgf/3.0.2/fgf/field/embedding/index.html)
+[embedding reference](https://docs.rs/fgf/4.0.0/fgf/maps/index.html)
 owns map construction and error contracts.
-

@@ -6,34 +6,68 @@
 //! borrowed [`CoeffRef`] and [`CoeffVecRef`] views, so a preparation is
 //! built once and applied without copying backend tables.
 
-use crate::field::Elem;
-use crate::kernel::{FieldKernels, KernelDispatch, RawDispatch};
+use crate::field::FieldBuffer;
+use crate::field::dispatch::{KernelDispatch, RawDispatch};
+use crate::field::{Elem, Validate};
 
-use super::{PreparedCoefficient, PreparedRepr, private};
+mod private {
+    pub trait Sealed {}
+}
+
+/// A borrowed or owned backend-prepared coefficient.
+///
+/// This trait is sealed: values come from [`Coeff`] or, with `alloc`, a
+/// `CoeffVec` or `CoeffMatrix`.
+/// It exists so the `_with` operations can consume either without cloning the
+/// prepared tables. It exposes the coefficient's field value only — the
+/// backend representation stays crate-private, so no consumer can extract or
+/// depend on a preparation format.
+// The private supertrait seals access to backend preparation.
+#[allow(private_bounds)]
+pub trait PreparedCoefficient<F: FieldBuffer>: private::Sealed + PreparedRepr<F> {
+    /// The field element this prepared representation multiplies by.
+    fn value(&self) -> Elem<F>;
+}
+
+/// Crate-private access to the backend representation behind
+/// [`PreparedCoefficient`].
+///
+/// A supertrait with an unnameable proof argument: external generic code
+/// bound on `PreparedCoefficient` can see the method through bound
+/// elaboration but cannot construct the [`RawDispatch`] it takes, so the
+/// representation is unreachable outside the crate.
+pub(crate) trait PreparedRepr<F: FieldBuffer>: private::Sealed {
+    /// Borrows the backend-private representation.
+    fn repr(&self, _proof: RawDispatch) -> &<F as KernelDispatch>::Prepared;
+}
 
 /// A coefficient already resolved into the host backend's preferred form.
 ///
-/// Build once, use many times. Construction is not free on every field — see
-/// the [`ops`](crate::ops) module docs — but it is idempotent, allocates
-/// nothing (the resolved form is a plain value), and the result is immutable,
-/// so a `Coeff` can be cached alongside a coding matrix for the life of a
-/// codec.
+/// Built once and used many times. Construction is not free on every field — see
+/// the [`ops`](crate::ops) module docs — but it is idempotent, stores the
+/// resolved form inline, and the result is immutable, so a `Coeff` can be
+/// cached alongside a coding matrix for the life of a codec. Once the process
+/// backend is resolved, construction does not allocate; the first backend
+/// resolution in a process may allocate while it reads the `SIMD_BACKEND`
+/// override.
 ///
 /// The prepared representation is backend-defined and deliberately opaque:
 /// the element it multiplies by is the whole public surface ([`Coeff::value`]).
+/// Its size and layout are unspecified: consumers must not depend on them.
 ///
 /// Bound to the process's backend at construction. That is not a hazard in
 /// practice (the backend is fixed after first use), but it does mean a
 /// `Coeff` is not meaningful to serialize — rebuild it from the element.
-pub struct Coeff<F: FieldKernels> {
+pub struct Coeff<F: FieldBuffer> {
     prepared: <F as KernelDispatch>::Prepared,
 }
 
-impl<F: FieldKernels> Coeff<F> {
-    /// Resolve `coeff` for this host.
+impl<F: FieldBuffer> Coeff<F> {
+    /// Resolves `coeff` for this host.
     #[inline]
     #[must_use]
     pub fn new(coeff: Elem<F>) -> Self {
+        let () = Validate::<F>::OK;
         Self {
             prepared: F::prepare(RawDispatch, coeff),
         }
@@ -47,7 +81,7 @@ impl<F: FieldKernels> Coeff<F> {
     }
 }
 
-impl<F: FieldKernels> Clone for Coeff<F> {
+impl<F: FieldBuffer> Clone for Coeff<F> {
     fn clone(&self) -> Self {
         Self {
             prepared: self.prepared.clone(),
@@ -55,22 +89,22 @@ impl<F: FieldKernels> Clone for Coeff<F> {
     }
 }
 
-impl<F: FieldKernels> core::fmt::Debug for Coeff<F> {
+impl<F: FieldBuffer> core::fmt::Debug for Coeff<F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("Coeff").field(&self.value()).finish()
     }
 }
 
-impl<F: FieldKernels> private::Sealed for Coeff<F> {}
+impl<F: FieldBuffer> private::Sealed for Coeff<F> {}
 
-impl<F: FieldKernels> PreparedCoefficient<F> for Coeff<F> {
+impl<F: FieldBuffer> PreparedCoefficient<F> for Coeff<F> {
     #[inline]
     fn value(&self) -> Elem<F> {
         Coeff::value(self)
     }
 }
 
-impl<F: FieldKernels> PreparedRepr<F> for Coeff<F> {
+impl<F: FieldBuffer> PreparedRepr<F> for Coeff<F> {
     #[inline]
     fn repr(&self, _proof: RawDispatch) -> &<F as KernelDispatch>::Prepared {
         &self.prepared
@@ -79,17 +113,17 @@ impl<F: FieldKernels> PreparedRepr<F> for Coeff<F> {
 
 /// A borrowed prepared coefficient inside a [`CoeffVec`] or [`CoeffMatrix`].
 ///
-/// Unlike cloning a [`Coeff`], this copies only a pointer even when the
-/// backend representation is a full GF(2^16) nibble-table set.
+/// `Copy` and borrowed from its collection for `'a`: copying it never copies
+/// the backend representation, unlike cloning a [`Coeff`].
 #[cfg(feature = "alloc")]
 #[derive(Clone, Copy)]
-pub struct CoeffRef<'a, F: FieldKernels> {
+pub struct CoeffRef<'a, F: FieldBuffer> {
     prepared: &'a <F as KernelDispatch>::Prepared,
     field: core::marker::PhantomData<F>,
 }
 
 #[cfg(feature = "alloc")]
-impl<F: FieldKernels> CoeffRef<'_, F> {
+impl<F: FieldBuffer> CoeffRef<'_, F> {
     /// The field element this prepared representation multiplies by.
     #[inline]
     #[must_use]
@@ -99,10 +133,10 @@ impl<F: FieldKernels> CoeffRef<'_, F> {
 }
 
 #[cfg(feature = "alloc")]
-impl<F: FieldKernels> private::Sealed for CoeffRef<'_, F> {}
+impl<F: FieldBuffer> private::Sealed for CoeffRef<'_, F> {}
 
 #[cfg(feature = "alloc")]
-impl<F: FieldKernels> PreparedCoefficient<F> for CoeffRef<'_, F> {
+impl<F: FieldBuffer> PreparedCoefficient<F> for CoeffRef<'_, F> {
     #[inline]
     fn value(&self) -> Elem<F> {
         F::prepared_coeff(RawDispatch, self.prepared)
@@ -110,7 +144,7 @@ impl<F: FieldKernels> PreparedCoefficient<F> for CoeffRef<'_, F> {
 }
 
 #[cfg(feature = "alloc")]
-impl<F: FieldKernels> PreparedRepr<F> for CoeffRef<'_, F> {
+impl<F: FieldBuffer> PreparedRepr<F> for CoeffRef<'_, F> {
     #[inline]
     fn repr(&self, _proof: RawDispatch) -> &<F as KernelDispatch>::Prepared {
         self.prepared
@@ -118,7 +152,7 @@ impl<F: FieldKernels> PreparedRepr<F> for CoeffRef<'_, F> {
 }
 
 #[cfg(feature = "alloc")]
-impl<F: FieldKernels> core::fmt::Debug for CoeffRef<'_, F> {
+impl<F: FieldBuffer> core::fmt::Debug for CoeffRef<'_, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("CoeffRef").field(&self.value()).finish()
     }
@@ -135,31 +169,34 @@ impl<F: FieldKernels> core::fmt::Debug for CoeffRef<'_, F> {
 ///
 /// Preparation happens once in [`CoeffVec::new`], which allocates the
 /// coefficient storage; [`CoeffVec::get`] then borrows an entry without
-/// rebuilding or copying its backend tables, and the operations that consume
-/// the view allocate nothing. Store one beside the coding column it
-/// represents.
+/// rebuilding or copying its backend tables, and once the process backend is
+/// resolved the operations that consume the view do not allocate. A
+/// `CoeffVec` is meant to live beside the coding column it represents.
 ///
 /// Requires `alloc`: the collection owns dynamically sized storage. The
 /// operations take the borrowed [`CoeffVecRef`] view, which
 /// [`CoeffVec::as_ref`] produces for free.
+/// The prepared storage's size and layout are unspecified: consumers must
+/// not depend on them.
 #[cfg(feature = "alloc")]
-pub struct CoeffVec<F: FieldKernels> {
+pub struct CoeffVec<F: FieldBuffer> {
     prepared: alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>,
     values: alloc::boxed::Box<[Elem<F>]>,
 }
 
 #[cfg(feature = "alloc")]
-impl<F: FieldKernels> CoeffVec<F> {
-    /// Resolve every coefficient for this host.
+impl<F: FieldBuffer> CoeffVec<F> {
+    /// Resolves every coefficient for this host.
     #[must_use]
     pub fn new(coeffs: &[Elem<F>]) -> Self {
+        let () = Validate::<F>::OK;
         Self {
             prepared: prepare_all::<F>(coeffs),
             values: alloc::boxed::Box::from(coeffs),
         }
     }
 
-    /// Borrow the whole vector as the view the operations consume.
+    /// Borrows the whole vector as the view the operations consume.
     #[inline]
     #[must_use]
     pub fn as_ref(&self) -> CoeffVecRef<'_, F> {
@@ -184,20 +221,20 @@ impl<F: FieldKernels> CoeffVec<F> {
         self.prepared.is_empty()
     }
 
-    /// Borrow coefficient `index`, or return `None` when out of bounds.
+    /// Borrows coefficient `index`, or returns `None` when out of bounds.
     #[inline]
     #[must_use]
     pub fn get(&self, index: usize) -> Option<CoeffRef<'_, F>> {
         self.as_ref().get(index)
     }
 
-    /// Iterate over prepared coefficients without copying their backend form.
+    /// Iterates over prepared coefficients without copying their backend form.
     #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn coeffs(&self) -> impl ExactSizeIterator<Item = CoeffRef<'_, F>> {
         self.as_ref().into_coeffs()
     }
 
-    /// Iterate over the original field elements.
+    /// Iterates over the original field elements.
     #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn values(&self) -> impl ExactSizeIterator<Item = Elem<F>> + '_ {
         self.values.iter().copied()
@@ -205,7 +242,8 @@ impl<F: FieldKernels> CoeffVec<F> {
 }
 
 #[cfg(feature = "alloc")]
-impl<F: FieldKernels> Clone for CoeffVec<F> {
+impl<F: FieldBuffer> Clone for CoeffVec<F> {
+    /// Copies the prepared and original coefficients into new allocations.
     fn clone(&self) -> Self {
         Self {
             prepared: self.prepared.clone(),
@@ -215,7 +253,7 @@ impl<F: FieldKernels> Clone for CoeffVec<F> {
 }
 
 #[cfg(feature = "alloc")]
-impl<F: FieldKernels> core::fmt::Debug for CoeffVec<F> {
+impl<F: FieldBuffer> core::fmt::Debug for CoeffVec<F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("CoeffVec")
             .field("len", &self.len())
@@ -231,17 +269,18 @@ impl<F: FieldKernels> core::fmt::Debug for CoeffVec<F> {
 /// [`mul_add_scatter_with`](crate::ops::mul_add_scatter_with) without copying
 /// or restaging anything.
 ///
-/// `Copy`: it is two slice references.
+/// `Copy` and borrowed from its collection for `'a`: copying it never copies
+/// the prepared coefficients.
 #[cfg(feature = "alloc")]
 #[derive(Clone, Copy)]
-pub struct CoeffVecRef<'a, F: FieldKernels> {
+pub struct CoeffVecRef<'a, F: FieldBuffer> {
     pub(super) prepared: &'a [<F as KernelDispatch>::Prepared],
     pub(super) values: &'a [Elem<F>],
     field: core::marker::PhantomData<F>,
 }
 
 #[cfg(feature = "alloc")]
-impl<'a, F: FieldKernels> CoeffVecRef<'a, F> {
+impl<'a, F: FieldBuffer> CoeffVecRef<'a, F> {
     /// Number of prepared coefficients.
     #[inline]
     #[must_use]
@@ -256,7 +295,7 @@ impl<'a, F: FieldKernels> CoeffVecRef<'a, F> {
         self.prepared.is_empty()
     }
 
-    /// Borrow coefficient `index`, or return `None` when out of bounds.
+    /// Borrows coefficient `index`, or returns `None` when out of bounds.
     #[inline]
     #[must_use]
     pub fn get(self, index: usize) -> Option<CoeffRef<'a, F>> {
@@ -266,7 +305,7 @@ impl<'a, F: FieldKernels> CoeffVecRef<'a, F> {
         })
     }
 
-    /// Iterate over prepared coefficients without copying their backend form.
+    /// Iterates over prepared coefficients without copying their backend form.
     #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn into_coeffs(self) -> impl ExactSizeIterator<Item = CoeffRef<'a, F>> {
         self.prepared.iter().map(|prepared| CoeffRef {
@@ -275,7 +314,7 @@ impl<'a, F: FieldKernels> CoeffVecRef<'a, F> {
         })
     }
 
-    /// Iterate over the original field elements.
+    /// Iterates over the original field elements.
     #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn values(self) -> impl ExactSizeIterator<Item = Elem<F>> + 'a {
         self.values.iter().copied()
@@ -283,7 +322,7 @@ impl<'a, F: FieldKernels> CoeffVecRef<'a, F> {
 }
 
 #[cfg(feature = "alloc")]
-impl<F: FieldKernels> core::fmt::Debug for CoeffVecRef<'_, F> {
+impl<F: FieldBuffer> core::fmt::Debug for CoeffVecRef<'_, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("CoeffVecRef")
             .field("len", &self.len())
@@ -301,10 +340,13 @@ impl<F: FieldKernels> core::fmt::Debug for CoeffVecRef<'_, F> {
 /// transpose, and the axis has to be stated where the caller writes it.
 ///
 /// Requires `alloc`: construction allocates the coefficient storage, while
-/// the operations that consume a [`CoeffMatrix`] borrow it and allocate
-/// nothing. Store one beside the coding matrix it represents.
+/// the operations that consume a [`CoeffMatrix`] borrow it and, once the
+/// process backend is resolved, do not allocate. A `CoeffMatrix` is meant to
+/// live beside the coding matrix it represents.
+/// The prepared storage's size and layout are unspecified: consumers must
+/// not depend on them.
 #[cfg(feature = "alloc")]
-pub struct CoeffMatrix<F: FieldKernels> {
+pub struct CoeffMatrix<F: FieldBuffer> {
     pub(super) prepared: alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>,
     pub(super) values: alloc::boxed::Box<[Elem<F>]>,
     sources: usize,
@@ -312,14 +354,15 @@ pub struct CoeffMatrix<F: FieldKernels> {
 }
 
 #[cfg(feature = "alloc")]
-impl<F: FieldKernels> CoeffMatrix<F> {
-    /// Resolve a `sources × outputs` matrix held in source-major order.
+impl<F: FieldBuffer> CoeffMatrix<F> {
+    /// Resolves a `sources × outputs` matrix held in source-major order.
     ///
     /// # Panics
     ///
     /// Panics if `coeffs.len() != sources * outputs` or the product overflows.
     #[must_use]
     pub fn from_source_major(sources: usize, outputs: usize, coeffs: &[Elem<F>]) -> Self {
+        let () = Validate::<F>::OK;
         let len = sources
             .checked_mul(outputs)
             .expect("CoeffMatrix::from_source_major: dimensions overflow");
@@ -365,7 +408,7 @@ impl<F: FieldKernels> CoeffMatrix<F> {
         self.prepared.is_empty()
     }
 
-    /// Borrow the coefficient pairing `source` with `output`, or return
+    /// Borrows the coefficient pairing `source` with `output`, or returns
     /// `None` when either is out of bounds.
     #[inline]
     #[must_use]
@@ -373,8 +416,8 @@ impl<F: FieldKernels> CoeffMatrix<F> {
         self.source(source)?.get(output)
     }
 
-    /// Borrow the `output_count()` coefficients pairing `source` with every
-    /// output row, or return `None` when `source` is out of bounds.
+    /// Borrows the `output_count()` coefficients pairing `source` with every
+    /// output row, or returns `None` when `source` is out of bounds.
     ///
     /// The result is the same view the vector-shaped operations take, so a
     /// matrix column drives
@@ -398,15 +441,19 @@ impl<F: FieldKernels> CoeffMatrix<F> {
         })
     }
 
-    /// Iterate over the original field elements in source-major order.
-    #[must_use = "iterators are lazy and do nothing unless consumed"]
-    pub fn values(&self) -> impl ExactSizeIterator<Item = Elem<F>> + '_ {
-        self.values.iter().copied()
+    /// The original field elements in source-major order, the layout
+    /// [`from_source_major`](Self::from_source_major) accepts.
+    ///
+    /// Allocates one `Vec` of [`len`](Self::len) elements.
+    #[must_use]
+    pub fn to_source_major(&self) -> alloc::vec::Vec<Elem<F>> {
+        self.values.to_vec()
     }
 }
 
 #[cfg(feature = "alloc")]
-impl<F: FieldKernels> Clone for CoeffMatrix<F> {
+impl<F: FieldBuffer> Clone for CoeffMatrix<F> {
+    /// Copies the prepared and original coefficients into new allocations.
     fn clone(&self) -> Self {
         Self {
             prepared: self.prepared.clone(),
@@ -418,7 +465,7 @@ impl<F: FieldKernels> Clone for CoeffMatrix<F> {
 }
 
 #[cfg(feature = "alloc")]
-impl<F: FieldKernels> core::fmt::Debug for CoeffMatrix<F> {
+impl<F: FieldBuffer> core::fmt::Debug for CoeffMatrix<F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("CoeffMatrix")
             .field("sources", &self.sources)
@@ -429,7 +476,7 @@ impl<F: FieldKernels> core::fmt::Debug for CoeffMatrix<F> {
 }
 
 #[cfg(feature = "alloc")]
-fn prepare_all<F: FieldKernels>(
+fn prepare_all<F: FieldBuffer>(
     coeffs: &[Elem<F>],
 ) -> alloc::boxed::Box<[<F as KernelDispatch>::Prepared]> {
     coeffs
@@ -443,8 +490,9 @@ fn prepare_all<F: FieldKernels>(
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
-    use crate::field::poly::AES;
-    use crate::field::{Elem as E8, FiniteField, Polynomial};
+    use crate::field::binary::Polynomial;
+    use crate::field::binary::poly::AES;
+    use crate::field::{Elem as E8, FiniteField};
     use alloc::vec::Vec;
 
     #[test]

@@ -24,19 +24,19 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::{
-    Elem, FiniteField, Goldilocks, Mersenne31, Polynomial, QuadMersenne31, backend, backend_for,
-    ops,
-};
+use fgf::binary::Polynomial;
+use fgf::extension::QuadMersenne31;
+use fgf::prime::{Goldilocks, Mersenne31};
+use fgf::{Elem, FiniteField, backend, backend_for, ops};
 
-use fgf::poly::{AES, RS};
+use fgf::binary::{AES, RS};
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
-type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Extension<fgf::FanPaar32, 2>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>;
 
 const BYTES: usize = 64 * 1024;
 const SCALAR_ITERS: usize = 1 << 20;
@@ -127,7 +127,7 @@ fn print_host_lines() {
 /// routes report their own answer from `backend_for`, not the process
 /// backend.
 fn print_field_backends() {
-    fn field<F: fgf::FieldKernels>(label: &str) {
+    fn field<F: fgf::FieldBuffer>(label: &str) {
         println!("FIELD_BACKEND\t{label}\t{}", backend_for::<F>().name());
     }
     field::<FiniteField<2, 8, Polynomial<AES>>>("gf8b");
@@ -766,7 +766,7 @@ fn run_panels() {
         let b = AlignedBuf::noise(BYTES, 0x607);
         let mut dst = AlignedBuf::noise(BYTES, 0x608);
         bench_region("gf8d elementwise (dst = a*b)", BYTES, || {
-            ops::mul_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(
+            ops::mul_elementwise_into::<FiniteField<2, 8, Polynomial<RS>>>(
                 black_box(dst.as_mut_slice()),
                 black_box(a.as_slice()),
                 black_box(b.as_slice()),
@@ -779,7 +779,7 @@ fn run_panels() {
             );
         });
         bench_region("gf8b elementwise (dst = a*b)", BYTES, || {
-            ops::mul_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(
+            ops::mul_elementwise_into::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(dst.as_mut_slice()),
                 black_box(a.as_slice()),
                 black_box(b.as_slice()),

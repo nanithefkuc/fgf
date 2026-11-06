@@ -1,59 +1,13 @@
-//! Characteristic-independent field embeddings and isomorphisms.
+//! The map implementation behind the crate's `maps` facade.
 //!
-//! [`Embedding<S, T>`](Embedding) prepares one proper inclusion of `S`
-//! into `T`: the source degree strictly divides the target degree.
-//! [`Isomorphism<S, T>`](Isomorphism) names the equal-degree map with a
-//! total inverse. One implementation serves every characteristic: the
-//! prepared state stores the image in the target of each generator level
-//! of the source, embedding evaluates by Horner rule in the target
-//! arithmetic, membership is the relative Frobenius, and restriction
-//! recovers components through trace-dual bases without solving a linear
-//! system.
-//!
-//! A map comes from two sources only: an inclusion forced by `Extension`
-//! structure (the prime subfield of the target, or a row of its own
-//! tower), or caller-supplied generator images validated against the
-//! transported relations. Characteristic two keeps the frozen reference
-//! ladder as its canonical-image rule, so every historical binary result
-//! reproduces exactly; odd characteristic chooses no canonical map between
-//! unrelated presentations.
-//!
-//! Construction and every method are allocation-free; the prepared state is
-//! fixed arrays. Repeated application never reruns image construction.
-//! Map construction and evaluation are variable-time and unsuitable for
-//! secret data.
-//!
-//! # Levels
-//!
-//! A prepared relation stores one image per generator level of the source,
-//! prime field upward: one level per extension node, whose generator is the
-//! indeterminate; one level for a flat polynomial leaf above degree one,
-//! whose generator is the residue of the indeterminate; one level for a
-//! basis leaf, whose generator is the underlying polynomial root expressed
-//! in the basis. Rows of absolute degree one hold no levels.
-//!
-//! ```
-//! use fgf::{AES, Elem, Embedding, Extension, FiniteField, Polynomial, Rijndael16};
-//!
-//! type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
-//! let embedding = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf16>::new().unwrap();
-//! let x = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
-//! let lifted = embedding.embed(x);
-//! assert!(embedding.contains(lifted));
-//! assert_eq!(embedding.restrict(lifted), Some(x));
-//! assert_eq!(embedding.frobenius(lifted), lifted);
-//! ```
+//! The prepared embedding and isomorphism rows, the frozen
+//! characteristic-two reference ladder, and the trace-dual restriction
+//! machinery. Construction is allocation-free and every method works on
+//! fixed-size arrays; `ladder` holds the canonical image rule and
+//! `quadratic` the closed-form quadratic maps.
 
-#[cfg(feature = "alloc")]
-mod frobenius;
 mod ladder;
-#[cfg(feature = "alloc")]
-mod prepared;
 pub(crate) mod quadratic;
-#[cfg(feature = "alloc")]
-pub use frobenius::Frobenius;
-#[cfg(feature = "alloc")]
-pub use prepared::{PreparedEmbedding, PreparedIsomorphism};
 
 use core::marker::PhantomData;
 
@@ -61,54 +15,27 @@ use super::binary::description::apply;
 use super::extension::descriptor::{Descriptor, Node};
 use super::{Elem, Field, FieldElem, PrimeIdentity};
 
-/// The error returned when a requested embedding cannot exist.
+/// The error returned when a supplied generator-image sequence does not
+/// fix a map: the image count differs from the source's generator count,
+/// or an image fails its transported relation.
+///
+/// The unit carries no payload and draws no distinction between the two
+/// conditions. It is obtained from a rejected image sequence and compared
+/// by value; it cannot be constructed outside the crate. Outside the
+/// crate a pattern names it as `ImageError { .. }`.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EmbeddingError {
-    /// The source degree does not divide the target degree, or the map is
-    /// not a proper inclusion.
-    IncompatibleDegree {
-        /// Total degree of the source field.
-        source: u32,
-        /// Total degree of the target field.
-        target: u32,
-    },
-    /// The source and target rows share one degree: a proper embedding
-    /// cannot exist. [`Isomorphism`] names the equal-degree map.
-    EqualDegree {
-        /// Shared degree of the source and target fields.
-        degree: u32,
-    },
-    /// Neither a structural inclusion nor, in characteristic two, the
-    /// frozen reference ladder names a canonical map for the pair.
-    NoCanonicalMap,
-    /// A supplied generator image fails its transported relation, or the
-    /// image count differs from the source's generator count.
-    InvalidImages,
-}
+pub struct ImageError;
 
-impl core::fmt::Display for EmbeddingError {
+impl core::fmt::Display for ImageError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            EmbeddingError::IncompatibleDegree { source, target } => write!(
-                formatter,
-                "source degree {source} does not divide target degree {target}"
-            ),
-            EmbeddingError::EqualDegree { degree } => write!(
-                formatter,
-                "source and target share degree {degree}: use Isomorphism"
-            ),
-            EmbeddingError::NoCanonicalMap => {
-                formatter.write_str("no canonical map between the presentations")
-            }
-            EmbeddingError::InvalidImages => {
-                formatter.write_str("generator images fail the transported relations")
-            }
-        }
+        formatter.write_str(
+            "generator images do not fix a map: wrong image count or failed transported relation",
+        )
     }
 }
 
-impl core::error::Error for EmbeddingError {}
+impl core::error::Error for ImageError {}
 
 // ---------------------------------------------------------------------------
 // Generator levels
@@ -346,7 +273,7 @@ fn generator_coordinates(descriptor: &Descriptor, level: &Level, out: &mut [u64]
     }
 }
 
-/// Pack binary coordinate bits into a word, least significant first.
+/// Packs binary coordinate bits into a word, least significant first.
 fn pack_bits(coordinates: &[u64]) -> u64 {
     let mut word = 0u64;
     let mut i = 0;
@@ -370,7 +297,7 @@ fn unpack_bits(word: u64, out: &mut [u64]) {
 // The evaluation engine
 // ---------------------------------------------------------------------------
 
-/// Embed flattened `coords` of the presentation rooted at `at` into the
+/// Embeds flattened `coords` of the presentation rooted at `at` into the
 /// target row, through the level `images` in level order.
 fn embed_coordinates<T: Field>(
     descriptor: &Descriptor,
@@ -471,7 +398,7 @@ fn relations_hold<T: Field>(
     }
     true
 }
-/// Restrict `value` to the presentation rooted at `at`, writing its
+/// Restricts `value` to the presentation rooted at `at`, writing its
 /// flattened prime-subfield coordinates into `out`. Returns `false`
 /// exactly when `value` lies outside the image.
 fn restrict_coordinates<T: Field>(
@@ -905,7 +832,7 @@ fn is_structural_images<S: Field, T: Field>(
     true
 }
 
-/// Lift flattened coordinates one tower level outward: constant-component
+/// Lifts flattened coordinates one tower level outward: constant-component
 /// padding through an extension level, the inverse basis map through a
 /// basis leaf.
 fn lift_coordinates(descriptor: &Descriptor, at: u8, coords: &mut [u64; 128], len: &mut usize) {
@@ -950,10 +877,11 @@ fn lift_coordinates(descriptor: &Descriptor, at: u8, coords: &mut [u64; 128], le
 /// values validated against the transported relations; every other method
 /// evaluates them in the target arithmetic. Equal source and target
 /// presentations are not embeddings: [`Isomorphism`] names that map.
-/// Inclusions commute as triangles.
+/// Canonical inclusions from [`Embedding::new`] commute as triangles; maps
+/// built from caller-supplied images compose by transporting those images
+/// and need not agree with an independently chosen direct inclusion.
 ///
-/// The prepared state is fixed arrays; construction and every method are
-/// allocation-free. Repeated application never reruns image construction.
+/// Construction and every method are allocation-free. Repeated application never reruns image construction.
 ///
 /// The cached structural bit is not observable: `Clone`/`Copy` preserve
 /// it, `Debug` prints only the row names, and no constructor is `const`,
@@ -989,54 +917,63 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> core::fmt::Debug fo
 }
 
 impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
-    /// Prepare the canonical proper inclusion of `S` into `T`.
+    /// The pair's degree contract, proven during code generation and
+    /// shared by both constructors: each row validates first, source
+    /// before target, then the degrees differ and the source degree
+    /// divides the target degree.
+    const VALID: () = {
+        let () = super::Validate::<S>::OK;
+        let () = super::Validate::<T>::OK;
+        assert!(
+            S::DEGREE != T::DEGREE,
+            "Embedding requires distinct source and target degrees"
+        );
+        assert!(
+            T::DEGREE % S::DEGREE == 0,
+            "Embedding requires the source degree to divide the target degree"
+        );
+    };
+
+    /// Prepares the canonical proper inclusion of `S` into `T`.
     ///
-    /// Returns, in order: [`EmbeddingError::IncompatibleDegree`] when
-    /// `S::DEGREE` does not divide `T::DEGREE`; [`EmbeddingError::EqualDegree`]
-    /// when the degrees coincide, naming [`Isomorphism`] as the map of that
-    /// pair; the structural inclusion when `S` is the prime subfield of `T`
-    /// or a row of the target own tower; the canonical ladder inclusion when
-    /// both rows are characteristic-two presentations the ladder covers; and
-    /// [`EmbeddingError::NoCanonicalMap`] otherwise. No root search runs
-    /// outside the binary ladder frozen rules.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EmbeddingError::IncompatibleDegree`] on a degree mismatch,
-    /// [`EmbeddingError::EqualDegree`] on equal degrees, and
-    /// [`EmbeddingError::NoCanonicalMap`] when no map source covers the
-    /// pair.
+    /// Returns the structural inclusion when `S` is the prime subfield of
+    /// `T` or a row of the target's own tower, and the canonical ladder
+    /// inclusion when both rows are characteristic-two presentations the
+    /// ladder covers. No root search runs outside the binary ladder's
+    /// frozen rules.
     ///
     /// # Panics
     ///
-    /// Panics when a selected image fails its transported relation on an
-    /// otherwise valid presentation. That is a crate defect, not an input
-    /// condition.
-    pub fn new() -> Result<Self, EmbeddingError> {
+    /// Panics when neither map source names a canonical map for the pair,
+    /// reporting the source and target presentation types. Panics when a
+    /// selected image fails its transported relation on an otherwise
+    /// valid presentation; that is a crate defect, not an input condition.
+    ///
+    /// A pair outside the degree contract — equal degrees, or a source
+    /// degree that does not divide the target degree — never reaches this
+    /// constructor: the rejection is a compile-time assertion, so it
+    /// surfaces at code generation (`cargo build`, `cargo test`), which
+    /// `cargo check` alone may skip.
+    // `Default` would hide a constructor that panics on uncovered pairs.
+    #[allow(clippy::new_without_default)]
+    #[must_use]
+    pub fn new() -> Self {
+        let () = Self::VALID;
         let m = S::DEGREE;
         let n = T::DEGREE;
-        if m == n {
-            return Err(EmbeddingError::EqualDegree { degree: m });
-        }
-        if n % m != 0 {
-            return Err(EmbeddingError::IncompatibleDegree {
-                source: m,
-                target: n,
-            });
-        }
         let source_descriptor = S::DESCRIPTOR;
         let target_descriptor = T::DESCRIPTOR;
         let (source_levels, source_count) = levels(source_descriptor);
         if m == 1 {
             // The prime subfield inclusion: degree-one sources hold no
             // levels, and the prime map is unique.
-            return Ok(Self::checked(
+            return Self::checked(
                 [Elem::<T>::ZERO; 8],
                 0,
                 source_descriptor,
                 &source_levels,
                 source_count,
-            ));
+            );
         }
         if let Some((images, count)) = structural_images::<T>(
             source_descriptor,
@@ -1046,13 +983,13 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
             target_descriptor,
             n as usize,
         ) {
-            return Ok(Self::checked(
+            return Self::checked(
                 images,
                 count,
                 source_descriptor,
                 &source_levels,
                 source_count,
-            ));
+            );
         }
         let characteristic = <S::Characteristic as PrimeIdentity>::CHARACTERISTIC;
         if characteristic == 2
@@ -1079,58 +1016,59 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
                         .expect("a ladder image fits the target");
                     l += 1;
                 }
-                return Ok(Self::checked(
+                return Self::checked(
                     images,
                     source_count,
                     source_descriptor,
                     &source_levels,
                     source_count,
-                ));
+                );
             }
         }
-        Err(EmbeddingError::NoCanonicalMap)
+        panic!(
+            "Embedding::new: no canonical map from {} to {}",
+            core::any::type_name::<S>(),
+            core::any::type_name::<T>()
+        );
     }
 
-    /// Prepare the proper inclusion fixed by `images`: the image in `T`
+    /// Prepares the proper inclusion fixed by `images`: the image in `T`
     /// of each generator level of `S` in level order, validated against
     /// the transported relations.
     ///
     /// [`to_images`](Self::to_images) returns the stored images in the
-    /// same order, so `from_images(e.to_images())` reproduces `e`.
+    /// same order, so `from_images(e.to_images())` reproduces `e`. No
+    /// canonical map is required or searched for: any image sequence that
+    /// satisfies the transported relations fixes a map.
+    ///
+    /// The image count is checked before any transported relation, so a
+    /// wrong-length sequence rejects without reading the images.
     ///
     /// # Errors
     ///
-    /// Returns [`EmbeddingError::IncompatibleDegree`] on a degree
-    /// mismatch first, then [`EmbeddingError::EqualDegree`] on equal
-    /// degrees, then [`EmbeddingError::InvalidImages`] on a count
-    /// mismatch or a failed relation.
+    /// Returns [`ImageError`] when the image count differs from the
+    /// source's generator count, or when an image fails its transported
+    /// relation.
     ///
     /// # Panics
     ///
     /// Panics when the source holds more than eight generator levels.
     /// Presentations are capped at eight descriptor nodes, so valid rows
     /// never reach this.
-    pub fn from_images(images: &[Elem<T>]) -> Result<Self, EmbeddingError> {
-        let m = S::DEGREE;
-        let n = T::DEGREE;
-        if m == n {
-            return Err(EmbeddingError::EqualDegree { degree: m });
-        }
-        if n % m != 0 {
-            return Err(EmbeddingError::IncompatibleDegree {
-                source: m,
-                target: n,
-            });
-        }
+    ///
+    /// A pair outside the degree contract is rejected at code generation
+    /// like [`new`](Self::new).
+    pub fn from_images(images: &[Elem<T>]) -> Result<Self, ImageError> {
+        let () = Self::VALID;
         let source_descriptor = S::DESCRIPTOR;
         let (source_levels, source_count) = levels(source_descriptor);
         if images.len() != source_count {
-            return Err(EmbeddingError::InvalidImages);
+            return Err(ImageError);
         }
         let mut stored = [Elem::<T>::ZERO; 8];
         stored[..source_count].copy_from_slice(images);
         if !relations_hold(source_descriptor, &source_levels, source_count, &stored) {
-            return Err(EmbeddingError::InvalidImages);
+            return Err(ImageError);
         }
         Ok(Self {
             images: stored,
@@ -1146,7 +1084,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         })
     }
 
-    /// Check selected images against their transported relations,
+    /// Checks selected images against their transported relations,
     /// panicking on failure: construction-time validation for maps the
     /// sources guarantee.
     fn checked(
@@ -1181,6 +1119,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// The number of generator levels of `S`: zero at absolute degree one.
     #[must_use]
     pub fn generator_count() -> usize {
+        let () = super::Validate::<S>::OK;
         levels(S::DESCRIPTOR).1
     }
 
@@ -1191,18 +1130,19 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// Panics when `level` reaches [`generator_count`](Self::generator_count).
     #[must_use]
     pub fn generator(level: usize) -> Elem<S> {
+        let () = super::Validate::<S>::OK;
         let descriptor = S::DESCRIPTOR;
         let (source_levels, source_count) = levels(descriptor);
         assert!(
             level < source_count,
-            "a generator level sits below the generator count"
+            "Embedding::generator: `level` {level} is not below the generator count {source_count}"
         );
         let mut coords = [0u64; 128];
         generator_coordinates(descriptor, &source_levels[level], &mut coords);
         Elem::<S>::from_raw(S::from_prime_coordinates(&coords[..S::DEGREE as usize]))
     }
 
-    /// Compose with the next map: `self.then(next)` applies `self`, then
+    /// Composes with the next map: `self.then(next)` applies `self`, then
     /// `next`, by image transport. The right-hand map is a proper
     /// inclusion or an isomorphism out of the middle row.
     #[must_use]
@@ -1239,7 +1179,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         T::DEGREE / S::DEGREE
     }
 
-    /// Map `value` into the target field by Horner evaluation in the
+    /// Maps `value` into the target field by Horner evaluation in the
     /// target's arithmetic, recursing into the base.
     #[must_use]
     pub fn embed(&self, value: Elem<S>) -> Elem<T> {
@@ -1266,15 +1206,13 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     ///
     /// The gate is per operation below: `QUAD_FROBENIUS`, `QUAD_TRACE`,
     /// `QUAD_NORM`, `QUAD_CONTAINS`, and `QUAD_RESTRICT` each default to
-    /// the shape and each can exclude a pair the campaign rejects, so a
-    /// losing op keeps exponentiation while the winning ops on the same
-    /// pair stay routed. Measurement (two hosts, interleaved pinned
-    /// five-round same-session campaigns, median of per-run medians)
-    /// excludes the tiny GF(4)-shaped `res2-res2q` row from the
-    /// `frobenius`, `contains`, and `restrict` arms: a single square
-    /// already, the Vieta coordinate round-trip costs more than the
-    /// power there, while its `trace` and `norm` stay routed (roughly
-    /// five to eight times faster).
+    /// the shape and each can exclude a pair, so an excluded operation keeps
+    /// exponentiation while the other operations on the same pair stay
+    /// routed. The GF(4)-shaped `res2-res2q` row is excluded from the
+    /// `frobenius`, `contains`, and `restrict` arms, where the power is
+    /// already a single square; its `trace` and `norm` stay routed. The
+    /// exclusions are measured; the 3.0.2 benchmark record holds the
+    /// results.
     const QUAD: Option<(u8, quadratic::ConjugationCoefficient)> = {
         match quadratic::conjugation_shape::<T>() {
             Some(shape) => {
@@ -1289,9 +1227,8 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     };
 
     /// Whether the relative-Frobenius arm routes through the closed form
-    /// on this pair. `false` on the tiny GF(4)-shaped row described on
-    /// [`QUAD`](Self::QUAD): the power there is a single square and the
-    /// coordinate round-trip costs more.
+    /// on this pair. `false` on the GF(4)-shaped row described on
+    /// [`QUAD`](Self::QUAD), where the power is a single square.
     const QUAD_FROBENIUS: bool = {
         match Self::QUAD {
             Some(_) => !quadratic::is_tiny_gf4::<S, T>(),
@@ -1302,7 +1239,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// Whether the membership-test arm routes through the closed form on
     /// this pair. Excluded on the same tiny row as
     /// [`QUAD_FROBENIUS`](Self::QUAD_FROBENIUS): the test is one
-    /// Frobenius there, so the power spelling wins.
+    /// Frobenius there, so it keeps the power spelling.
     const QUAD_CONTAINS: bool = {
         match Self::QUAD {
             Some(_) => !quadratic::is_tiny_gf4::<S, T>(),
@@ -1320,12 +1257,12 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         }
     };
 
-    /// Whether the trace arm routes through the closed form on this pair.
-    /// Every measured degree-2 row routes, including the tiny one.
+    /// Whether the trace arm routes through the closed form on this pair:
+    /// every degree-2 shape, including the GF(4)-shaped row.
     const QUAD_TRACE: bool = Self::QUAD.is_some();
 
-    /// Whether the norm arm routes through the closed form on this pair.
-    /// Every measured degree-2 row routes, including the tiny one.
+    /// Whether the norm arm routes through the closed form on this pair:
+    /// every degree-2 shape, including the GF(4)-shaped row.
     const QUAD_NORM: bool = Self::QUAD.is_some();
 
     /// Whether this map is the structural base-into-row inclusion,
@@ -1339,14 +1276,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     }
 
     /// Whether `value` lies in the image of this embedding: the fixed
-    /// field of the relative Frobenius.
-    ///
-    /// At relative degree two where the target row carries its own
-    /// quadratic relation over exactly this source, the fixed-point test
-    /// runs through the closed-form conjugation `(a - c1*b) - b*t` of
-    /// `x = a + b*t` under `t^2 + c1*t + c0`, which equals `x^|S|`;
-    /// every other pair keeps the power test. The arm resolves at compile
-    /// time through the degree-2 shape, with no per-call cost.
+    /// field of the relative Frobenius, `x^|S| == x`.
     #[must_use]
     pub fn contains(&self, value: Elem<T>) -> bool {
         if Self::QUAD_CONTAINS
@@ -1360,18 +1290,8 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
 
     /// The inverse of [`embed`](Self::embed) on the image, or `None`.
     ///
-    /// Components recover level by level through the trace-dual basis,
-    /// ending in the prime-subfield readout; a value outside the image
-    /// restricts to `None` without solving a linear system. At relative
-    /// degree two where the target row carries its own quadratic relation
-    /// over exactly this source, the membership pre-check runs the
-    /// closed-form conjugation, and members then read their base
-    /// coordinate back directly (the base coordinate is a component of
-    /// the closed form): no coordinate walk, no embedding-image reads,
-    /// no power on that path. Nonmembers keep the transported-relation
-    /// walk. The closed form applies only to the structural
-    /// base-into-row inclusion (see the structural check);
-    /// caller-supplied images keep the transported-relation path.
+    /// `restrict(embed(x)) == Some(x)` for every source element `x`, and
+    /// every target element outside the image restricts to `None`.
     pub fn restrict(&self, value: Elem<T>) -> Option<Elem<S>> {
         if Self::QUAD_RESTRICT
             && let Some((base_degree, coefficient)) = Self::QUAD
@@ -1407,18 +1327,6 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     }
 
     /// The relative Frobenius `x^|S|` of the extension.
-    ///
-    /// At relative degree two where the target row carries its own
-    /// quadratic relation over exactly this source, this runs the
-    /// closed-form Vieta conjugation `(a - c1*b) - b*t` for `x = a + b*t`
-    /// under `t^2 + c1*t + c0`, which equals the power `x^|S|`; every
-    /// other pair keeps exponentiation. The arm resolves at compile time
-    /// through the degree-2 shape, with no per-call cost, and applies only to
-    /// the structural inclusion (see the structural check).
-    ///
-    /// This pow spelling remains the reference behaviour the prepared
-    /// maps must match: `Frobenius`, `PreparedEmbedding`, and
-    /// `PreparedIsomorphism` agree with it element by element.
     #[must_use]
     pub fn frobenius(&self, value: Elem<T>) -> Elem<T> {
         if Self::QUAD_FROBENIUS
@@ -1432,13 +1340,6 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
 
     /// The relative trace: the sum of the conjugates under the relative
     /// Frobenius, restricted to the source.
-    ///
-    /// At relative degree two where the target row carries its own
-    /// quadratic relation over exactly this source, this runs the
-    /// closed-form `2*a - c1*b`, which equals the conjugate sum
-    /// `x + x^|S|` restricted to the source; every other degree keeps
-    /// the Frobenius-sum spelling. The arm resolves at compile time
-    /// through the degree-2 shape.
     ///
     /// `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies the absolute
     /// trace.
@@ -1469,13 +1370,6 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
 
     /// The relative norm: the product of the conjugates under the relative
     /// Frobenius, restricted to the source.
-    ///
-    /// At relative degree two where the target row carries its own
-    /// quadratic relation over exactly this source, this runs the
-    /// closed-form `a^2 - c1*a*b + c0*b^2`, which equals the conjugate
-    /// product `x * x^|S|` restricted to the source; every other degree
-    /// keeps the Frobenius-product spelling. The arm resolves at compile
-    /// time through the degree-2 shape.
     ///
     /// `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies the absolute
     /// norm.
@@ -1515,8 +1409,8 @@ mod compose {
     /// A right-hand operand of composition: a map out of the middle row
     /// that transports prepared images into its own target. Private, so
     /// only [`Embedding`] and [`Isomorphism`] qualify.
-    pub trait Postcompose<Mid: Field, Out: Field> {
-        /// Map `image`: one prepared image of the left-hand map, seen as
+    pub(crate) trait Postcompose<Mid: Field, Out: Field> {
+        /// Maps `image`: one prepared image of the left-hand map, seen as
         /// an element of the middle row.
         fn postcompose(&self, image: Elem<Mid>) -> Elem<Out>;
     }
@@ -1680,86 +1574,106 @@ fn canonical_iso_images<S: Field, T: Field<Characteristic = S::Characteristic>>(
 }
 
 impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
-    /// Prepare the canonical isomorphism of `S` onto `T`.
+    /// The pair's degree contract, proven during code generation and
+    /// shared by both constructors: each row validates first, source
+    /// before target, then the degrees are equal.
+    const VALID: () = {
+        let () = super::Validate::<S>::OK;
+        let () = super::Validate::<T>::OK;
+        assert!(
+            S::DEGREE == T::DEGREE,
+            "Isomorphism requires equal source and target degrees"
+        );
+    };
+
+    /// Prepares the canonical isomorphism of `S` onto `T`.
     ///
-    /// # Errors
-    ///
-    /// Returns [`EmbeddingError::IncompatibleDegree`] unless the degrees
-    /// are equal, before any other check, and
-    /// [`EmbeddingError::NoCanonicalMap`] when no map source covers the
-    /// pair.
+    /// Returns the structural map when the presentations match and the
+    /// canonical ladder map when both rows are characteristic-two
+    /// presentations the ladder covers.
     ///
     /// # Panics
     ///
-    /// Panics when a selected image fails its transported relation on an
-    /// otherwise valid presentation. That is a crate defect, not an input
-    /// condition.
-    pub fn new() -> Result<Self, EmbeddingError> {
-        if S::DEGREE != T::DEGREE {
-            return Err(EmbeddingError::IncompatibleDegree {
-                source: S::DEGREE,
-                target: T::DEGREE,
-            });
-        }
+    /// Panics when neither map source names a canonical map for the pair,
+    /// reporting the source and target presentation types. Panics when a
+    /// selected image fails its transported relation on an otherwise
+    /// valid presentation; that is a crate defect, not an input condition.
+    ///
+    /// A pair of unequal degrees never reaches this constructor: the
+    /// rejection is a compile-time assertion, so it surfaces at code
+    /// generation (`cargo build`, `cargo test`), which `cargo check`
+    /// alone may skip.
+    // `Default` would hide a constructor that panics on uncovered pairs.
+    #[allow(clippy::new_without_default)]
+    #[must_use]
+    pub fn new() -> Self {
+        let () = Self::VALID;
         let Some((forward, count)) = canonical_iso_images::<S, T>() else {
             // Degree-one rows hold no generator levels: the prime map is
             // unique and needs no structural or ladder source.
             if S::DEGREE == 1 {
-                return Ok(Self {
+                return Self {
                     forward: [Elem::<T>::ZERO; 8],
                     reverse: [Elem::<S>::ZERO; 8],
                     forward_count: 0,
                     reverse_count: 0,
                     phantom: PhantomData,
-                });
+                };
             }
-            return Err(EmbeddingError::NoCanonicalMap);
+            panic!(
+                "Isomorphism::new: no canonical map from {} to {}",
+                core::any::type_name::<S>(),
+                core::any::type_name::<T>()
+            );
         };
         let (reverse, reverse_count) = iso_images::<S, T>(&forward, count);
-        Ok(Self {
+        Self {
             forward,
             reverse,
             // Levels are capped at eight per presentation.
             forward_count: u8::try_from(count).expect("a level count fits its byte"),
             reverse_count: u8::try_from(reverse_count).expect("a level count fits its byte"),
             phantom: PhantomData,
-        })
+        }
     }
 
-    /// Prepare the isomorphism fixed by `images`: the image in `T` of
+    /// Prepares the isomorphism fixed by `images`: the image in `T` of
     /// each generator level of `S` in level order, validated against the
     /// transported relations.
     ///
     /// [`to_images`](Self::to_images) returns the stored images in the
-    /// same order, so `from_images(i.to_images())` reproduces `i`.
+    /// same order, so `from_images(i.to_images())` reproduces `i`. No
+    /// canonical map is required or searched for: any image sequence
+    /// that satisfies the transported relations fixes a map.
+    ///
+    /// The image count is checked before any transported relation, so a
+    /// wrong-length sequence rejects without reading the images.
     ///
     /// # Errors
     ///
-    /// Returns [`EmbeddingError::IncompatibleDegree`] on unequal degrees
-    /// first, then [`EmbeddingError::InvalidImages`] on a count mismatch
-    /// or a failed relation.
+    /// Returns [`ImageError`] when the image count differs from the
+    /// source's generator count, or when an image fails its transported
+    /// relation.
     ///
     /// # Panics
     ///
     /// Panics when the source holds more than eight generator levels.
     /// Presentations are capped at eight descriptor nodes, so valid rows
     /// never reach this.
-    pub fn from_images(images: &[Elem<T>]) -> Result<Self, EmbeddingError> {
-        if S::DEGREE != T::DEGREE {
-            return Err(EmbeddingError::IncompatibleDegree {
-                source: S::DEGREE,
-                target: T::DEGREE,
-            });
-        }
+    ///
+    /// A pair of unequal degrees is rejected at code generation like
+    /// [`new`](Self::new).
+    pub fn from_images(images: &[Elem<T>]) -> Result<Self, ImageError> {
+        let () = Self::VALID;
         let source_descriptor = S::DESCRIPTOR;
         let (source_levels, source_count) = levels(source_descriptor);
         if images.len() != source_count {
-            return Err(EmbeddingError::InvalidImages);
+            return Err(ImageError);
         }
         let mut forward = [Elem::<T>::ZERO; 8];
         forward[..source_count].copy_from_slice(images);
         if !relations_hold(source_descriptor, &source_levels, source_count, &forward) {
-            return Err(EmbeddingError::InvalidImages);
+            return Err(ImageError);
         }
         let (reverse, reverse_count) = iso_images::<S, T>(&forward, source_count);
         Ok(Self {
@@ -1778,7 +1692,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         &self.forward[..self.forward_count as usize]
     }
 
-    /// Compose with the next isomorphism by image transport.
+    /// Composes with the next isomorphism by image transport.
     #[must_use]
     pub fn then<U: Field<Characteristic = S::Characteristic>>(
         &self,
@@ -1808,7 +1722,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         }
     }
 
-    /// Compose with the next proper inclusion: `self.then_embedding(next)`
+    /// Composes with the next proper inclusion: `self.then_embedding(next)`
     /// applies this isomorphism, then `next`, by forward-image transport.
     #[must_use]
     pub fn then_embedding<U: Field<Characteristic = S::Characteristic>>(
@@ -1848,7 +1762,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         }
     }
 
-    /// Map `value` into the target field by Horner evaluation in the
+    /// Maps `value` into the target field by Horner evaluation in the
     /// target arithmetic, recursing into the base.
     #[must_use]
     pub fn apply(&self, value: Elem<S>) -> Elem<T> {
@@ -1866,7 +1780,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         )
     }
 
-    /// Map `value` back into the source field: the total inverse.
+    /// Maps `value` back into the source field: the total inverse.
     #[must_use]
     pub fn unapply(&self, value: Elem<T>) -> Elem<S> {
         let descriptor = T::DESCRIPTOR;

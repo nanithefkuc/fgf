@@ -19,14 +19,12 @@
 //!   elementwise multiplication through their isomorphism onto that field.
 //! - **Nibble shuffle.** Without GFNI, `PSHUFB` performs a 16-entry lookup
 //!   per lane, so `c * x` becomes two shuffles and an XOR against the
-//!   precomputed [`ScaleTable`](crate::kernel::tables::ScaleTable).
+//!   precomputed [`ScaleTable`](crate::field::binary::byte::ScaleTable).
 
 #![allow(clippy::incompatible_msrv)]
 
 pub mod bytes;
 pub mod fan_paar;
-#[cfg(feature = "alloc")]
-pub mod gf1;
 pub mod gf16;
 pub mod gf32;
 pub mod gf64;

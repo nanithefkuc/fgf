@@ -16,15 +16,16 @@
 //! FEC_GOLDEN_CORE=3 just _bench-run prime_ntt mul_into/2048
 //! ```
 
-#[cfg(all(feature = "internals", feature = "simd", target_arch = "x86_64"))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 mod imp {
     use std::hint::black_box;
     use std::sync::Once;
     use std::time::Duration;
 
     use criterion::{BenchmarkId, Criterion, Throughput, criterion_group};
-    use fgf::internals::kernel::{SimdToken, X64V3Token, x86};
-    use fgf::{Elem, QuadMersenne31, backend, backend_for, has_vector_elementwise, ops};
+    use fgf::extension::QuadMersenne31;
+    use fgf::internals::kernel::{SimdToken, X64V3Token, has_vector_elementwise, x86};
+    use fgf::{Elem, backend, backend_for, ops};
 
     /// Row lengths in bytes: sub-vector elements, exact and partial vectors,
     /// the NTT-relevant small rows, and one L2-resident row.
@@ -231,10 +232,10 @@ mod imp {
 
     fn bench_mul_elementwise(c: &mut Criterion) {
         let Some(token) = X64V3Token::summon() else {
-            eprintln!("skipping mul_elementwise: no AVX2 on this host");
+            eprintln!("skipping mul_elementwise_into: no AVX2 on this host");
             return;
         };
-        let mut g = group(c, "mul_elementwise");
+        let mut g = group(c, "mul_elementwise_into");
         for &len in ROWS {
             let a = canonical(len, 0x7000 + len as u64);
             let b = canonical(len, 0x9000 + len as u64);
@@ -242,9 +243,9 @@ mod imp {
             bench_row(
                 &mut g,
                 len,
-                "mul_elementwise",
+                "mul_elementwise_into",
                 &base,
-                |dst| ops::mul_elementwise::<QuadMersenne31>(dst, &a, &b),
+                |dst| ops::mul_elementwise_into::<QuadMersenne31>(dst, &a, &b),
                 |dst| x86::quad_mersenne31::mul_elementwise_avx2(token, dst, &a, &b),
             );
         }
@@ -262,10 +263,10 @@ mod imp {
     );
 }
 
-#[cfg(all(feature = "internals", feature = "simd", target_arch = "x86_64"))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 criterion::criterion_main!(imp::benches);
 
-#[cfg(not(all(feature = "internals", feature = "simd", target_arch = "x86_64")))]
+#[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
 fn main() {
     eprintln!("skipping: QM31 AVX2 comparison is x86_64 SIMD-only");
 }

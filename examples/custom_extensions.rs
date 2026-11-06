@@ -19,12 +19,12 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::poly::AES;
-use fgf::{
-    Backend, Components, Elem, Extension, ExtensionField, ExtensionSpec, Field, FieldBuffer,
-    FieldElem, FiniteField, Packed, PackedPadded, Polynomial, Relation, Rijndael16, backend_for,
-    ops,
+use fgf::binary::AES;
+use fgf::binary::{Polynomial, Rijndael16};
+use fgf::extension::{
+    Components, Extension, ExtensionField, ExtensionSpec, Packed, PackedPadded, Relation,
 };
+use fgf::{Backend, Elem, Field, FieldBuffer, FieldElem, FiniteField, backend_for, ops};
 
 // Callers name their own fields; the canonical `FiniteField<P, N, R>` type is the API.
 type Gf7 = FiniteField<7, 1>;

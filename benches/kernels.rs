@@ -16,39 +16,30 @@
 //! and `SCALAR\t{label}\t{ns_per_scalar_op:.9}` for scalar element chains.
 //! Process entry prints `FIELD_BACKEND\t{label}\t{backend_name}` for every
 //! measured field — each field's own routing, not the process backend —
-//! plus the host's actual CPU affinity and scheduler policy. Each timed process
-//! runs an unchanged byte-XOR control at start and end
+//! plus the host's actual CPU affinity and scheduler policy. Each process
+//! times an unchanged byte-XOR control at start and end
 //! (`control byte xor start`, `control byte xor end`), so campaign drift is
 //! separable from field speed. `--blocked-diagnostic` runs the
 //! internals-only blocked-versus-AXPY probe; the public panels never
 //! invoke it.
-//!
-//! `--compositions` selects public row compositions; `--compositions-controls`
-//! selects their duplicate elementwise controls. `--compositions-check` validates
-//! the composition oracles without collecting timings. `--compositions-binary`
-//! restricts any of these to the binary overwrite gathers and
-//! `--compositions-bytes` to the byte-wide row operations.
 
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::poly::AES;
-use fgf::{
-    Elem, Extension, ExtensionSpec, FieldBuffer, FieldElem, FiniteField, Goldilocks, Mersenne31,
-    Packed, Polynomial, QuadMersenne31, RS, Relation, backend, backend_for, ops,
-};
+use fgf::binary::AES;
+use fgf::binary::{Polynomial, RS};
+use fgf::extension::{Extension, ExtensionSpec, Packed, QuadMersenne31, Relation};
+use fgf::prime::{Goldilocks, Mersenne31};
+use fgf::{Elem, FieldBuffer, FieldElem, FiniteField, backend, backend_for, ops};
 
-#[path = "kernels/compositions.rs"]
-mod compositions;
-
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
-type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Extension<fgf::FanPaar32, 2>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>;
 type Word1e9p7 = FiniteField<1_000_000_007, 1>;
 type WordMax = FiniteField<4_294_967_291, 1>;
 type Byte101 = FiniteField<101, 1>;
@@ -157,7 +148,7 @@ fn print_host_lines() {
 /// routes report their own answer from `backend_for`, not the process
 /// backend.
 fn print_field_backends() {
-    fn field<F: fgf::FieldKernels>(label: &str) {
+    fn field<F: fgf::FieldBuffer>(label: &str) {
         println!("FIELD_BACKEND\t{label}\t{}", backend_for::<F>().name());
     }
     field::<FiniteField<2, 8, Polynomial<AES>>>("gf8b");
@@ -893,25 +884,29 @@ fn bench_gf2_bits() {
         let mut dst = noise(bytes, 0x2300 + bytes as u64);
         println!("  {human} buffers ({bits} elements):");
         bench("  bits::xor_assign              packed", bytes, || {
-            fgf::bits::xor_assign(black_box(&mut dst), black_box(&a));
+            fgf::ops::bits::xor_assign(black_box(&mut dst), black_box(&a));
         });
         bench("  bits::and_into         packed", bytes, || {
-            fgf::bits::and_into(black_box(&mut dst), black_box(&a), black_box(&b));
+            fgf::ops::bits::and_into(black_box(&mut dst), black_box(&a), black_box(&b));
         });
         bench("  bits::weight           packed", bytes, || {
-            black_box(fgf::bits::weight(black_box(&a), bits));
+            black_box(fgf::ops::bits::weight(black_box(&a), bits));
         });
         bench("  bits::dot_product       packed", bytes, || {
-            black_box(fgf::bits::dot_product(black_box(&a), black_box(&b), bits));
+            black_box(fgf::ops::bits::dot_product(
+                black_box(&a),
+                black_box(&b),
+                bits,
+            ));
         });
         let from = bits / 4;
         let to = bits - bits / 8;
         bench("  bits::xor_range  5/8    packed", bytes, || {
-            fgf::bits::xor_range(black_box(&mut dst), black_box(&a), bits, from, to);
+            fgf::ops::bits::xor_range(black_box(&mut dst), bits, from, to, black_box(&a));
         });
-        let plan = fgf::bits::XorRange::new(bits, from, to);
+        let plan = fgf::ops::bits::XorRange::new(bits, from, to);
         bench("  bits::XorRange   5/8    packed", bytes, || {
-            fgf::bits::xor_range_with(black_box(&mut dst), black_box(&a), black_box(&plan));
+            fgf::ops::bits::xor_range_with(black_box(&mut dst), black_box(&plan), black_box(&a));
         });
         bench("  ops::add_assign  gf8b control", bytes, || {
             ops::add_assign::<FiniteField<2, 8, Polynomial<AES>>>(
@@ -942,23 +937,23 @@ fn bench_gf2_short_rows() {
     let one_shot = bench("  bits::xor_range  8-bit row", ROW_BYTES * pairs, || {
         for i in 0..pairs {
             let off = i * 2 * ROW_BYTES;
-            fgf::bits::xor_range(
+            fgf::ops::bits::xor_range(
                 black_box(&mut dst[off..off + ROW_BYTES]),
-                black_box(&src[off..off + ROW_BYTES]),
                 bits,
                 61,
                 69,
+                black_box(&src[off..off + ROW_BYTES]),
             );
         }
     });
-    let plan = fgf::bits::XorRange::new(bits, 61, 69);
+    let plan = fgf::ops::bits::XorRange::new(bits, 61, 69);
     let prepared = bench("  bits::XorRange   8-bit row", ROW_BYTES * pairs, || {
         for i in 0..pairs {
             let off = i * 2 * ROW_BYTES;
-            fgf::bits::xor_range_with(
+            fgf::ops::bits::xor_range_with(
                 black_box(&mut dst[off..off + ROW_BYTES]),
-                black_box(&src[off..off + ROW_BYTES]),
                 black_box(&plan),
+                black_box(&src[off..off + ROW_BYTES]),
             );
         }
     });
@@ -977,7 +972,7 @@ fn bench_gf2_short_rows() {
 /// where it must not regress). Rerun under each `SIMD_BACKEND` tier for the
 /// per-backend numbers; the crossover thresholds in `kernel::xor_rows` were
 /// set from this matrix on the reference host.
-fn bench_add_assign_rows<F: fgf::FieldKernels>(name: &str, canon: Option<fn(&mut [u8])>) {
+fn bench_add_assign_rows<F: fgf::FieldBuffer>(name: &str, canon: Option<fn(&mut [u8])>) {
     println!("add_assign_rows — {name}:");
     for &row_len in &[64usize, 1024, 64 * 1024] {
         for &rows in &[1usize, 2, 4, 8, 16, 32] {
@@ -1018,10 +1013,6 @@ fn main() {
     println!("fgf kernel benchmark — backend: {}", backend().name());
     print_host_lines();
     print_field_backends();
-    if std::env::args().any(|arg| arg == "--compositions-check") {
-        run_panels();
-        return;
-    }
     println!("control byte xor — drift check:");
     let control_src = noise(CONTROL_BYTES, 0x57a7);
     let mut control_dst = noise(CONTROL_BYTES, 0x57a8);
@@ -1154,7 +1145,7 @@ fn prime_direct_elementwise<F>(
     p: u64,
     assign: bool,
 ) where
-    F: fgf::FieldKernels + FieldBuffer,
+    F: FieldBuffer,
 {
     // The direct column calls the kernel's own body wherever its
     // preconditions allow (four-byte rows at any length), independent of
@@ -1417,7 +1408,7 @@ fn prime_direct_single<F>(
     p: u64,
     op: DirectOp,
 ) where
-    F: fgf::FieldKernels + FieldBuffer,
+    F: FieldBuffer,
 {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use fgf::internals::kernel::residue as selector;
@@ -1532,7 +1523,7 @@ fn direct_single_body<F>(
     takes: bool,
     op: DirectOp,
 ) where
-    F: fgf::FieldKernels + FieldBuffer,
+    F: FieldBuffer,
 {
     use fgf::internals::kernel::prime as portable;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -1623,7 +1614,7 @@ fn direct_single_body<F>(
 #[allow(clippy::cast_possible_truncation, clippy::too_many_arguments)]
 fn prime_single_row_panel<F>(row: &str, p: u64, coeff: Elem<F>, c: u64, seed: u64)
 where
-    F: fgf::FieldKernels + FieldBuffer,
+    F: FieldBuffer,
 {
     let bytes = F::BYTES;
     println!("prime row {row} — backend {}:", backend_for::<F>().name());
@@ -1931,13 +1922,13 @@ where
     }
 }
 
-/// Elementwise panels for one four-byte row: `mul_elementwise` and
+/// Elementwise panels for one four-byte row: `mul_elementwise_into` and
 /// `mul_elementwise_assign` at short lengths, with the same
 /// region, placement, and oracle discipline as the single-row panels.
 #[allow(clippy::cast_possible_truncation)]
 fn prime_elementwise_panel<F>(row: &str, p: u64, seed: u64)
 where
-    F: fgf::FieldKernels + FieldBuffer,
+    F: FieldBuffer,
 {
     let bytes = F::BYTES;
     println!(
@@ -1961,7 +1952,7 @@ where
             .map(|(&a, &b)| ((a as u128 * b as u128) % modulus) as u64)
             .collect();
         let mut probe = vec![0u8; len];
-        ops::mul_elementwise::<F>(&mut probe, &a0, &b0);
+        ops::mul_elementwise_into::<F>(&mut probe, &a0, &b0);
         prime_check(
             &probe,
             bytes,
@@ -2058,7 +2049,7 @@ where
             &a0,
             &b0,
             |dst, a, b| {
-                ops::mul_elementwise::<F>(dst, a, b);
+                ops::mul_elementwise_into::<F>(dst, a, b);
             },
         );
         // Direct column: the vector body through `internals` with the
@@ -2577,10 +2568,6 @@ fn run_panels() {
     let m31 = !named || has("--m31");
     let gf2 = !named || has("--gf2");
     let prime = !named || has("--prime");
-    if has("--compositions") || has("--compositions-check") || has("--compositions-controls") {
-        compositions::run();
-        return;
-    }
     if has("--network-diagnostic") {
         bench_network_alignment();
         return;
@@ -2682,14 +2669,14 @@ fn run_panels() {
                 );
             });
             bench("elementwise                gf8b", len, || {
-                ops::mul_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(
+                ops::mul_elementwise_into::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut product),
                     black_box(&src),
                     black_box(&rhs),
                 );
             });
             bench("elementwise               gf16b", len, || {
-                ops::mul_elementwise::<Gf16>(
+                ops::mul_elementwise_into::<Gf16>(
                     black_box(&mut product),
                     black_box(&src),
                     black_box(&rhs),
@@ -2755,7 +2742,7 @@ fn run_panels() {
                 );
             });
             bench("elementwise                  m31", len, || {
-                ops::mul_elementwise::<Mersenne31>(
+                ops::mul_elementwise_into::<Mersenne31>(
                     black_box(&mut product),
                     black_box(&src),
                     black_box(&rhs),
@@ -2785,7 +2772,7 @@ fn run_panels() {
                 );
             });
             bench("elementwise                  gld", len, || {
-                ops::mul_elementwise::<Goldilocks>(
+                ops::mul_elementwise_into::<Goldilocks>(
                     black_box(&mut product),
                     black_box(&src),
                     black_box(&rhs),
@@ -2815,7 +2802,7 @@ fn run_panels() {
                 );
             });
             bench("elementwise                 qm31", len, || {
-                ops::mul_elementwise::<QuadMersenne31>(
+                ops::mul_elementwise_into::<QuadMersenne31>(
                     black_box(&mut product),
                     black_box(&src),
                     black_box(&rhs),

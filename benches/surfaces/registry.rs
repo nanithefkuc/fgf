@@ -38,8 +38,7 @@ impl Scope {
     }
 }
 
-/// One registered measurement: the metadata the publisher sees and the entry
-/// point that runs it.
+/// One registered measurement: its metadata and the entry point that runs it.
 #[derive(Clone)]
 pub struct Case {
     /// Stable unique case string across rounds, hosts, and inventories.
@@ -236,8 +235,8 @@ fn json_api(api: &[&str]) -> String {
 
 /// The shared metadata prefix of every inventory and timing record.
 ///
-/// Field order is frozen: the publisher matches inventories across rounds
-/// byte-for-byte, so this function is the single spelling of the prefix.
+/// Field order is frozen across rounds and hosts, so this function
+/// is the single spelling of the prefix.
 fn record_prefix(case: &Case) -> String {
     let mut out = String::new();
     let _ = write!(out, "\"case\":{},", json_str(&case.case));

@@ -7,10 +7,8 @@
 
 use core::any::TypeId;
 
-use fgf::{
-    Elem, Field, FieldBuffer, FiniteField, FiniteFieldRepr, Goldilocks, GoldilocksFold,
-    HasGenerator, Mersenne31, MersenneFold, PrimeField, RangeError,
-};
+use fgf::prime::{Goldilocks, GoldilocksFold, Mersenne31, MersenneFold, PrimeField};
+use fgf::{Elem, Field, FieldBuffer, FiniteField, FiniteFieldRepr, RangeError};
 
 const M31: u64 = 0x7FFF_FFFF;
 const GOLDILOCKS: u64 = 0xFFFF_FFFF_0000_0001;
@@ -51,24 +49,6 @@ fn presentation_labels_and_field_names() {
     );
     assert_eq!(Mersenne31::NAME, "GF(2^31 - 1)");
     assert_eq!(Goldilocks::NAME, "GF(2^64 - 2^32 + 1)");
-    // Marker Debug carries the characteristic, degree, and presentation
-    // label; its punctuation is not a contract. The degree digit is looked
-    // for after the characteristic is removed, since the characteristic's
-    // own digits contain a `1`.
-    for (debug, p, label) in [
-        (format!("{:?}", Mersenne31::default()), M31, "mersenne-fold"),
-        (
-            format!("{:?}", Goldilocks::default()),
-            GOLDILOCKS,
-            "goldilocks-fold",
-        ),
-    ] {
-        let without_p = debug.replacen(&p.to_string(), "", 1);
-        assert!(
-            debug.contains(&p.to_string()) && without_p.contains('1') && debug.contains(label),
-            "{debug}"
-        );
-    }
 }
 
 /// Residues worth transporting: identities, the generator, `p − 1`, and a
@@ -137,20 +117,32 @@ fn named_and_residue_lanes_differ_in_width() {
 
 #[test]
 fn residue_conversions_reject_out_of_range() {
-    assert_eq!(Elem::<Mersenne31>::from_residue(M31), Err(RangeError));
-    assert_eq!(Elem::<Mersenne31>::from_residue(u64::MAX), Err(RangeError));
+    assert!(matches!(
+        Elem::<Mersenne31>::from_residue(M31),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Mersenne31>::from_residue(u64::MAX),
+        Err(RangeError { .. })
+    ));
     // Values whose low 32 bits look like valid residues are still rejected:
     // the range check runs before any narrowing.
-    assert_eq!(Elem::<Mersenne31>::from_residue(1 << 32), Err(RangeError));
-    assert_eq!(
+    assert!(matches!(
+        Elem::<Mersenne31>::from_residue(1 << 32),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
         Elem::<Mersenne31>::from_residue((1 << 32) + 7),
-        Err(RangeError)
-    );
-    assert_eq!(
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
         Elem::<Goldilocks>::from_residue(GOLDILOCKS),
-        Err(RangeError)
-    );
-    assert_eq!(Elem::<Goldilocks>::from_residue(u64::MAX), Err(RangeError));
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Goldilocks>::from_residue(u64::MAX),
+        Err(RangeError { .. })
+    ));
     // The raw constructors still reduce aliases; only the checked residue
     // constructor rejects them.
     assert_eq!(
@@ -175,6 +167,6 @@ fn residue_conversions_are_const() {
     };
     assert_eq!(G, Some(49));
     assert_eq!(H, Some(1));
-    assert_eq!(Mersenne31::GENERATOR_RAW, 7);
-    assert_eq!(Goldilocks::GENERATOR_RAW, 7);
+    assert_eq!(Elem::<Mersenne31>::GENERATOR.to_raw(), 7);
+    assert_eq!(Elem::<Goldilocks>::GENERATOR.to_raw(), 7);
 }

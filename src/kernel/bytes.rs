@@ -11,7 +11,7 @@ use super::*;
 /// rather than slice lets a caller walk an index table without staging fat
 /// pointers per source.
 ///
-/// This is the XOR primitive under [`FieldKernels::add_gather_offsets`];
+/// This is the XOR primitive behind the dispatched offset-addressed gather;
 /// only fields whose addition is XOR dispatch to it.
 ///
 /// # Panics

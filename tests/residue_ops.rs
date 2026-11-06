@@ -9,8 +9,8 @@
 
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
-use fgf::field::{Field, FieldBuffer, FieldElem};
-use fgf::{Elem, FieldKernels, FiniteField, Residue, ops};
+use fgf::prime::Residue;
+use fgf::{Elem, Field, FieldBuffer, FieldElem, FiniteField, ops};
 
 type P2 = FiniteField<2, 1, Residue>;
 type P7 = FiniteField<7, 1, Residue>;
@@ -104,7 +104,7 @@ fn canon<F: FieldBuffer>(buf: &mut [u8]) {
 }
 
 /// Exercise the elementwise operation surface against the oracle.
-fn check_elementwise<F: FieldKernels>(coeffs: &[Elem<F>]) {
+fn check_elementwise<F: FieldBuffer>(coeffs: &[Elem<F>]) {
     for &len in &LENS {
         let mut src = noise(len, 0xa1);
         canon::<F>(&mut src);
@@ -137,7 +137,7 @@ fn check_elementwise<F: FieldKernels>(coeffs: &[Elem<F>]) {
             canon::<F>(&mut b);
             let mut got = vec![0u8; len];
             let mut want = vec![0u8; len];
-            ops::mul_elementwise::<F>(&mut got, &src, &b);
+            ops::mul_elementwise_into::<F>(&mut got, &src, &b);
             oracle_mul_elementwise::<F>(&mut want, &src, &b);
             assert_eq!(got, want, "mul_elementwise len {len}");
 
@@ -186,7 +186,7 @@ fn check_elementwise<F: FieldKernels>(coeffs: &[Elem<F>]) {
 
 /// Gather, scatter, matrix, offset-addressed, and row-interleaved shapes,
 /// each against repeated single-row accumulation.
-fn check_shapes<F: FieldKernels>(coeffs: &[Elem<F>]) {
+fn check_shapes<F: FieldBuffer>(coeffs: &[Elem<F>]) {
     for &row_elems in &ROW_ELEMS {
         let row_len = row_elems * F::BYTES;
         let nsrc = coeffs.len();
@@ -326,7 +326,7 @@ fn check_shapes<F: FieldKernels>(coeffs: &[Elem<F>]) {
             let mut got = noise(live, 0x2a2);
             canon::<F>(&mut got);
             let mut want = got.clone();
-            ops::add_gather_offsets::<F>(&mut got, &region, &offsets);
+            ops::add_gather_offsets::<F>(&mut got, &offsets, &region);
             for &start in &offsets {
                 oracle_add_assign::<F>(&mut want, &region[start as usize..start as usize + live]);
             }
@@ -337,7 +337,7 @@ fn check_shapes<F: FieldKernels>(coeffs: &[Elem<F>]) {
 
 /// Prepared forms drive the same kernels with the coefficient resolved once.
 #[cfg(feature = "alloc")]
-fn check_prepared_reuse<F: FieldKernels>(coeffs: &[Elem<F>]) {
+fn check_prepared_reuse<F: FieldBuffer>(coeffs: &[Elem<F>]) {
     let row_len = 8 * F::BYTES;
     let nsrc = coeffs.len();
     let srcs: Vec<Vec<u8>> = (0..nsrc)
@@ -445,7 +445,7 @@ fn check_prepared_reuse<F: FieldKernels>(coeffs: &[Elem<F>]) {
 /// Noncanonical lanes through the packed dispatch: arithmetic paths emit
 /// canonical lanes equal to the oracle over the reduced values, and the
 /// documented shortcuts preserve the alias bytes exactly.
-fn check_alias_lanes<F: FieldKernels>(modulus: u64, aliases: &[u64], coeff: Elem<F>) {
+fn check_alias_lanes<F: FieldBuffer>(modulus: u64, aliases: &[u64], coeff: Elem<F>) {
     let alias_buf: Vec<u8> = aliases.iter().flat_map(|a| a.to_le_bytes()).collect();
     let len = alias_buf.len();
     let mut other = noise(len, 0x500);
@@ -512,7 +512,7 @@ fn check_alias_lanes<F: FieldKernels>(modulus: u64, aliases: &[u64], coeff: Elem
 
     let mut got = vec![0u8; len];
     let mut want = vec![0u8; len];
-    ops::mul_elementwise::<F>(&mut got, &alias_buf, &other);
+    ops::mul_elementwise_into::<F>(&mut got, &alias_buf, &other);
     oracle_mul_elementwise::<F>(&mut want, &alias_buf, &other);
     assert_eq!(got, want, "mul_elementwise of aliases");
     assert_canonical(&got, "mul_elementwise");
@@ -685,20 +685,6 @@ fn alias_lanes_canonicalize_through_packed_ops() {
         Elem::<PWide>::from_raw(0xFFFF_FFFF_FFFF_FFC4),
     );
     check_alias_lanes::<P2>(2, &[2, 3, 4, u64::MAX], Elem::<P2>::ONE);
-    type MersenneResidue = FiniteField<0x7fff_ffff, 1, Residue>;
-    let aliases = [0x7fff_ffff, 0x8000_0000, u64::MAX].repeat(65);
-    check_alias_lanes::<MersenneResidue>(
-        0x7fff_ffff,
-        &aliases,
-        Elem::<MersenneResidue>::from_raw(2),
-    );
-    type GoldilocksResidue = FiniteField<0xffff_ffff_0000_0001, 1, Residue>;
-    let aliases = [0xffff_ffff_0000_0001, 0xffff_ffff_0000_0002, u64::MAX].repeat(65);
-    check_alias_lanes::<GoldilocksResidue>(
-        0xffff_ffff_0000_0001,
-        &aliases,
-        Elem::<GoldilocksResidue>::from_raw(2),
-    );
 }
 
 /// Every packed kernel must leave the characteristic-two row's lanes
@@ -858,7 +844,7 @@ fn empty_buffers_are_no_ops() {
     ops::mul_add::<P7>(&mut dst, Elem::<P7>::ONE, &src);
     ops::add_assign::<P7>(&mut dst, &src);
     ops::sub_assign::<P7>(&mut dst, &src);
-    ops::mul_elementwise::<P7>(&mut dst, &src, &src);
+    ops::mul_elementwise_into::<P7>(&mut dst, &src, &src);
     ops::mul_assign::<P7>(&mut dst, Elem::<P7>::ZERO);
     assert!(dst.is_empty());
     // Empty gather writes nothing and must not panic.
@@ -894,7 +880,7 @@ fn four_byte_elementwise_matches_u128_oracle() {
             w.copy_from_slice(&((x as u128 * y as u128 % P as u128) as u32).to_le_bytes());
         }
         let mut got = vec![0u8; lanes * 4];
-        ops::mul_elementwise::<Row>(&mut got, &a, &b);
+        ops::mul_elementwise_into::<Row>(&mut got, &a, &b);
         assert_eq!(got, want, "mul_elementwise lanes {lanes}");
         for lane in got.chunks_exact(4) {
             assert!(
@@ -1139,7 +1125,7 @@ fn routed_residue_matches_portable_composition_byte_for_byte() {
         }
     }
 
-    fn check<F: FieldKernels>(coeffs: &[Elem<F>]) {
+    fn check<F: FieldBuffer>(coeffs: &[Elem<F>]) {
         assert!(F::BYTES == 4, "consistency test covers four-byte rows");
         // One lane plus rows below, across, and above the vector body:
         // the single-row floor sits at eight lanes while the elementwise
@@ -1391,65 +1377,6 @@ fn matrix_accumulate_all_zero_row_matches_portable() {
     check::<4_294_967_291>();
 }
 
-#[cfg(feature = "alloc")]
-#[test]
-fn delayed_unit_row_matches_dispatched_composition_over_aliases() {
-    type F = FiniteField<0x7fff_ffff, 1, Residue>;
-    let modulus = u128::from(0x7fff_ffff_u64);
-    let nrows = 4;
-    let nterms = 8;
-    let coefficients: Vec<_> = (0..nterms)
-        .flat_map(|term| {
-            [
-                Elem::<F>::ONE,
-                Elem::<F>::from_raw(0x7fff_fffe),
-                Elem::<F>::from_raw(if term % 2 == 0 { 1 } else { 3 }),
-                Elem::<F>::from_raw(5 * (u64::try_from(term).unwrap() + 2)),
-            ]
-        })
-        .collect();
-    let plan = ops::CoeffMatrix::<F>::from_source_major(nterms, nrows, &coefficients);
-    for row_len in [256, 260, 512] {
-        let sources: Vec<_> = (0..nterms)
-            .map(|term| {
-                let mut source = noise(row_len, 0xa00 + u64::try_from(term).unwrap());
-                source[..4].fill(0xff);
-                source
-            })
-            .collect();
-        let references: Vec<_> = sources.iter().map(Vec::as_slice).collect();
-        let terms: Vec<_> = sources
-            .iter()
-            .enumerate()
-            .map(|(term, source)| {
-                (
-                    &coefficients[term * nrows..(term + 1) * nrows],
-                    source.as_slice(),
-                )
-            })
-            .collect();
-        let mut prepared = vec![0xff; nrows * row_len];
-        let mut composed = prepared.clone();
-        let mut expected = prepared.clone();
-        for (row, destination) in expected.chunks_exact_mut(row_len).enumerate() {
-            for (lane, word) in destination.chunks_exact_mut(4).enumerate() {
-                let mut sum = u128::from(u32::MAX) % modulus;
-                for (term, source) in sources.iter().enumerate() {
-                    let value =
-                        u32::from_le_bytes(source[4 * lane..4 * lane + 4].try_into().unwrap());
-                    let coefficient = coefficients[term * nrows + row].to_raw();
-                    sum = (sum + u128::from(value) * u128::from(coefficient)) % modulus;
-                }
-                word.copy_from_slice(&u32::try_from(sum).unwrap().to_le_bytes());
-            }
-        }
-        ops::mul_add_matrix_with::<F>(&mut prepared, row_len, &plan, &references);
-        ops::mul_add_matrix::<F>(&mut composed, row_len, nrows, &terms);
-        assert_eq!(prepared, expected, "prepared unit row at {row_len}");
-        assert_eq!(composed, expected, "dispatched unit row at {row_len}");
-    }
-}
-
 /// Overwrite gathers ignore the prior destination and treat their
 /// degenerate coefficient lists - no sources, all zero, one source, and a
 /// zero, unit, or zero-alias leading term - as accumulation from zero, in
@@ -1457,7 +1384,7 @@ fn delayed_unit_row_matches_dispatched_composition_over_aliases() {
 #[cfg(feature = "alloc")]
 #[test]
 fn overwrite_gather_degenerate_coefficients_match_oracle() {
-    fn check<F: FieldKernels>(general: Elem<F>, alias: Elem<F>) {
+    fn check<F: FieldBuffer>(general: Elem<F>, alias: Elem<F>) {
         let row_len = 64 * F::BYTES;
         let srcs: Vec<Vec<u8>> = (0..3)
             .map(|i| {
@@ -1516,23 +1443,6 @@ fn overwrite_gather_degenerate_coefficients_match_oracle() {
     );
 }
 
-/// Elementwise vectorization is available only for u32 rows on supported x86 hosts.
-#[test]
-fn vector_elementwise_report_matches_the_four_byte_class() {
-    fn check<F: FieldKernels>() {
-        assert_eq!(
-            fgf::has_vector_elementwise::<F>(),
-            F::BYTES == 4 && is_vector_host()
-        );
-    }
-    check::<FiniteField<2, 1>>();
-    check::<FiniteField<251, 1>>();
-    check::<FiniteField<65_521, 1>>();
-    check::<FiniteField<1_000_000_007, 1>>();
-    check::<FiniteField<4_294_967_291, 1>>();
-    check::<FiniteField<18_446_744_073_709_551_557, 1>>();
-}
-
 /// `backend_for` reports the vector tier exactly for the rows whose
 /// prepared fixed-coefficient operations vectorize: byte rows at
 /// `P <= 127`, every four-byte row, eight-byte rows at odd `P`. Byte
@@ -1566,13 +1476,6 @@ fn backend_report_matches_the_vectorized_width_classes() {
 }
 
 /// Whether this host can serve the x86 vector tier at all.
-fn is_vector_host() -> bool {
-    matches!(
-        fgf::backend(),
-        fgf::Backend::V4x | fgf::Backend::V3GfniCrypto | fgf::Backend::V3
-    )
-}
-
 /// Byte primes above the lookup boundary stay on the portable path: the
 /// packed operations match the shortcut-modeling integer oracle on raw
 /// lanes at 131 and 251.

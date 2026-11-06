@@ -1,8 +1,8 @@
 // expect: polynomial is reducible
-use fgf::{Field, FiniteField, Polynomial};
+use fgf::{Elem, FiniteField};
+use fgf::binary::Polynomial;
 
-// Every raw entry point validates the representation's defining data, so a
-// reducible polynomial never answers.
-pub fn call() -> u8 {
-    <FiniteField<2, 8, Polynomial<0x101>> as Field>::ONE_RAW
+// The identity constant validates the representation's defining data.
+pub fn call() -> Elem<FiniteField<2, 8, Polynomial<0x101>>> {
+    Elem::<FiniteField<2, 8, Polynomial<0x101>>>::ONE
 }

@@ -14,16 +14,15 @@ Rust 1.93 or later is required.
 | `std` without `simd` | Standard library and allocation | Available | Scalar |
 | `simd512` | Implies `simd`, `std`, and `alloc` | Available | Adds AVX-512 on capable x86 hosts |
 
-`Prepared forms` covers the prepared maps (`Frobenius`, `PreparedEmbedding`,
-`PreparedIsomorphism`), the `ops::map` and `ops::map_bits` modules, the
-prepared coefficient collections (`CoeffVec`, `CoeffMatrix`), the prepared
-scatter/gather/matrix `_with` forms, and `pack_to_vec`.
+`Prepared forms` covers the prepared coefficient collections (`CoeffVec`,
+`CoeffMatrix`), the prepared scatter/gather/matrix `_with` forms, and
+`pack_to_vec`.
 
 For portable prepared operations:
 
 ```toml
 [dependencies]
-fgf = { version = "=3.0.2", default-features = false, features = ["alloc"] }
+fgf = { version = "=4.0.0", default-features = false, features = ["alloc"] }
 ```
 
 Omit `features = ["alloc"]` for scalar arithmetic and caller-owned storage
@@ -37,21 +36,21 @@ compatibility promise. Applications normally use `ops`, not direct kernels.
 ## Inspect the field, not only the process
 
 ```rust
-use fgf::{AES, FiniteField, Normal, Polynomial, backend, backend_for};
+use fgf::{FiniteField, backend, backend_for};
+use fgf::binary::{AES, Normal, Polynomial};
 
 type PolynomialField = FiniteField<2, 8, Polynomial<AES>>;
 type NormalField = FiniteField<2, 8, Normal<AES, 0x20>>;
 println!("process: {:?}", backend());
 println!("polynomial: {:?}", backend_for::<PolynomialField>());
 println!("normal: {:?}", backend_for::<NormalField>());
-assert_eq!(backend_for::<NormalField>(), fgf::Backend::Scalar);
 ```
 
 `backend()` reports process selection; `backend_for::<F>()` reports the field's
 implemented tier. Neither traces every call: short rows can use a narrower
 path, vector loops can finish with scalar tails, and elementwise support differs
-from fixed-coefficient support. Ordered-basis rows and custom extensions not
-matching a shipped instance use scalar fallback.
+from fixed-coefficient support. Which presentations have a vector strategy can
+change within 4.x; results are identical on every backend.
 
 `SIMD_BACKEND` requests a downgrade when selection first occurs. The cached
 selection does not change per call; unsupported upgrades are ignored. For a
@@ -67,8 +66,7 @@ not prove that ISA executed.
 ## Reuse state and verify the target
 
 `Coeff` is inline preparation. `CoeffVec`, `CoeffMatrix`, and `pack_to_vec`
-require `alloc`, as do the prepared maps and the `ops::map` / `ops::map_bits`
-modules; construct owned preparation outside a repeated application
+require `alloc`; construct owned preparation outside a repeated application
 loop. Warmed steady-state behavior is distinct from first-use dispatch or shared
 table initialization. [Prepared coefficients](Prepared-coefficients) explains
 ownership and allocation evidence.
@@ -79,8 +77,8 @@ portable scalar bodies. Cross-compilation is not execution proof.
 
 ```sh
 just doctor
-just examples --no-default-features --features alloc
-just examples --all-features
+just examples
+just example NAME --all-features
 just cross-check
 ```
 
@@ -94,6 +92,7 @@ Checked APIs can panic on invalid geometry. A multi-call workflow can have
 written output before a later call fails; it is not transactional. Arithmetic
 is variable-time and requires an independent audit before handling secrets.
 
-The [kernel reference](https://docs.rs/fgf/3.0.2/fgf/kernel/index.html) owns backend
-query contracts. [BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md)
-owns measured results and reproduction, including per-operation residue routes.
+The [kernel reference](https://docs.rs/fgf/4.0.0/fgf/fn.backend_for.html) owns backend
+query contracts. The 3.0.2 measurement record owns measured results and
+reproduction, including per-operation residue routes:
+[residues](https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md).

@@ -1,7 +1,9 @@
 // expect: field order overflows u128
 //! Goldilocks `t^3 - t - 1`: the cube of the Goldilocks order exceeds
 //! `u128`.
-use fgf::{Components, Elem, Extension, ExtensionSpec, FiniteField, Goldilocks, Relation};
+use fgf::{Elem, FiniteField};
+use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
+use fgf::prime::Goldilocks;
 
 struct Spec;
 impl ExtensionSpec<3> for Spec {

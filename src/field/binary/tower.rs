@@ -1,56 +1,10 @@
-//! The shipped quadratic binary extension instances.
+//! The shipped quadratic binary extension instances and their scalar bodies.
 //!
-//! The Rijndael and Fan-Paar towers are [`ExtensionSpec<2>`] instances: each
-//! names the field `FiniteField<2, N, Extension<S, 2>>` as `a + b*t` over
-//! the previous level, under the relation `t^2 + c1*t + c0 = 0`. The low
-//! `N/2` coordinate bits hold `a` and the high `N/2` bits hold `b`; storage
-//! bits at or above `N` are zero. One is the base one in the low component.
-//! The scalar identities are:
-//!
-//! ```text
-//! product:   (a*c + c0*b*d, a*d + b*c + c1*b*d)
-//! square:    (a^2 + c0*b^2, c1*b^2)
-//! conjugate: (a + c1*b, b)
-//! norm:      a^2 + c1*a*b + c0*b^2
-//! ```
-//!
-//! [`Rijndael16`], [`Rijndael32`], and [`Rijndael64`] root at the AES field
-//! with `c1 = 1` and `c0` equal to `0x20`, `0x2000`, and `0x2000_0000`. The
-//! Fan-Paar specs nest from GF(2) through the Wiedemann relation
-//! `t^2 + alpha*t + 1`, where `alpha` is the previous level's
-//! indeterminate (`1` over GF(2), then the raw `base_one << (h/2)` in its
-//! own packing). [`FanPaar2`] and [`FanPaar4`] keep their coordinate word
-//! in a padded byte and carry no byte buffer; every other instance fills
-//! its `u8`, `u16`, `u32`, or `u64` word exactly and encodes it
-//! little-endian.
-//!
-//! Each instance carries its frozen generator and a full `const` surface on
-//! its concrete element type: constructors, byte and component conversions,
-//! and arithmetic, plus `mul_alpha` on Fan-Paar GF(2^8), GF(2^16), and
-//! GF(2^32). The `const` methods and the row's [`Field`](crate::Field)
-//! arithmetic share one specialized body per instance: the Rijndael rows run
-//! the Karatsuba recurrence over the AES field, the wide Fan-Paar rows the
-//! Wiedemann recurrence, and Fan-Paar GF(2^2) through GF(2^8) the
-//! descriptor interpreter. An extension row whose presentation equals a
-//! shipped instance's — base presentation, relation, and storage — runs
-//! that instance's body; every other row runs the generic extension body.
-//!
-//! ```
-//! use fgf::{Elem, Extension, FiniteField, Rijndael16};
-//!
-//! type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
-//!
-//! let x = Elem::<Gf16>::from_raw(0x1234);
-//! assert_eq!(x.mul(Elem::<Gf16>::ONE), x);
-//! assert_eq!(Elem::<Gf16>::GENERATOR.pow(65_535), Elem::<Gf16>::ONE);
-//!
-//! // Components are the base-field coefficients of `1` and `t`.
-//! let [low, high] = x.to_components();
-//! assert_eq!((low.to_raw(), high.to_raw()), (0x34, 0x12));
-//! assert_eq!(Elem::<Gf16>::from_components([low, high]), x);
-//! ```
+//! The Rijndael and Fan-Paar towers are `ExtensionSpec<2>` instances over
+//! `a + b*t` with `t^2 + c1*t + c0 = 0`, each carrying its frozen generator
+//! and a specialized `const` surface. The public packing convention,
+//! identities, and examples live on the [`binary`](crate::binary) facade.
 
-use super::BinaryField;
 use super::description::BinaryDescription;
 use super::poly::{AES, Polynomial};
 use crate::field::extension::{Extension, ExtensionSpec, Packed, PackedPadded, Relation};
@@ -73,7 +27,7 @@ const fn fp_low_mask(bits: u32) -> u64 {
     }
 }
 
-/// Multiply by the top-level indeterminate of a `bits`-wide level.
+/// Multiplies by the top-level indeterminate of a `bits`-wide level.
 ///
 /// # Panics
 ///
@@ -326,14 +280,17 @@ pub(crate) type FanPaar64Field = FiniteField<2, 64, Extension<FanPaar64, 2>>;
 // of the small Fan-Paar rows, the embedding reference ladder, and the
 // kernel tests' structural checks.
 pub(crate) const RIJNDAEL16_DESC: &BinaryDescription =
-    <Rijndael16Field as BinaryField>::DESCRIPTION;
+    <Rijndael16Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
 pub(crate) const RIJNDAEL32_DESC: &BinaryDescription =
-    <Rijndael32Field as BinaryField>::DESCRIPTION;
+    <Rijndael32Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
 pub(crate) const RIJNDAEL64_DESC: &BinaryDescription =
-    <Rijndael64Field as BinaryField>::DESCRIPTION;
-pub(crate) const FANPAAR2_DESC: &BinaryDescription = <FanPaar2Field as BinaryField>::DESCRIPTION;
-pub(crate) const FANPAAR4_DESC: &BinaryDescription = <FanPaar4Field as BinaryField>::DESCRIPTION;
-pub(crate) const FANPAAR8_DESC: &BinaryDescription = <FanPaar8Field as BinaryField>::DESCRIPTION;
+    <Rijndael64Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
+pub(crate) const FANPAAR2_DESC: &BinaryDescription =
+    <FanPaar2Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
+pub(crate) const FANPAAR4_DESC: &BinaryDescription =
+    <FanPaar4Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
+pub(crate) const FANPAAR8_DESC: &BinaryDescription =
+    <FanPaar8Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
 
 // ---------------------------------------------------------------------------
 // Rijndael specialized helpers over concrete bases.
@@ -543,7 +500,7 @@ macro_rules! instance_surface {
         mul: $mul:path, square: $square:path, inv: $inv:path
     ) => {
         impl Elem<$field> {
-            /// Wrap a raw storage word, keeping the coordinate bits.
+            /// Wraps a raw storage word, keeping the coordinate bits.
             #[inline]
             #[must_use]
             pub const fn from_raw(value: $raw) -> Self {
@@ -551,14 +508,15 @@ macro_rules! instance_surface {
                 Elem { raw: value & $mask }
             }
 
-            /// Decode from the stable little-endian representation.
+            /// Decodes the stable little-endian representation, discarding
+            /// the bits outside the coordinate span like [`Elem::from_raw`].
             #[inline]
             #[must_use]
             pub const fn from_bytes(bytes: [u8; $bytes]) -> Self {
                 Self::from_raw(<$raw>::from_le_bytes(bytes))
             }
 
-            /// Encode to the stable little-endian representation.
+            /// Encodes to the stable little-endian representation.
             #[inline]
             #[must_use]
             pub const fn to_bytes(self) -> [u8; $bytes] {
@@ -597,7 +555,7 @@ macro_rules! instance_surface {
                 }
             }
 
-            /// Square.
+            /// Squares the element.
             #[inline]
             #[must_use]
             pub const fn square(self) -> Self {
@@ -625,7 +583,7 @@ macro_rules! instance_surface {
                 self.mul(rhs.inv())
             }
 
-            /// Raise to an unsigned integer power. `pow(_, 0) == ONE`.
+            /// Raises to an unsigned integer power. `pow(_, 0) == ONE`.
             #[must_use]
             pub const fn pow(self, mut exponent: u128) -> Self {
                 let mut base = self;
@@ -666,11 +624,11 @@ macro_rules! instance_surface {
 }
 
 /// Emit the component conversions of one wide instance, matching
-/// [`ExtensionField<2>`](crate::ExtensionField) as `const` methods.
+/// [`ExtensionField<2>`](crate::extension::ExtensionField) as `const` methods.
 macro_rules! instance_components {
     ($field:ty, $base:ty, $raw:ty, $baseraw:ty, $half:literal) => {
         impl Elem<$field> {
-            /// Construct `a + b*t` from its base-field components `[a, b]`.
+            /// Constructs `a + b*t` from its base-field components `[a, b]`.
             #[inline]
             #[must_use]
             pub const fn from_components(components: [Elem<$base>; 2]) -> Self {
@@ -680,7 +638,7 @@ macro_rules! instance_components {
                 Elem { raw }
             }
 
-            /// Return the components `[a, b]` of `a + b*t`.
+            /// The components `[a, b]` of `a + b*t`.
             #[inline]
             #[must_use]
             // Splitting the raw word into halves: the truncation IS the
@@ -704,7 +662,7 @@ macro_rules! instance_components {
 /// const against the prime factors of the group order.
 macro_rules! instance_generator {
     ($field:ty, $raw:ty, $generator:literal, $order:expr, $factors:expr) => {
-        impl HasGenerator for $field {
+        impl super::super::private::GeneratorRaw for $field {
             const GENERATOR_RAW: $raw = {
                 // Direct storage construction keeps the proof independent
                 // of `Elem::GENERATOR`, which reads this constant.
@@ -727,6 +685,8 @@ macro_rules! instance_generator {
                 $generator
             };
         }
+
+        impl HasGenerator for $field {}
     };
 }
 
@@ -806,7 +766,7 @@ instance_generator!(
 // resolve Fan-Paar factors in coefficient preparation.
 
 impl Elem<FanPaar8Field> {
-    /// Multiply by this level's indeterminate `X`.
+    /// Multiplies by this level's indeterminate `X`.
     #[allow(clippy::cast_possible_truncation)]
     #[inline]
     #[must_use]
@@ -818,7 +778,7 @@ impl Elem<FanPaar8Field> {
 }
 
 impl Elem<FanPaar16Field> {
-    /// Multiply by this level's indeterminate `X`.
+    /// Multiplies by this level's indeterminate `X`.
     #[allow(clippy::cast_possible_truncation)]
     #[inline]
     #[must_use]
@@ -830,7 +790,7 @@ impl Elem<FanPaar16Field> {
 }
 
 impl Elem<FanPaar32Field> {
-    /// Multiply by this level's indeterminate `X`.
+    /// Multiplies by this level's indeterminate `X`.
     #[allow(clippy::cast_possible_truncation)]
     #[inline]
     #[must_use]
@@ -849,6 +809,7 @@ mod tests {
     use std::vec::Vec;
 
     use super::*;
+    use crate::field::private::RawArithmetic;
     use crate::field::{Field, FieldElem};
 
     /// Independent schoolbook product over one degree-16 instance's base,
@@ -931,7 +892,7 @@ mod tests {
     fn rijndael16_matches_schoolbook() {
         check_matches_schoolbook16::<Rijndael16Field>(
             rijndael16_mul,
-            <FiniteField<2, 8, Polynomial<AES>> as BinaryField>::DESCRIPTION,
+            <FiniteField<2, 8, Polynomial<AES>> as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION,
             1,
             0x20,
             0x0108,
@@ -1131,29 +1092,6 @@ mod tests {
     }
 
     #[test]
-    fn wide_field_facts() {
-        assert_eq!(<Rijndael64Field as Field>::DEGREE, 64);
-        assert_eq!(<Rijndael64Field as Field>::ORDER, 1u128 << 64);
-        assert_eq!(<Rijndael64Field as crate::field::FieldBuffer>::BYTES, 8);
-        assert_eq!(<Rijndael32Field as crate::field::FieldBuffer>::BYTES, 4);
-        let g = Elem::<Rijndael64Field>::GENERATOR;
-        assert_eq!(g.pow(u128::from(u64::MAX)), Elem::<Rijndael64Field>::ONE);
-        for q in [3u128, 5, 17, 257, 641, 65_537, 6_700_417] {
-            assert_ne!(
-                g.pow(u128::from(u64::MAX) / q),
-                Elem::<Rijndael64Field>::ONE
-            );
-        }
-        // Index round trip of `u64::MAX`.
-        let max =
-            Elem::<Rijndael64Field>::from_index(u128::from(u64::MAX)).expect("full-width word");
-        assert_eq!(max.to_index(), u128::from(u64::MAX));
-        // Excess-bit rejection below the cap.
-        assert!(Elem::<Rijndael32Field>::from_index(1u128 << 32).is_err());
-        assert!(Elem::<Rijndael16Field>::from_index(1u128 << 16).is_err());
-    }
-
-    #[test]
     fn fanpaar64_matches_reference_pair() {
         // Forward fixture from the pre-cutover tower, via the recurrence.
         assert_eq!(
@@ -1201,7 +1139,7 @@ mod tests {
         type F = FiniteField<2, 16, Extension<CustomNormal8, 2>>;
         assert_eq!(Elem::<F>::ZERO.to_raw(), 0);
         // The actual one holds the base one in the low component.
-        let base_one = <CustomNormal8 as ExtensionSpec<2>>::Base::DESCRIPTION.one();
+        let base_one = <<CustomNormal8 as ExtensionSpec<2>>::Base as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION.one();
         assert_eq!(base_one, 0xFF);
         assert_eq!(Elem::<F>::ONE.to_raw(), 0xFF);
         let mut state = 0x1357_9bdf_0246_8aceu64;
@@ -1221,8 +1159,8 @@ mod tests {
     /// product to the normal-basis product of the images.
     #[test]
     fn transport_poly_is_a_field_isomorphism() {
-        type Poly8 = FiniteField<2, 8, crate::field::Polynomial<0x11B>>;
-        type Normal8 = FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>;
+        type Poly8 = FiniteField<2, 8, crate::field::binary::Polynomial<0x11B>>;
+        type Normal8 = FiniteField<2, 8, crate::field::binary::Normal<0x11B, 0x20>>;
         #[allow(clippy::cast_possible_truncation)]
         let transport = |word: u8| transport_poly(core::hint::black_box(u64::from(word))) as u8;
         assert_eq!(transport(1), Elem::<Normal8>::ONE.to_raw());

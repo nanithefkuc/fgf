@@ -11,13 +11,15 @@
 //!   adjacent-swapped self. No table at all, which is what makes the GFNI and
 //!   `PMULL` paths cheap.
 //!
-//! Each GF(2^8) polynomial, and each other byte-wide row a program uses,
-//! carries one nibble bank and one affine bank, built at compile time from
-//! that row's scalar multiply and promoted to rodata once; all 256
-//! coefficients cost 8 KiB plus 2 KiB and stay resident in L1/L2.
-//! [`Gf8Data`] exposes a row's banks, AES nativity, AES isomorphism, and
+//! Each GF(2^8) polynomial carries one nibble bank and one affine bank, built
+//! at compile time from that field's scalar multiply and promoted to rodata
+//! once per polynomial a program uses; all 256 coefficients cost 8 KiB plus
+//! 2 KiB and stay resident in L1/L2. The field layer's
+//! [`ByteReprData`](crate::field::binary::byte::ByteReprData) contract
+//! exposes a representation's banks, AES nativity, AES isomorphism, and
 //! reduction byte to the dispatch layer, which resolves coefficients once
-//! and hands the kernels plain values. GF(2^16) has 65536 coefficients, so a
+//! and hands the kernels plain values; this module implements it per
+//! presentation family. GF(2^16) has 65536 coefficients, so a
 //! full bank would be ~9 MiB and thrash cache. A GF(2^16) coefficient is
 //! instead resolved per call into its four base-field factors (two base
 //! multiplies, [`TowerCoeff::new`]) and, on shuffle backends, four table
@@ -25,12 +27,11 @@
 //! whole buffer, or hoisted out entirely with `Coeff`/`CoeffVec`.
 
 use crate::field::FiniteField;
+use crate::field::binary::byte::{ByteReprData, ScaleTable};
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::field::binary::tower::FanPaar8Field;
 use crate::field::binary::tower::{FanPaar16Field, Rijndael16Field};
-use crate::field::binary::{AES, BinaryRepr, Polynomial};
-use crate::field::extension::Descriptor;
-use crate::field::extension::arithmetic::word_mul;
+use crate::field::binary::{AES, Polynomial};
 use crate::field::{Cantor, Elem, Normal};
 
 /// Reference shift-and-XOR multiply under the degree-eight polynomial `poly`.
@@ -53,20 +54,6 @@ const fn xtime_mul(poly: u128, mut a: u8, b: u8) -> u8 {
         i += 1;
     }
     acc
-}
-
-/// Split-nibble multiplication tables for one GF(2^8) coefficient.
-///
-/// The shuffle kernels read only `lo` and `hi`, so one type serves every
-/// polynomial; the polynomial decides which bank an entry comes from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ScaleTable {
-    /// The raw coefficient byte these tables multiply by.
-    pub coeff: u8,
-    /// `lo[i] = coeff * i` for the low nibble.
-    pub lo: [u8; 16],
-    /// `hi[i] = coeff * (i << 4)` for the high nibble.
-    pub hi: [u8; 16],
 }
 
 impl ScaleTable {
@@ -136,11 +123,6 @@ const fn linear_map(columns: [u8; 8]) -> u64 {
     map
 }
 
-/// The `VGF2P8AFFINEQB` matrix of the identity byte map: multiplication by
-/// one in every GF(2^8) presentation.
-#[cfg(test)]
-pub(crate) const IDENTITY_AFFINE: u64 = 0x0102_0408_1020_4080;
-
 /// The per-representation table banks, one entry per coefficient.
 struct Bank<const POLY: u128>;
 
@@ -156,37 +138,12 @@ impl<const POLY: u128> Bank<POLY> {
     const AFFINE: &'static [u64; 256] = &build_affine_bank::<POLY>();
 }
 
-/// The polynomial nibble-bank facet of a byte representation: constants and
-/// `&'static` data, never per-call computation.
-///
-/// The GF(2^16) tower tables resolve their factors through this facet once
-/// per coefficient and hand the architecture kernels plain values, so no
-/// hot kernel body depends on the representation type. Only [`Polynomial`]
-/// carries it: other byte-wide rows build their banks from their own
-/// product through [`RowBank`], so polynomial tables never observe their
-/// coordinates.
-pub(crate) trait ByteBanks: BinaryRepr<8> {
-    /// The nibble tables of every coefficient, in this representation's
-    /// encoding.
-    const SCALE: &'static [ScaleTable; 256];
-    /// The reduction byte the shift-and-reduce elementwise kernels consume:
-    /// the low byte of the reference polynomial.
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const REDUCTION_LOW: u8;
-}
-
 /// The AES nibble bank, shared by the GF(2^16) elementwise dispatch arms.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(crate) const AES_BANK: &[ScaleTable; 256] = Bank::<AES>::SCALE;
 
 /// The Rijndael16 relation's constant byte, `t^2 + t + 0x20`.
 pub(crate) const RIJNDAEL16_B: u8 = 0x20;
-
-impl<const POLY: u128> ByteBanks for Polynomial<POLY> {
-    const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const REDUCTION_LOW: u8 = (POLY & 0xFF) as u8;
-}
 
 #[allow(clippy::cast_possible_truncation)]
 const fn build_bank<const POLY: u128>() -> [ScaleTable; 256] {
@@ -247,297 +204,76 @@ pub fn affine_map<const POLY: u128>(coeff: Elem<FiniteField<2, 8, Polynomial<POL
     Bank::<POLY>::AFFINE[coeff.to_raw() as usize]
 }
 
-/// What the single degree-eight dispatch needs from every byte-wide row.
-///
-/// Polynomial presentations carry their per-polynomial banks and reduce in
-/// their own coordinates. Every other byte-wide row — ordered bases and
-/// `Packed<u8>` extension rows — carries banks built from its own product
-/// and reaches the shift/reduce elementwise kernels through its isomorphism
-/// onto the AES field.
-pub(crate) trait Gf8Data {
-    /// Whether `GF2P8MULB` multiplies in this encoding natively.
-    const AES_NATIVE: bool;
-    /// Whether raw bytes are polynomial coordinates reduced by
-    /// [`Gf8Data::REDUCTION_LOW`].
-    #[allow(dead_code)]
-    const POLYNOMIAL: bool;
-    /// Nibble tables per coefficient.
-    const SCALE: &'static [ScaleTable; 256];
-    /// Affine map words per coefficient.
-    const AFFINE: &'static [u64; 256];
-    /// Isomorphism onto AES.
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const ISOMORPHISM: Isomorphism;
-    /// The same isomorphism as split-nibble tables, for the shuffle tiers.
-    #[allow(dead_code)]
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const CONJUGATION: Conjugation;
-    /// Reduction byte for shift/reduce bodies; meaningful only for
-    /// polynomial presentations.
-    ///
-    /// Consumed only by the x86 elementwise kernels; other targets keep the
-    /// contract without reading it.
-    #[allow(dead_code)]
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const REDUCTION_LOW: u8;
-}
+const DUMMY_AFFINE: [u64; 256] = [0u64; 256];
 
-impl<const POLY: u128> Gf8Data for Polynomial<POLY> {
-    const AES_NATIVE: bool = POLY == AES;
-    const POLYNOMIAL: bool = true;
-    const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
-    const AFFINE: &'static [u64; 256] = Bank::<POLY>::AFFINE;
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const ISOMORPHISM: Isomorphism = isomorphism::<POLY>();
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const CONJUGATION: Conjugation = {
-        let to_aes = root_powers::<AES>(POLY);
-        Conjugation::new(to_aes, inverse_columns(to_aes))
-    };
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const REDUCTION_LOW: u8 = Polynomial::<POLY>::REDUCTION_LOW;
-}
-
-impl<const P: u128, const E: u8> Gf8Data for Normal<P, E> {
-    const AES_NATIVE: bool = false;
-    const POLYNOMIAL: bool = false;
-    const SCALE: &'static [ScaleTable; 256] = RowBank::<FiniteField<2, 8, Self>>::SCALE;
-    const AFFINE: &'static [u64; 256] = RowBank::<FiniteField<2, 8, Self>>::AFFINE;
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const ISOMORPHISM: Isomorphism = RowBank::<FiniteField<2, 8, Self>>::ISOMORPHISM;
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const CONJUGATION: Conjugation = RowBank::<FiniteField<2, 8, Self>>::CONJUGATION;
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const REDUCTION_LOW: u8 = 0;
-}
-
-impl<const P: u128, const SEED: u8> Gf8Data for Cantor<P, SEED> {
-    const AES_NATIVE: bool = false;
-    const POLYNOMIAL: bool = false;
-    const SCALE: &'static [ScaleTable; 256] = RowBank::<FiniteField<2, 8, Self>>::SCALE;
-    const AFFINE: &'static [u64; 256] = RowBank::<FiniteField<2, 8, Self>>::AFFINE;
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const ISOMORPHISM: Isomorphism = RowBank::<FiniteField<2, 8, Self>>::ISOMORPHISM;
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const CONJUGATION: Conjugation = RowBank::<FiniteField<2, 8, Self>>::CONJUGATION;
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const REDUCTION_LOW: u8 = 0;
-}
-
-/// The banks and isomorphism of any byte-wide row, built at compile time
-/// from the row's own product on raw bytes.
-///
-/// Promoted `&'static` items, evaluated once per row type a program uses.
-pub(crate) struct RowBank<F>(core::marker::PhantomData<F>);
-
-impl<F: crate::field::Field<Raw = u8>> RowBank<F> {
-    /// Nibble tables and affine words of every coefficient.
-    const BANK: &'static ([ScaleTable; 256], [u64; 256]) = &row_bank(F::DESCRIPTOR);
-    /// Raw columns of the isomorphism onto AES and of its inverse.
-    #[allow(dead_code)]
-    const COLUMNS: ([u8; 8], [u8; 8]) = row_isomorphism_columns(F::DESCRIPTOR, F::ONE_RAW);
-}
-
-impl<F: crate::field::Field<Raw = u8>> Gf8Data for RowBank<F> {
-    const AES_NATIVE: bool = false;
-    const POLYNOMIAL: bool = false;
-    const SCALE: &'static [ScaleTable; 256] = &Self::BANK.0;
-    const AFFINE: &'static [u64; 256] = &Self::BANK.1;
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const ISOMORPHISM: Isomorphism = Isomorphism {
-        forward: linear_map(Self::COLUMNS.0),
-        inverse: linear_map(Self::COLUMNS.1),
-    };
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const CONJUGATION: Conjugation = Conjugation::new(Self::COLUMNS.0, Self::COLUMNS.1);
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    const REDUCTION_LOW: u8 = 0;
-}
-
-/// The product of two raw bytes of a byte-wide row.
-#[allow(clippy::cast_possible_truncation)]
-const fn row_mul(descriptor: &Descriptor, x: u8, y: u8) -> u8 {
-    word_mul(descriptor, descriptor.root_index(), x as u64, y as u64) as u8
-}
-
-/// Nibble tables and affine word of one coefficient: the images of the raw
-/// basis bits under multiplication by `coeff`, expanded by linearity.
-const fn row_entry(descriptor: &Descriptor, coeff: u8) -> (ScaleTable, u64) {
-    let mut columns = [0u8; 8];
-    let mut k = 0;
-    while k < 8 {
-        columns[k] = row_mul(descriptor, coeff, 1 << k);
-        k += 1;
-    }
-    let (lo, hi) = nibble_tables(columns);
-    (ScaleTable { coeff, lo, hi }, linear_map(columns))
-}
-
-/// Every coefficient's nibble tables and affine word for a byte-wide row.
-#[allow(clippy::cast_possible_truncation)]
-const fn row_bank(descriptor: &Descriptor) -> ([ScaleTable; 256], [u64; 256]) {
-    let mut scale = [ScaleTable {
+/// Placeholder nibble banks for basis presentations: each entry carries its
+/// own coefficient byte with zero maps, so preparation stays reversible and
+/// the scalar fallback recovers the element without touching a table.
+pub(crate) static DUMMY_SCALE: [ScaleTable; 256] = {
+    let mut bank = [ScaleTable {
         coeff: 0,
         lo: [0; 16],
         hi: [0; 16],
     }; 256];
-    let mut affine = [0u64; 256];
-    let mut c = 0;
-    while c < 256 {
-        let (table, word) = row_entry(descriptor, c as u8);
-        scale[c] = table;
-        affine[c] = word;
-        c += 1;
-    }
-    (scale, affine)
-}
-
-/// The split-nibble tables of the byte-linear map whose image of bit `k` is
-/// `columns[k]`.
-const fn nibble_tables(columns: [u8; 8]) -> ([u8; 16], [u8; 16]) {
-    let mut lo = [0u8; 16];
-    let mut hi = [0u8; 16];
     let mut i = 0;
-    while i < 16 {
-        let mut k = 0;
-        while k < 4 {
-            if (i >> k) & 1 == 1 {
-                lo[i] ^= columns[k];
-                hi[i] ^= columns[k + 4];
-            }
-            k += 1;
-        }
+    while i < 256 {
+        // The counter never exceeds one byte here.
+        #[allow(clippy::cast_possible_truncation)]
+        let byte = i as u8;
+        bank[i].coeff = byte;
         i += 1;
     }
-    (lo, hi)
+    bank
+};
+
+/// The identity map's `VGF2P8AFFINEQB` matrix, both directions: the AES
+/// isomorphism placeholder of the basis presentations.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+const IDENTITY_MAP: u64 = 0x0102_0408_1020_4080;
+
+/// The byte-representation data of the polynomial presentations: the real
+/// banks, AES nativity, the computed AES isomorphism, and the reduction
+/// byte. Dispatch branches on the descriptor first, so no kernel applies
+/// polynomial tables to basis coordinates.
+impl<const POLY: u128> ByteReprData for Polynomial<POLY> {
+    const AES_NATIVE: bool = POLY == AES;
+    const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
+    const AFFINE: &'static [u64; 256] = Bank::<POLY>::AFFINE;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    const AES_MAP_FORWARD: u64 = isomorphism_to_aes::<POLY>().forward;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    const AES_MAP_INVERSE: u64 = isomorphism_to_aes::<POLY>().inverse;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    const REDUCTION_LOW: u8 = Polynomial::<POLY>::REDUCTION_LOW;
 }
 
-/// Whether eight bytes are linearly independent over GF(2).
-const fn independent(mut vectors: [u8; 8]) -> bool {
-    let mut row = 0;
-    let mut bit = 0;
-    while bit < 8 {
-        let mut pivot = row;
-        while pivot < 8 && (vectors[pivot] >> bit) & 1 == 0 {
-            pivot += 1;
-        }
-        if pivot < 8 {
-            let held = vectors[pivot];
-            vectors[pivot] = vectors[row];
-            vectors[row] = held;
-            let mut other = 0;
-            while other < 8 {
-                if other != row && (vectors[other] >> bit) & 1 == 1 {
-                    vectors[other] ^= held;
-                }
-                other += 1;
-            }
-            row += 1;
-        }
-        bit += 1;
-    }
-    row == 8
+/// The byte-representation data of the ordered-basis presentations:
+/// placeholder banks the scalar fallback never reads, no AES nativity, the
+/// identity isomorphism, and no reduction byte.
+impl<const P: u128, const E: u8> ByteReprData for Normal<P, E> {
+    const AES_NATIVE: bool = false;
+    const SCALE: &'static [ScaleTable; 256] = &DUMMY_SCALE;
+    const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    const AES_MAP_FORWARD: u64 = IDENTITY_MAP;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    const AES_MAP_INVERSE: u64 = IDENTITY_MAP;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    const REDUCTION_LOW: u8 = 0;
 }
 
-/// Raw columns of a field isomorphism from a byte-wide row onto AES, and of
-/// its inverse.
-///
-/// The smallest raw generator `α` whose first eight powers are independent
-/// fixes the row's power basis; its minimal polynomial comes from `α^8` in
-/// that basis, and the map sends `α` to that polynomial's smallest root in
-/// the AES field. `one` is the row's raw multiplicative identity.
-#[allow(dead_code)]
-#[allow(clippy::cast_possible_truncation)]
-const fn row_isomorphism_columns(descriptor: &Descriptor, one: u8) -> ([u8; 8], [u8; 8]) {
-    let mut candidate = 2u16;
-    loop {
-        assert!(
-            candidate < 256,
-            "every GF(2^8) has a generator of degree eight"
-        );
-        let alpha = candidate as u8;
-        let mut powers = [0u8; 8];
-        let mut power = one;
-        let mut k = 0;
-        while k < 8 {
-            powers[k] = power;
-            power = row_mul(descriptor, power, alpha);
-            k += 1;
-        }
-        if independent(powers) {
-            // `power` is `α^8`; `to_powers[j]` writes raw bit `j` over the
-            // power basis.
-            let to_powers = inverse_columns(powers);
-            let mut minimal = 0u8;
-            let mut j = 0;
-            while j < 8 {
-                if (power >> j) & 1 == 1 {
-                    minimal ^= to_powers[j];
-                }
-                j += 1;
-            }
-            let beta = root_powers::<AES>(0x100 | minimal as u128);
-            let mut forward = [0u8; 8];
-            let mut j = 0;
-            while j < 8 {
-                let mut k = 0;
-                while k < 8 {
-                    if (to_powers[j] >> k) & 1 == 1 {
-                        forward[j] ^= beta[k];
-                    }
-                    k += 1;
-                }
-                j += 1;
-            }
-            return (forward, inverse_columns(forward));
-        }
-        candidate += 1;
-    }
-}
-
-/// A byte-wide row's isomorphism onto AES and its inverse as split-nibble
-/// tables: the shuffle tiers' form of [`Isomorphism`].
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Conjugation {
-    /// Low-nibble table of `φ`.
-    pub forward_lo: [u8; 16],
-    /// High-nibble table of `φ`.
-    pub forward_hi: [u8; 16],
-    /// Low-nibble table of `φ⁻¹`.
-    pub inverse_lo: [u8; 16],
-    /// High-nibble table of `φ⁻¹`.
-    pub inverse_hi: [u8; 16],
-}
-
-#[allow(dead_code)]
-impl Conjugation {
-    /// Build the tables from the raw columns of `φ` and `φ⁻¹`.
-    #[must_use]
-    pub const fn new(forward: [u8; 8], inverse: [u8; 8]) -> Self {
-        let (forward_lo, forward_hi) = nibble_tables(forward);
-        let (inverse_lo, inverse_hi) = nibble_tables(inverse);
-        Self {
-            forward_lo,
-            forward_hi,
-            inverse_lo,
-            inverse_hi,
-        }
-    }
-
-    /// `φ(x)`, into the AES field.
-    #[inline]
-    #[must_use]
-    pub const fn forward(&self, x: u8) -> u8 {
-        self.forward_lo[(x & 0x0f) as usize] ^ self.forward_hi[(x >> 4) as usize]
-    }
-
-    /// `φ⁻¹(x)`, back from the AES field.
-    #[inline]
-    #[must_use]
-    pub const fn inverse(&self, x: u8) -> u8 {
-        self.inverse_lo[(x & 0x0f) as usize] ^ self.inverse_hi[(x >> 4) as usize]
-    }
+/// The byte-representation data of the Cantor-basis presentations, as the
+/// ordered-basis form above.
+impl<const P: u128, const SEED: u8> ByteReprData for Cantor<P, SEED> {
+    const AES_NATIVE: bool = false;
+    const SCALE: &'static [ScaleTable; 256] = &DUMMY_SCALE;
+    const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    const AES_MAP_FORWARD: u64 = IDENTITY_MAP;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    const AES_MAP_INVERSE: u64 = IDENTITY_MAP;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    const REDUCTION_LOW: u8 = 0;
 }
 
 /// A field isomorphism `φ: FiniteField<2, 8, Polynomial<POLY>> → FiniteField<2, 8, Polynomial<AES>>` and its inverse,
@@ -556,21 +292,15 @@ pub struct Isomorphism {
 }
 
 /// Return the isomorphism between `FiniteField<2, 8, Polynomial<POLY>>` and `FiniteField<2, 8, Polynomial<AES>>`.
-#[allow(dead_code)]
-#[inline]
-#[must_use]
-pub const fn isomorphism_to_aes<const POLY: u128>() -> Isomorphism {
-    isomorphism::<POLY>()
-}
-
-/// Derive the isomorphism onto the AES field.
 ///
 /// `φ(x) = r` for the smallest `r` in GF(2^8)/`0x11B` that is a root of
 /// `POLY`; the images of the powers of `x` are the powers of `r`.
 /// The inverse columns are the preimages of the AES polynomial basis under
 /// that selected map; a separately chosen root need not give its inverse.
 #[allow(dead_code)]
-const fn isomorphism<const POLY: u128>() -> Isomorphism {
+#[inline]
+#[must_use]
+pub const fn isomorphism_to_aes<const POLY: u128>() -> Isomorphism {
     let to_aes = root_powers::<AES>(POLY);
     let from_aes = inverse_columns(to_aes);
     Isomorphism {
@@ -717,7 +447,7 @@ impl TowerTables {
     pub fn new(coeff: Elem<Rijndael16Field>) -> Self {
         let compact = TowerCoeff::new(coeff);
         let [f0, f1, f2, f3] = compact.factor_bytes();
-        let bank = <Polynomial<AES> as ByteBanks>::SCALE;
+        let bank = <Polynomial<AES> as ByteReprData>::SCALE;
         Self {
             coeff: compact.coeff,
             factors: [
@@ -994,7 +724,7 @@ impl<E: crate::field::FieldElem> Tower2Coeff<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::RS;
+    use crate::field::binary::RS;
 
     type E8 = Elem<FiniteField<2, 8, Polynomial<AES>>>;
 
@@ -1019,25 +749,24 @@ mod tests {
                 }
             }
         }
-        for iso in [isomorphism_to_aes::<P>(), isomorphism::<P>()] {
-            for a in 0..=u8::MAX {
-                assert_eq!(
-                    apply(iso.inverse, apply(iso.forward, a)),
-                    a,
-                    "φ⁻¹φ at {a:#04x}"
+        let iso = isomorphism_to_aes::<P>();
+        for a in 0..=u8::MAX {
+            assert_eq!(
+                apply(iso.inverse, apply(iso.forward, a)),
+                a,
+                "φ⁻¹φ at {a:#04x}"
+            );
+            for b in 0..=u8::MAX {
+                let product = Elem::<FiniteField<2, 8, Polynomial<P>>>::from_raw(a)
+                    .mul(Elem::<FiniteField<2, 8, Polynomial<P>>>::from_raw(b))
+                    .to_raw();
+                let conjugated = apply(
+                    iso.inverse,
+                    E8::from_raw(apply(iso.forward, a))
+                        .mul(E8::from_raw(apply(iso.forward, b)))
+                        .to_raw(),
                 );
-                for b in 0..=u8::MAX {
-                    let product = Elem::<FiniteField<2, 8, Polynomial<P>>>::from_raw(a)
-                        .mul(Elem::<FiniteField<2, 8, Polynomial<P>>>::from_raw(b))
-                        .to_raw();
-                    let conjugated = apply(
-                        iso.inverse,
-                        E8::from_raw(apply(iso.forward, a))
-                            .mul(E8::from_raw(apply(iso.forward, b)))
-                            .to_raw(),
-                    );
-                    assert_eq!(conjugated, product, "φ-conjugated {a:#04x} * {b:#04x}");
-                }
+                assert_eq!(conjugated, product, "φ-conjugated {a:#04x} * {b:#04x}");
             }
         }
     }
@@ -1061,132 +790,6 @@ mod tests {
         check_bank::<RS>();
         check_bank::<0x12D>();
         check_bank::<0x187>();
-    }
-
-    /// GF(2^8) as `t^2 + t + 8` over GF(2^4), in a byte word.
-    struct NibbleTowerSpec;
-    impl crate::field::ExtensionSpec<2> for NibbleTowerSpec {
-        type Base = FiniteField<2, 4, Polynomial<0x13>>;
-        type Storage = crate::field::Packed<u8>;
-        const NAME: &'static str = "GF(2^8) over GF(2^4)";
-        const RELATION: crate::field::Relation = crate::field::Relation::from_binary_words::<
-            FiniteField<2, 4, Polynomial<0x13>>,
-        >(&[0x8, 0x1]);
-    }
-    type NibbleTower = FiniteField<2, 8, crate::field::Extension<NibbleTowerSpec, 2>>;
-
-    /// Every coefficient's tables and map reproduce the row's own product,
-    /// and the isomorphism onto AES is a bijective multiplicative map whose
-    /// nibble form agrees with its affine form.
-    fn check_row_bank<F: crate::field::Field<Raw = u8>, D: Gf8Data>() {
-        use crate::field::FieldElem;
-        let elem = |raw: u8| Elem::<F> { raw };
-        let descriptor = core::hint::black_box(F::DESCRIPTOR);
-        let (built_scale, built_affine) = row_bank(descriptor);
-        for c in 0..=u8::MAX {
-            let table = &D::SCALE[usize::from(c)];
-            assert_eq!(table.coeff, c, "{} coefficient byte", F::NAME);
-            for x in 0..=u8::MAX {
-                let product = elem(x).mul(elem(c)).raw;
-                let split = table.lo[usize::from(x & 0x0f)] ^ table.hi[usize::from(x >> 4)];
-                assert_eq!(split, product, "{} nibbles {c:#04x} * {x:#04x}", F::NAME);
-                let built = &built_scale[usize::from(c)];
-                assert_eq!(
-                    built.lo[usize::from(x & 0x0f)] ^ built.hi[usize::from(x >> 4)],
-                    product,
-                    "{} constructed nibbles {c:#04x} * {x:#04x}",
-                    F::NAME
-                );
-                assert_eq!(apply(built_affine[usize::from(c)], x), product);
-                assert_eq!(
-                    apply(D::AFFINE[usize::from(c)], x),
-                    product,
-                    "{} affine {c:#04x} * {x:#04x}",
-                    F::NAME
-                );
-            }
-        }
-        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        {
-            let columns = row_isomorphism_columns(descriptor, F::ONE_RAW);
-            let iso = Isomorphism {
-                forward: linear_map(columns.0),
-                inverse: linear_map(columns.1),
-            };
-            let conjugation = Conjugation::new(columns.0, columns.1);
-            assert_eq!(
-                apply(iso.forward, F::ONE_RAW),
-                1,
-                "{} maps one to one",
-                F::NAME
-            );
-            for a in 0..=u8::MAX {
-                assert_eq!(
-                    apply(iso.inverse, apply(iso.forward, a)),
-                    a,
-                    "{} φ⁻¹φ",
-                    F::NAME
-                );
-                assert_eq!(
-                    conjugation.forward(a),
-                    apply(iso.forward, a),
-                    "{} φ",
-                    F::NAME
-                );
-                assert_eq!(
-                    conjugation.inverse(a),
-                    apply(iso.inverse, a),
-                    "{} φ⁻¹",
-                    F::NAME
-                );
-                for b in 0..=u8::MAX {
-                    let product = elem(a).mul(elem(b)).raw;
-                    let conjugated = apply(
-                        iso.inverse,
-                        E8::from_raw(apply(iso.forward, a))
-                            .mul(E8::from_raw(apply(iso.forward, b)))
-                            .to_raw(),
-                    );
-                    assert_eq!(conjugated, product, "{} {a:#04x} * {b:#04x}", F::NAME);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn row_banks_and_isomorphisms_reproduce_every_byte_row_product() {
-        type FanPaar8 = crate::field::binary::tower::FanPaar8Field;
-        check_row_bank::<FiniteField<2, 8, Normal<AES, 0x20>>, Normal<AES, 0x20>>();
-        check_row_bank::<FiniteField<2, 8, Normal<RS, 0x20>>, Normal<RS, 0x20>>();
-        check_row_bank::<FiniteField<2, 8, Cantor<AES, 0x20>>, Cantor<AES, 0x20>>();
-        check_row_bank::<FanPaar8, RowBank<FanPaar8>>();
-        check_row_bank::<NibbleTower, RowBank<NibbleTower>>();
-        check_row_bank::<FiniteField<2, 8, Polynomial<RS>>, Polynomial<RS>>();
-    }
-
-    fn check_term_classes<const P: u128>() {
-        use crate::kernel::trace::Term;
-        for raw in 0..=u8::MAX {
-            let want = match raw {
-                0 => Term::Zero,
-                1 => Term::One,
-                _ => Term::General,
-            };
-            let coeff = Elem::<FiniteField<2, 8, Polynomial<P>>>::from_raw(raw);
-            assert_eq!(
-                Term::of_byte_word(affine_map::<P>(coeff), false),
-                want,
-                "{raw:#04x}"
-            );
-            assert_eq!(Term::of_byte_word(u64::from(raw), true), want, "{raw:#04x}");
-        }
-    }
-
-    #[test]
-    fn factor_words_classify_exactly_the_canonical_zero_and_one() {
-        check_term_classes::<AES>();
-        check_term_classes::<RS>();
-        check_term_classes::<0x12D>();
     }
 
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]

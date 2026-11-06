@@ -20,8 +20,7 @@ use crate::field::binary::binary_private;
 use crate::field::binary::description::BinaryDescription;
 use crate::field::binary::{BinaryDegree, BinaryField};
 use crate::field::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
-use crate::field::private::BufferDispatch;
-use crate::field::private::RowAccess;
+use crate::field::private::{RawArithmetic, RowAccess};
 use crate::field::{Elem, Field, FieldBuffer, PrimeCharacteristic, Validate};
 
 /// The raw word of an extension row over `S`.
@@ -49,13 +48,18 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> FiniteFiel
     for Extension<S, D>
 {
     const NAME: &'static str = S::NAME;
+}
+
+impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>>
+    super::super::private::FiniteFieldReprValidation<P, N> for Extension<S, D>
+{
     const VALID: () = {
         // Family metadata first: the primality proof and cardinality
         // bound precede base validation and descriptor construction, so
         // direct validity and identity queries fail on metadata before
         // representation.
         let _ = checked_order::<P, N>();
-        let () = <S::Base as Field>::VALID;
+        let () = <S::Base as super::super::private::RawArithmetic<<S::Base as Field>::Raw>>::VALID;
         let descriptor = <FiniteField<P, N, Extension<S, D>> as RowAccess>::DESCRIPTOR;
         Descriptor::validate_relation(descriptor);
     };
@@ -67,13 +71,13 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> FiniteFiel
 
 /// The zero component vector.
 fn zero_components<B: Field, const D: usize>() -> [B::Raw; D] {
-    core::array::from_fn(|_| <B as Field>::ZERO_RAW)
+    core::array::from_fn(|_| B::ZERO_RAW)
 }
 
 /// The defining relation as base elements, constant term first.
 fn relation_components<S: ExtensionSpec<D>, const D: usize>() -> [BaseRaw<S, D>; D] {
     let flat = S::RELATION.to_coordinates();
-    let words = <S::Base as Field>::DEGREE as usize;
+    let words = S::Base::DEGREE as usize;
     core::array::from_fn(|j| {
         <S::Base as RowAccess>::from_prime_coordinates(&flat[j * words..(j + 1) * words])
     })
@@ -83,7 +87,7 @@ fn relation_components<S: ExtensionSpec<D>, const D: usize>() -> [BaseRaw<S, D>;
 fn add_components<B: Field, const D: usize>(a: &[B::Raw; D], b: &[B::Raw; D]) -> [B::Raw; D] {
     let mut out = zero_components::<B, D>();
     for (slot, (x, y)) in out.iter_mut().zip(a.iter().zip(b.iter())) {
-        *slot = <B as Field>::add_raw(*x, *y);
+        *slot = B::add_raw(*x, *y);
     }
     out
 }
@@ -92,14 +96,14 @@ fn add_components<B: Field, const D: usize>(a: &[B::Raw; D], b: &[B::Raw; D]) ->
 fn sub_components<B: Field, const D: usize>(a: &[B::Raw; D], b: &[B::Raw; D]) -> [B::Raw; D] {
     let mut out = zero_components::<B, D>();
     for (slot, (x, y)) in out.iter_mut().zip(a.iter().zip(b.iter())) {
-        *slot = <B as Field>::sub_raw(*x, *y);
+        *slot = B::sub_raw(*x, *y);
     }
     out
 }
 
 /// Componentwise negation.
 fn neg_components<B: Field, const D: usize>(a: &[B::Raw; D]) -> [B::Raw; D] {
-    core::array::from_fn(|i| <B as Field>::neg_raw(a[i]))
+    core::array::from_fn(|i| B::neg_raw(a[i]))
 }
 
 /// The degree of a coefficient vector, or `-1` when it is zero.
@@ -107,7 +111,7 @@ fn neg_components<B: Field, const D: usize>(a: &[B::Raw; D]) -> [B::Raw; D] {
 fn poly_deg<B: Field>(coefficients: &[B::Raw]) -> isize {
     let mut degree: isize = -1;
     for (i, coefficient) in coefficients.iter().enumerate() {
-        if *coefficient != <B as Field>::ZERO_RAW {
+        if *coefficient != B::ZERO_RAW {
             degree = i as isize;
         }
     }
@@ -129,14 +133,14 @@ fn mul_components<B: Field, const D: usize>(
     let mut high = zero_components::<B, D>();
     for i in 0..D {
         for j in 0..D {
-            let product = <B as Field>::mul_raw(a[i], b[j]);
-            if product == <B as Field>::ZERO_RAW {
+            let product = B::mul_raw(a[i], b[j]);
+            if product == B::ZERO_RAW {
                 continue;
             }
             if i + j < D {
-                low[i + j] = <B as Field>::add_raw(low[i + j], product);
+                low[i + j] = B::add_raw(low[i + j], product);
             } else {
-                high[i + j - D] = <B as Field>::add_raw(high[i + j - D], product);
+                high[i + j - D] = B::add_raw(high[i + j - D], product);
             }
         }
     }
@@ -144,16 +148,16 @@ fn mul_components<B: Field, const D: usize>(
     // `top * t^degree` into the lower degrees through the relation.
     for j in (0..D).rev().skip(1) {
         let top = high[j];
-        if top == <B as Field>::ZERO_RAW {
+        if top == B::ZERO_RAW {
             continue;
         }
         for (c, &relation_coefficient) in relation.iter().enumerate() {
-            let product = <B as Field>::mul_raw(top, relation_coefficient);
+            let product = B::mul_raw(top, relation_coefficient);
             let target = j + c;
             if target < D {
-                low[target] = <B as Field>::sub_raw(low[target], product);
+                low[target] = B::sub_raw(low[target], product);
             } else {
-                high[target - D] = <B as Field>::sub_raw(high[target - D], product);
+                high[target - D] = B::sub_raw(high[target - D], product);
             }
         }
     }
@@ -171,7 +175,7 @@ fn divmod<B: Field, const D: usize>(
     v: &[B::Raw; D],
 ) -> ([B::Raw; D], [B::Raw; D]) {
     let divisor_degree = poly_deg::<B>(v) as usize;
-    let inverse_lead = <B as Field>::inv_raw(v[divisor_degree]);
+    let inverse_lead = B::inv_raw(v[divisor_degree]);
     let mut quotient = zero_components::<B, D>();
     let mut remainder = *u;
     let mut k = poly_deg::<B>(u);
@@ -180,15 +184,12 @@ fn divmod<B: Field, const D: usize>(
     // dividends unreduced.
     while k >= divisor_degree as isize {
         let ki = k as usize;
-        let factor = <B as Field>::mul_raw(remainder[ki], inverse_lead);
-        if factor != <B as Field>::ZERO_RAW {
+        let factor = B::mul_raw(remainder[ki], inverse_lead);
+        if factor != B::ZERO_RAW {
             quotient[ki - divisor_degree] = factor;
             for (j, &coefficient) in v.iter().enumerate().take(divisor_degree + 1) {
                 let target = ki - divisor_degree + j;
-                remainder[target] = <B as Field>::sub_raw(
-                    remainder[target],
-                    <B as Field>::mul_raw(factor, coefficient),
-                );
+                remainder[target] = B::sub_raw(remainder[target], B::mul_raw(factor, coefficient));
             }
         }
         k -= 1;
@@ -204,7 +205,7 @@ fn relation_divmod<B: Field, const D: usize>(
     v: &[B::Raw; D],
 ) -> ([B::Raw; D], [B::Raw; D]) {
     let divisor_degree = poly_deg::<B>(v) as usize;
-    let inverse_lead = <B as Field>::inv_raw(v[divisor_degree]);
+    let inverse_lead = B::inv_raw(v[divisor_degree]);
     let mut quotient = zero_components::<B, D>();
     let mut remainder = *relation;
     // Eliminate the monic `t^D` first: its quotient term is the inverse of
@@ -213,25 +214,19 @@ fn relation_divmod<B: Field, const D: usize>(
     quotient[D - divisor_degree] = inverse_lead;
     for (j, &coefficient) in v.iter().enumerate().take(divisor_degree) {
         let target = D - divisor_degree + j;
-        remainder[target] = <B as Field>::sub_raw(
-            remainder[target],
-            <B as Field>::mul_raw(inverse_lead, coefficient),
-        );
+        remainder[target] = B::sub_raw(remainder[target], B::mul_raw(inverse_lead, coefficient));
     }
     let mut k = D as isize - 1;
     // As `divmod`: the last elimination lands in the quotient's constant
     // term and drops the remainder below the divisor's degree.
     while k >= divisor_degree as isize {
         let ki = k as usize;
-        let factor = <B as Field>::mul_raw(remainder[ki], inverse_lead);
-        if factor != <B as Field>::ZERO_RAW {
+        let factor = B::mul_raw(remainder[ki], inverse_lead);
+        if factor != B::ZERO_RAW {
             quotient[ki - divisor_degree] = factor;
             for (j, &coefficient) in v.iter().enumerate().take(divisor_degree + 1) {
                 let target = ki - divisor_degree + j;
-                remainder[target] = <B as Field>::sub_raw(
-                    remainder[target],
-                    <B as Field>::mul_raw(factor, coefficient),
-                );
+                remainder[target] = B::sub_raw(remainder[target], B::mul_raw(factor, coefficient));
             }
         }
         k -= 1;
@@ -253,32 +248,29 @@ fn inv_components<B: Field, const D: usize>(
     a: &[B::Raw; D],
     relation: &[B::Raw; D],
 ) -> [B::Raw; D] {
-    let one = <B as Field>::ONE_RAW;
+    let one = B::ONE_RAW;
     if D == 2 {
         let (a0, a1) = (a[0], a[1]);
         let (c0, c1) = (relation[0], relation[1]);
-        let square = <B as Field>::mul_raw(a0, a0);
-        let cross = <B as Field>::mul_raw(c1, <B as Field>::mul_raw(a0, a1));
-        let scaled = <B as Field>::mul_raw(c0, <B as Field>::mul_raw(a1, a1));
+        let square = B::mul_raw(a0, a0);
+        let cross = B::mul_raw(c1, B::mul_raw(a0, a1));
+        let scaled = B::mul_raw(c0, B::mul_raw(a1, a1));
         // The norm of a nonzero element is nonzero over an irreducible
         // relation, so the base inverse is exact.
-        let sum = <B as Field>::add_raw(<B as Field>::sub_raw(square, cross), scaled);
-        let inverse_norm = <B as Field>::inv_raw(sum);
-        let leading = <B as Field>::sub_raw(a0, <B as Field>::mul_raw(c1, a1));
-        let r0 = <B as Field>::mul_raw(leading, inverse_norm);
-        let r1 = <B as Field>::mul_raw(<B as Field>::neg_raw(a1), inverse_norm);
+        let sum = B::add_raw(B::sub_raw(square, cross), scaled);
+        let inverse_norm = B::inv_raw(sum);
+        let leading = B::sub_raw(a0, B::mul_raw(c1, a1));
+        let r0 = B::mul_raw(leading, inverse_norm);
+        let r1 = B::mul_raw(B::neg_raw(a1), inverse_norm);
         let mut out = zero_components::<B, D>();
         out[0] = r0;
         out[1] = r1;
         return out;
     }
     // A nonzero constant inverts in the base.
-    if a[1..]
-        .iter()
-        .all(|&component| component == <B as Field>::ZERO_RAW)
-    {
-        let inverse = <B as Field>::inv_raw(a[0]);
-        let zero = <B as Field>::ZERO_RAW;
+    if a[1..].iter().all(|&component| component == B::ZERO_RAW) {
+        let inverse = B::inv_raw(a[0]);
+        let zero = B::ZERO_RAW;
         return core::array::from_fn(|i| if i == 0 { inverse } else { zero });
     }
     let (quotient, mut r_prev) = relation_divmod::<B, D>(relation, a);
@@ -305,8 +297,8 @@ fn inv_components<B: Field, const D: usize>(
     }
     // The loop leaves a nonzero constant `u` with `s_cur*a = u` modulo the
     // relation.
-    let inverse_unit = <B as Field>::inv_raw(r_cur[0]);
-    core::array::from_fn(|i| <B as Field>::mul_raw(s_cur[i], inverse_unit))
+    let inverse_unit = B::inv_raw(r_cur[0]);
+    core::array::from_fn(|i| B::mul_raw(s_cur[i], inverse_unit))
 }
 
 // ---------------------------------------------------------------------------
@@ -361,7 +353,7 @@ pub(crate) fn generic_mul<S: ExtensionSpec<D>, const D: usize>(
 /// The generic inverse, zero to zero.
 pub(crate) fn generic_inv<S: ExtensionSpec<D>, const D: usize>(value: RawOf<S, D>) -> RawOf<S, D> {
     let a = split::<S, D>(value);
-    if a.iter().all(|&x| x == <S::Base as Field>::ZERO_RAW) {
+    if a.iter().all(|&x| x == S::Base::ZERO_RAW) {
         return <S::Storage as StorageRepr<S::Base, D>>::ZERO;
     }
     let relation = relation_components::<S, D>();
@@ -401,23 +393,29 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> Field
         N
     };
     const ORDER: u128 = checked_order::<P, N>();
+}
+
+impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>>
+    super::super::private::RawArithmetic<RawOf<S, D>> for FiniteField<P, N, Extension<S, D>>
+{
     // The identity words evaluate the row's validity first and then read
     // their row-local data, never the reverse.
-    const ZERO_RAW: Self::Raw = {
-        let () = <Self as Field>::VALID;
+    const ZERO_RAW: RawOf<S, D> = {
+        let () = <Self as super::super::private::RawArithmetic<RawOf<S, D>>>::VALID;
         <S::Storage as StorageRepr<S::Base, D>>::ZERO
     };
-    const ONE_RAW: Self::Raw = {
-        let () = <Self as Field>::VALID;
+    const ONE_RAW: RawOf<S, D> = {
+        let () = <Self as super::super::private::RawArithmetic<RawOf<S, D>>>::VALID;
         <S::Storage as StorageRepr<S::Base, D>>::ONE
     };
     // The central metadata block runs before the representation proof on
     // every value path, and the descriptor proof below repeats the
     // characteristic and degree checks against the base.
-    const VALID: () = <Extension<S, D> as FiniteFieldRepr<P, N>>::VALID;
+    const VALID: () =
+        <Extension<S, D> as super::super::private::FiniteFieldReprValidation<P, N>>::VALID;
 
     #[inline]
-    fn canonical_raw(raw: Self::Raw) -> Self::Raw {
+    fn canonical_raw(raw: RawOf<S, D>) -> RawOf<S, D> {
         let () = Validate::<Self>::OK;
         if let Some(instance) = const { instance_of::<Self>() } {
             return from_word::<S, D>(instance.canonical(word::<S, D>(raw)));
@@ -426,7 +424,7 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> Field
     }
 
     #[inline]
-    fn add_raw(left: Self::Raw, right: Self::Raw) -> Self::Raw {
+    fn add_raw(left: RawOf<S, D>, right: RawOf<S, D>) -> RawOf<S, D> {
         let () = Validate::<Self>::OK;
         if let Some(instance) = const { instance_of::<Self>() } {
             return from_word::<S, D>(instance.add(word::<S, D>(left), word::<S, D>(right)));
@@ -435,7 +433,7 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> Field
     }
 
     #[inline]
-    fn sub_raw(left: Self::Raw, right: Self::Raw) -> Self::Raw {
+    fn sub_raw(left: RawOf<S, D>, right: RawOf<S, D>) -> RawOf<S, D> {
         let () = Validate::<Self>::OK;
         if let Some(instance) = const { instance_of::<Self>() } {
             return from_word::<S, D>(instance.sub(word::<S, D>(left), word::<S, D>(right)));
@@ -444,7 +442,7 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> Field
     }
 
     #[inline]
-    fn neg_raw(value: Self::Raw) -> Self::Raw {
+    fn neg_raw(value: RawOf<S, D>) -> RawOf<S, D> {
         let () = Validate::<Self>::OK;
         if let Some(instance) = const { instance_of::<Self>() } {
             return from_word::<S, D>(instance.neg(word::<S, D>(value)));
@@ -453,7 +451,7 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> Field
     }
 
     #[inline]
-    fn mul_raw(left: Self::Raw, right: Self::Raw) -> Self::Raw {
+    fn mul_raw(left: RawOf<S, D>, right: RawOf<S, D>) -> RawOf<S, D> {
         let () = Validate::<Self>::OK;
         if let Some(instance) = const { instance_of::<Self>() } {
             return from_word::<S, D>(instance.mul(word::<S, D>(left), word::<S, D>(right)));
@@ -462,7 +460,7 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> Field
     }
 
     #[inline]
-    fn inv_raw(value: Self::Raw) -> Self::Raw {
+    fn inv_raw(value: RawOf<S, D>) -> RawOf<S, D> {
         let () = Validate::<Self>::OK;
         if let Some(instance) = const { instance_of::<Self>() } {
             return from_word::<S, D>(instance.inv(word::<S, D>(value)));
@@ -510,7 +508,7 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> RowAccess
             N as usize,
             "prime coordinate count differs from the field degree"
         );
-        let words = <S::Base as Field>::DEGREE as usize;
+        let words = S::Base::DEGREE as usize;
         let components = split::<S, D>(raw);
         for (i, component) in components.iter().enumerate() {
             <S::Base as RowAccess>::prime_coordinates_into(
@@ -527,7 +525,7 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> RowAccess
             N as usize,
             "prime coordinate count differs from the field degree"
         );
-        let words = <S::Base as Field>::DEGREE as usize;
+        let words = S::Base::DEGREE as usize;
         let components = core::array::from_fn(|i| {
             <S::Base as RowAccess>::from_prime_coordinates(&src[i * words..(i + 1) * words])
         });
@@ -543,10 +541,10 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> RowAccess
 
     fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
         let () = Validate::<Self>::OK;
-        let components = split::<S, D>(<Self as Field>::canonical_raw(raw));
+        let components = split::<S, D>(Self::canonical_raw(raw));
         if components[1..]
             .iter()
-            .any(|&component| component != <S::Base as Field>::ZERO_RAW)
+            .any(|&component| component != S::Base::ZERO_RAW)
         {
             return None;
         }
@@ -559,12 +557,9 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> RowAccess
         // The pinned word is packed-only; component rows rebuild the
         // coordinate word from canonical components through `RowAccess`,
         // so residue-two leaves keep their own conversion.
-        let base_degree = <S::Base as Field>::DEGREE as usize;
+        let base_degree = S::Base::DEGREE as usize;
         let mut word = 0u64;
-        for (i, component) in split::<S, D>(<Self as Field>::canonical_raw(raw))
-            .iter()
-            .enumerate()
-        {
+        for (i, component) in split::<S, D>(Self::canonical_raw(raw)).iter().enumerate() {
             let part = <S::Base as RowAccess>::coordinate_word(*component);
             debug_assert!(
                 base_degree >= 64 || part >> base_degree == 0,
@@ -583,7 +578,7 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> RowAccess
             N == 64 || word >> N == 0,
             "coordinate word holds bits at or above the field degree"
         );
-        let base_degree = <S::Base as Field>::DEGREE as usize;
+        let base_degree = S::Base::DEGREE as usize;
         let components = core::array::from_fn(|i| {
             let part = extract_bits(word, i * base_degree, base_degree);
             <S::Base as RowAccess>::from_coordinate_word(part)
@@ -638,7 +633,8 @@ where
         assert_eq!(
             bytes.len(),
             Self::BYTES,
-            "extension element has the wrong byte width"
+            "FieldBuffer::decode: bytes has the wrong byte width for an extension element of {}",
+            Self::NAME
         );
         let raw = <S::Storage as StorageBuffer<S::Base, D>>::decode(bytes);
         Elem {
@@ -652,27 +648,10 @@ where
         assert_eq!(
             bytes.len(),
             Self::BYTES,
-            "extension element has the wrong byte width"
+            "FieldBuffer::encode: bytes has the wrong byte width for an extension element of {}",
+            Self::NAME
         );
         <S::Storage as StorageBuffer<S::Base, D>>::encode(bytes, &value.raw);
-    }
-}
-
-impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> BufferDispatch
-    for FiniteField<P, N, Extension<S, D>>
-where
-    S::Storage: StorageBuffer<S::Base, D>,
-{
-    #[inline]
-    fn add_assign_bytes(_proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
-        let () = Validate::<Self>::OK;
-        <S::Storage as StorageBuffer<S::Base, D>>::add_assign_bytes(dst, src);
-    }
-
-    #[inline]
-    fn sub_assign_bytes(_proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
-        let () = Validate::<Self>::OK;
-        <S::Storage as StorageBuffer<S::Base, D>>::sub_assign_bytes(dst, src);
     }
 }
 
@@ -701,19 +680,27 @@ where
 {
 }
 
-impl<const N: u32, const D: usize, S: ExtensionSpec<D>> BinaryField
+impl<const N: u32, const D: usize, S: ExtensionSpec<D>> binary_private::BinaryFieldData
     for FiniteField<2, N, Extension<S, D>>
 where
     S::Storage: StorageRepr<S::Base, D>,
     S::Base: BinaryField,
 {
     const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::append_relation(
-        <S::Base as BinaryField>::DESCRIPTION,
+        <S::Base as binary_private::BinaryFieldData>::DESCRIPTION,
         N,
         D,
         S::RELATION.to_coordinates(),
         <S::Storage as StorageRepr<S::Base, D>>::TAG,
     );
+}
+
+impl<const N: u32, const D: usize, S: ExtensionSpec<D>> BinaryField
+    for FiniteField<2, N, Extension<S, D>>
+where
+    S::Storage: StorageRepr<S::Base, D>,
+    S::Base: BinaryField,
+{
 }
 
 impl<const N: u32, const D: usize, S: ExtensionSpec<D>> BinaryDegree<N>
@@ -773,35 +760,35 @@ mod tests {
             .collect();
         for (&raw, &want) in raws.iter().zip(&canonical) {
             assert_eq!(
-                <Row<S, P, N> as Field>::canonical_raw(raw),
+                <Row<S, P, N> as RawArithmetic<RawOf<S, 2>>>::canonical_raw(raw),
                 want,
                 "canonical {raw:?}"
             );
         }
         for &a in &canonical {
             assert_eq!(
-                <Row<S, P, N> as Field>::neg_raw(a),
+                <Row<S, P, N> as RawArithmetic<RawOf<S, 2>>>::neg_raw(a),
                 generic_neg::<S, 2>(a),
                 "-{a:?}"
             );
             assert_eq!(
-                <Row<S, P, N> as Field>::inv_raw(a),
+                <Row<S, P, N> as RawArithmetic<RawOf<S, 2>>>::inv_raw(a),
                 generic_inv::<S, 2>(a),
                 "1/{a:?}"
             );
             for &b in &canonical {
                 assert_eq!(
-                    <Row<S, P, N> as Field>::add_raw(a, b),
+                    <Row<S, P, N> as RawArithmetic<RawOf<S, 2>>>::add_raw(a, b),
                     generic_add::<S, 2>(a, b),
                     "{a:?} + {b:?}"
                 );
                 assert_eq!(
-                    <Row<S, P, N> as Field>::sub_raw(a, b),
+                    <Row<S, P, N> as RawArithmetic<RawOf<S, 2>>>::sub_raw(a, b),
                     generic_sub::<S, 2>(a, b),
                     "{a:?} - {b:?}"
                 );
                 assert_eq!(
-                    <Row<S, P, N> as Field>::mul_raw(a, b),
+                    <Row<S, P, N> as RawArithmetic<RawOf<S, 2>>>::mul_raw(a, b),
                     generic_mul::<S, 2>(a, b),
                     "{a:?} * {b:?}"
                 );

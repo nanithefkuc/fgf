@@ -10,12 +10,10 @@
 
 use core::error::Error;
 
-use fgf::field::finite_field::Residue;
-use fgf::field::prime::{reduce, reduce_wide};
-use fgf::{
-    Components, Elem, Extension, ExtensionField, ExtensionSpec, Field, FieldBuffer, FieldElem,
-    FiniteField, FiniteFieldRepr, PrimeCharacteristic, PrimeIdentity, RangeError, Relation,
-};
+use fgf::extension::{Components, Extension, ExtensionField, ExtensionSpec, Relation};
+use fgf::prime::Residue;
+use fgf::prime::{PrimeCharacteristic, PrimeIdentity};
+use fgf::{Elem, Field, FieldBuffer, FieldElem, FiniteField, FiniteFieldRepr, RangeError};
 
 /// `2^64 − 59`, the largest `u64` prime.
 const WIDE: u64 = 0xFFFF_FFFF_FFFF_FFC5;
@@ -250,10 +248,22 @@ fn boundaries<const P: u64>() {
 fn residue_conversions_reject_out_of_range() {
     assert_eq!(Elem::<Res<7>>::from_residue(0).map(Elem::to_raw), Ok(0));
     assert_eq!(Elem::<Res<7>>::from_residue(6).map(Elem::to_raw), Ok(6));
-    assert_eq!(Elem::<Res<7>>::from_residue(7), Err(RangeError));
-    assert_eq!(Elem::<Res<7>>::from_residue(8), Err(RangeError));
-    assert_eq!(Elem::<Res<7>>::from_residue(u64::MAX), Err(RangeError));
-    assert_eq!(Elem::<Res<WIDE>>::from_residue(WIDE), Err(RangeError));
+    assert!(matches!(
+        Elem::<Res<7>>::from_residue(7),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Res<7>>::from_residue(8),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Res<7>>::from_residue(u64::MAX),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Res<WIDE>>::from_residue(WIDE),
+        Err(RangeError { .. })
+    ));
     assert_eq!(
         Elem::<Res<WIDE>>::from_residue(WIDE - 1).map(Elem::to_raw),
         Ok(WIDE - 1)
@@ -275,7 +285,10 @@ fn range_error_is_a_std_error() {
         let _ = error.source();
         !error.to_string().is_empty()
     }
-    assert!(display_and_source(&RangeError));
+    // A real rejected conversion yields the error whose trait surface
+    // is checked; the unit cannot be constructed outside the crate.
+    let rejected = Elem::<Res<7>>::from_residue(7).expect_err("seven is out of range");
+    assert!(display_and_source(&rejected));
 }
 
 #[test]
@@ -314,42 +327,6 @@ const fn mul_const<const P: u64>(a: u64, b: u64) -> u64 {
 }
 
 #[test]
-fn reductions_match_remainder() {
-    check_reductions::<2>();
-    check_reductions::<3>();
-    check_reductions::<251>();
-    check_reductions::<0x7FFF_FFFF>();
-    check_reductions::<0xFFFF_FFFF_0000_0001>();
-    check_reductions::<WIDE>();
-    check_reductions::<WIDE2>();
-    check_reductions::<WIDE3>();
-}
-
-fn check_reductions<const P: u64>() {
-    for value in [0, 1, 2, 7, P - 1, P, P + 1, 1 << 63, u64::MAX, u64::MAX - 1] {
-        assert_eq!(reduce::<P>(value), value % P, "reduce {value} at {P}");
-    }
-    let words = [
-        0,
-        1,
-        7,
-        u128::from(P) * u128::from(P),
-        1 << 64,
-        (1 << 64) + 5,
-        1 << 127,
-        u128::MAX,
-        u128::MAX - 1,
-    ];
-    for wide in words {
-        assert_eq!(
-            u128::from(reduce_wide::<P>(wide)),
-            wide % u128::from(P),
-            "reduce_wide {wide} at {P}"
-        );
-    }
-}
-
-#[test]
 fn prime_facts_match_pinned_values() {
     fn facts<const P: u64>() -> (u32, u32, u8) {
         (
@@ -382,10 +359,8 @@ fn row_metadata_matches_modulus() {
         <<Res<WIDE> as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC,
         WIDE
     );
-    assert_eq!(<Res<7> as Field>::ZERO_RAW, 0);
-    assert_eq!(<Res<7> as Field>::ONE_RAW, 1);
-    let () = <Res<7> as Field>::VALID;
-    let () = <Residue as FiniteFieldRepr<7, 1>>::VALID;
+    assert_eq!(Elem::<Res<7>>::ZERO.to_raw(), 0);
+    assert_eq!(Elem::<Res<7>>::ONE.to_raw(), 1);
 }
 
 #[test]
@@ -485,7 +460,6 @@ fn encode_emits_the_frozen_lanes() {
 
     assert_eq!(lane::<2>(0), [0u8; 8]);
     assert_eq!(lane::<2>(1), [1, 0, 0, 0, 0, 0, 0, 0]);
-    assert_eq!(lane::<2>(2 - 1), [1, 0, 0, 0, 0, 0, 0, 0]);
 
     assert_eq!(lane::<3>(0), [0]);
     assert_eq!(lane::<3>(1), [1]);
@@ -575,13 +549,13 @@ fn every_residue_round_trips_through_its_lane() {
 }
 
 #[test]
-#[should_panic(expected = "wrong byte width")]
+#[should_panic(expected = "FieldBuffer::decode: bytes has the wrong byte width")]
 fn decode_rejects_a_wrong_length_slice() {
     let _ = <Res<257> as FieldBuffer>::decode(&[0u8; 1]);
 }
 
 #[test]
-#[should_panic(expected = "wrong byte width")]
+#[should_panic(expected = "FieldBuffer::encode: bytes has the wrong byte width")]
 fn encode_rejects_a_wrong_length_slice() {
     let mut lane = [0u8; 1];
     <Res<257> as FieldBuffer>::encode(&mut lane, Elem::<Res<257>>::ONE);

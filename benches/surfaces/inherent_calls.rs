@@ -14,7 +14,7 @@
 
 use std::hint::black_box;
 
-use fgf::field::FieldElem;
+use fgf::FieldElem;
 use fgf::{Elem, Field};
 
 use crate::fields::{

@@ -2,7 +2,10 @@
 //! An extension over `FiniteField<2, 1, Residue>`: the base is a prime
 //! residue row, not a binary presentation, so the row never implements
 //! `BinaryField`.
-use fgf::{Components, Elem, Extension, ExtensionSpec, FieldElem, FiniteField, Relation, Residue};
+use fgf::binary::BinaryField;
+use fgf::{Elem, FieldElem, FiniteField};
+use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
+use fgf::prime::Residue;
 
 struct Spec;
 impl ExtensionSpec<2> for Spec {
@@ -14,7 +17,7 @@ impl ExtensionSpec<2> for Spec {
 
 type Row = FiniteField<2, 2, Extension<Spec, 2>>;
 
-fn takes_binary<F: fgf::BinaryField>(value: Elem<F>) -> u128 {
+fn takes_binary<F: BinaryField>(value: Elem<F>) -> u128 {
     value.to_index()
 }
 

@@ -7,7 +7,9 @@ Preparation does not relax [row validation](Linear-operations-and-row-geometry).
 ## Prepare one coefficient
 
 ```rust
-use fgf::{Elem, Extension, FiniteField, Rijndael16, ops};
+use fgf::{Elem, FiniteField, ops};
+use fgf::binary::Rijndael16;
+use fgf::extension::Extension;
 
 type F = FiniteField<2, 16, Extension<Rijndael16, 2>>;
 let value = Elem::<F>::from_raw(0x0108);
@@ -21,14 +23,15 @@ for raw in [0x1234u16, 0xabcd] {
 assert_eq!(prepared.value(), value);
 ```
 
-`Coeff` is inline and does not allocate. Preparation is useful for reuse, not
+`Coeff` is inline; once the process backend is resolved, constructing one
+does not allocate. Preparation is useful for reuse, not
 a requirement for every one-shot call.
 
 ## Collections encode a coefficient axis
 
 | Type | Meaning | Construction storage |
 | --- | --- | --- |
-| `Coeff<F>` | One coefficient | Inline, no allocation |
+| `Coeff<F>` | One coefficient | Inline; no allocation once the backend is resolved |
 | `CoeffVec<F>` | A sequence indexed by the consuming operation | Owned allocation; requires `alloc` |
 | `CoeffMatrix<F>` | A source-major `(sources, outputs)` matrix | Owned allocation; requires `alloc` |
 | `CoeffRef<'_, F>` | One borrowed prepared entry | Borrows its owner |
@@ -43,7 +46,8 @@ block application and incremental scatter without cloning its entries:
 
 <!-- requires: alloc -->
 ```rust
-use fgf::{AES, FiniteField, Elem, Polynomial, ops};
+use fgf::{FiniteField, Elem, ops};
+use fgf::binary::{AES, Polynomial};
 
 type F = FiniteField<2, 8, Polynomial<AES>>;
 let coefficients = [1u8, 2, 3, 4, 5, 6].map(Elem::<F>::from_raw);
@@ -85,7 +89,7 @@ reuse that state. Source-slice arrays and destination buffers are also
 caller-owned. First-use dispatch and table initialization are separate from
 the warmed steady-state contract.
 
-The [counting-allocator tests](https://github.com/nanithefkuc/fgf/blob/v3.0.2/tests/zero_alloc.rs)
+The [counting-allocator tests](https://github.com/nanithefkuc/fgf/blob/v4.0.0/tests/zero_alloc.rs)
 defend allocation promises; these examples check arithmetic, not allocation.
 `CoeffVec` and `CoeffMatrix` require `alloc`, not `std`.
 
@@ -94,5 +98,5 @@ defend allocation promises; these examples check arithmetic, not allocation.
 Serialize scalar coefficients, matrix dimensions, and source-major ordering.
 Rebuild preparation after loading; its opaque backend state is not a wire
 format. See [deployment](Features-and-deployment) for feature choices and the
-[ops reference](https://docs.rs/fgf/3.0.2/fgf/ops/index.html) for prepared contracts.
+[ops reference](https://docs.rs/fgf/4.0.0/fgf/ops/index.html) for prepared contracts.
 

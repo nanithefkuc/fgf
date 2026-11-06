@@ -1,7 +1,9 @@
 // expect: extension relation is reducible
 //! `t^2 + t + 1` over the `0x11D` byte field: GF(4) is a subfield, so the
 //! relation splits.
-use fgf::{Elem, Extension, ExtensionSpec, FiniteField, Packed, Polynomial, Relation};
+use fgf::{Elem, FiniteField};
+use fgf::binary::Polynomial;
+use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
 
 type Rs8 = FiniteField<2, 8, Polynomial<0x11D>>;
 

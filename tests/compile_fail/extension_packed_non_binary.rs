@@ -1,7 +1,8 @@
 // expect-rejection
 //! `Packed<u16>` over an odd base: packed storage requires a binary base,
 //! so the spec's storage bound fails.
-use fgf::{Elem, Extension, ExtensionSpec, FiniteField, Packed, Relation};
+use fgf::{Elem, FiniteField};
+use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
 
 struct Spec;
 impl ExtensionSpec<2> for Spec {

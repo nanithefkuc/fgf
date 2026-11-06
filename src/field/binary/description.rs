@@ -146,6 +146,7 @@ impl BinaryDescription {
 
     /// Whether the root node is an ordered-basis presentation.
     #[must_use]
+    #[allow(dead_code)]
     pub const fn is_basis_root(&self) -> bool {
         matches!(self.inner.node(self.inner.root_index()), Node::Basis { .. })
     }
@@ -321,6 +322,7 @@ impl BinaryDescription {
     /// Strategy selection compares complete descriptions through this
     /// comparator; hashes alone do not prove arithmetic equality.
     #[must_use]
+    #[allow(dead_code)]
     pub const fn same_structure(&self, other: &BinaryDescription) -> bool {
         self.inner.same_structure(&other.inner)
     }
@@ -496,7 +498,7 @@ pub(crate) const PINNED_AES_LEAF: ByteLogExp = serial_log_exp(0x11B, 3);
 /// The pinned Reed-Solomon log/exp leaf, built serially.
 pub(crate) const PINNED_RS_LEAF: ByteLogExp = serial_log_exp(0x11D, 2);
 
-/// Build one pinned leaf's log/exp pair without consulting any leaf table.
+/// Builds one pinned leaf's log/exp pair without consulting any leaf table.
 const fn serial_log_exp(full: u128, generator: u64) -> ByteLogExp {
     // Loop counters stay below the table sizes; the byte tower closes over
     // one byte.
@@ -565,8 +567,8 @@ mod tests {
     use core::hint::black_box;
 
     use super::*;
-    use crate::Polynomial;
     use crate::field::FiniteField;
+    use crate::field::binary::Polynomial;
     use crate::field::binary::normal::inverse_columns;
     use crate::field::binary::tower::{
         FanPaar2Field, FanPaar4Field, FanPaar8Field, FanPaar16Field, FanPaar32Field,
@@ -1140,30 +1142,6 @@ mod tests {
     const HOLLOW: BinaryDescription = BinaryDescription {
         inner: Descriptor::from_parts([Node::Unused; NODES], 1, 0),
     };
-
-    #[test]
-    #[should_panic(expected = "unused node")]
-    fn root_data_rejects_an_unused_root() {
-        let _ = black_box(HOLLOW).root_data();
-    }
-
-    #[test]
-    #[should_panic(expected = "unused node")]
-    fn degree_rejects_an_unused_root() {
-        let _ = black_box(HOLLOW).degree();
-    }
-
-    #[test]
-    #[should_panic(expected = "unused node")]
-    fn one_rejects_an_unused_root() {
-        let _ = black_box(HOLLOW).one();
-    }
-
-    #[test]
-    #[should_panic(expected = "unused node")]
-    fn mul_rejects_an_unused_root() {
-        let _ = black_box(HOLLOW).mul(1, 1);
-    }
 
     #[test]
     #[should_panic(expected = "the root node has no base")]

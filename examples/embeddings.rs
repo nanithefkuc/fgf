@@ -5,20 +5,22 @@
 //! proper inclusion through the frozen reference ladder, and
 //! `Isomorphism<S, T>` names the equal-degree map; construction and
 //! application allocate nothing, and repeated application reuses the
-//! prepared columns without rebuilding them. Stored images rebuild a map
+//! stored images without rebuilding them. Stored images rebuild a map
 //! through `from_images`, and `then` composes inclusions by image
 //! transport.
 
 #![forbid(unsafe_code)]
 
-use fgf::poly::{AES, RS};
-use fgf::{Elem, Embedding, EmbeddingError, FiniteField, Isomorphism, Polynomial};
+use fgf::binary::Polynomial;
+use fgf::binary::{AES, RS};
+use fgf::maps::{Embedding, Isomorphism};
+use fgf::{Elem, FiniteField};
 
 // Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
-type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
+type Gf1 = fgf::FiniteField<2, 1, fgf::binary::Polynomial<3>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>;
 
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
 type Nibble = FiniteField<2, 4, Polynomial<0x13>>;
@@ -27,7 +29,7 @@ fn main() {
     // Below the AES field the ladder inclusions are smallest-raw-root maps,
     // not literal byte relabelling: the indeterminate of x^4 + x + 1 lands
     // on 0x5C inside the AES field.
-    let small = Embedding::<Nibble, Aes>::new().unwrap();
+    let small = Embedding::<Nibble, Aes>::new();
     let x = Elem::<Nibble>::from_raw(2);
     let image = small.embed(x);
     assert_eq!(image, Elem::<Aes>::from_raw(0x5C));
@@ -40,8 +42,7 @@ fn main() {
     // is a ring isomorphism: it preserves one and products, and the
     // inverse inverts it.
     let involution =
-        Isomorphism::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 8, Polynomial<RS>>>::new()
-            .unwrap();
+        Isomorphism::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 8, Polynomial<RS>>>::new();
     let (a, b) = (Elem::<Aes>::from_raw(0x53), Elem::<Aes>::from_raw(0xca));
     assert_eq!(
         involution.apply(Elem::<Aes>::ONE),
@@ -60,7 +61,7 @@ fn main() {
 
     // Above the AES field, inclusions keep the base in the low component.
     // The relative Frobenius, trace, and norm come with the embedding.
-    let tower = Embedding::<Aes, Gf16>::new().unwrap();
+    let tower = Embedding::<Aes, Gf16>::new();
     let (lo, hi) = (Elem::<Aes>::from_raw(0x53), Elem::<Aes>::from_raw(0xca));
     let z = Elem::<Gf16>::from_components([lo, hi]);
     assert_eq!(
@@ -87,7 +88,7 @@ fn main() {
     // Cross-basis at equal degree: the Fan-Paar tower through the same
     // ladder. Equal descriptions map identically; different descriptions
     // still compare as fields, not as raw bytes.
-    let cross = Isomorphism::<FanPaar16Field, Gf16>::new().unwrap();
+    let cross = Isomorphism::<FanPaar16Field, Gf16>::new();
     let (p, q) = (
         Elem::<FanPaar16Field>::from_raw(0x35C2),
         Elem::<FanPaar16Field>::from_raw(0x1234),
@@ -102,13 +103,13 @@ fn main() {
     // Through to degree 64: commuting triangles make the composite the
     // embedding of the composite pair, and the relative Frobenius has the
     // extension order.
-    let wide = Embedding::<Gf16, Gf64>::new().unwrap();
+    let wide = Embedding::<Gf16, Gf64>::new();
     let lifted = wide.embed(z);
     assert!(wide.contains(lifted));
     assert_eq!(wide.restrict(lifted), Some(z));
     assert_eq!(
         wide.embed(tower.embed(lo)),
-        Embedding::<Aes, Gf64>::new().unwrap().embed(lo)
+        Embedding::<Aes, Gf64>::new().embed(lo)
     );
     let mut frobenius = lifted;
     for _ in 0..4 {
@@ -118,7 +119,7 @@ fn main() {
     println!("Gf16 z={z} lifts into GF(2^64) as {lifted}; four Frobenius steps return it.");
 
     // Stored images rebuild the map: from_images accepts to_images's
-    // order, and the rebuilt embedding agrees with the prepared one.
+    // order, and the rebuilt embedding agrees with the original one.
     let rebuilt = Embedding::<Aes, Gf16>::from_images(tower.to_images()).unwrap();
     assert_eq!(rebuilt.embed(lo), tower.embed(lo));
 
@@ -126,35 +127,11 @@ fn main() {
     // AES-into-GF(2^64) inclusion, and it commutes with the steps.
     let ladder = tower.then(&wide);
     assert_eq!(ladder.embed(lo), wide.embed(tower.embed(lo)));
-    assert_eq!(
-        ladder.embed(lo),
-        Embedding::<Aes, Gf64>::new().unwrap().embed(lo)
-    );
+    assert_eq!(ladder.embed(lo), Embedding::<Aes, Gf64>::new().embed(lo));
     println!("tower.then(&wide) composes into one AES-into-GF(2^64) inclusion.");
 
-    // The prepared absolute Frobenius reuses one compiled map: each power
-    // of two is a squaring, so preparing once and applying repeatedly
-    // matches the compact spelling lane for lane. Prepared maps need the
-    // allocation feature; the no-alloc build skips this section.
-    #[cfg(feature = "alloc")]
-    {
-        let absolute_frobenius = fgf::Frobenius::<Gf64>::new(1);
-        let prepared_first = lifted.frobenius_with(&absolute_frobenius);
-        assert_eq!(prepared_first, lifted.square());
-
-        // The prepared embedding compiles the same inclusion once and
-        // applies it across whole rows: one `new` call, then checked
-        // row functions over stable byte lanes.
-        let prepared = fgf::PreparedEmbedding::new(&tower);
-        let mut lane = [0u8; 1];
-        <Aes as fgf::FieldBuffer>::encode(&mut lane, lo);
-        let mut image = [0u8; 2];
-        fgf::ops::embed_into_with(&mut image, &prepared, &lane);
-        assert_eq!(<Gf16 as fgf::FieldBuffer>::decode(&image), tower.embed(lo));
-    }
-
     // Embedding<Gf1, T> carries the absolute trace and norm.
-    let absolute = Embedding::<Gf1, Gf16>::new().unwrap();
+    let absolute = Embedding::<Gf1, Gf16>::new();
     let mut conjugate_sum = Elem::<Gf16>::ZERO;
     let mut power = z;
     for _ in 0..16 {
@@ -167,13 +144,9 @@ fn main() {
         u8::from(absolute.trace(z).is_one())
     );
 
-    // Degrees that do not divide are rejected at construction.
-    assert_eq!(
-        Embedding::<Gf16, Aes>::new().unwrap_err(),
-        EmbeddingError::IncompatibleDegree {
-            source: 16,
-            target: 8
-        }
-    );
-    println!("GF(2^16) into GF(2^8) is rejected: source degree does not divide target degree.");
+    // A pair whose degrees do not divide does not compile, and image
+    // sequences that fail validation reject as values: the empty
+    // sequence has the wrong count for a one-level source.
+    assert!(Embedding::<Aes, Gf16>::from_images(&[]).is_err());
+    println!("a wrong-count image sequence rejects with ImageError instead of panicking.");
 }

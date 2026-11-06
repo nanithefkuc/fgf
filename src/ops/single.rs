@@ -6,10 +6,11 @@
 //! behavior (zero fills or skips, one copies or adds) is defined here and
 //! reused by the multi-row shapes.
 
-use crate::field::{Elem, FieldElem};
-use crate::kernel::{FieldKernels, RawDispatch};
+use crate::field::dispatch::RawDispatch;
+use crate::field::{Elem, FieldBuffer, FieldElem};
 
-use super::{PreparedCoefficient, check_pair, check_width};
+use super::coefficient::PreparedCoefficient;
+use super::geometry::{check_pair, check_width};
 
 /// `dst += src`, field addition.
 ///
@@ -18,12 +19,12 @@ use super::{PreparedCoefficient, check_pair, check_width};
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
 #[inline]
-pub fn add_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
+pub fn add_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     check_pair::<F>("add_assign", "dst", dst.len(), "src", src.len());
     F::add_assign(RawDispatch, dst, src);
 }
 
-/// Add pairwise rows: `dst_row[j] += src_row[j]` for every row.
+/// Adds pairwise rows: `dst_row[j] += src_row[j]` for every row.
 ///
 /// Both buffers are interpreted as the same number of contiguous
 /// `row_len`-byte rows. Semantically identical to [`add_assign`] — row
@@ -32,7 +33,7 @@ pub fn add_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// should use this form.
 ///
 /// ```
-/// use fgf::{FiniteField, Polynomial, poly::AES, ops};
+/// use fgf::{FiniteField, binary::{AES, Polynomial}, ops};
 ///
 /// let src = [0x01u8, 0x02, 0x03, 0x04];
 /// let mut dst = [0x10u8, 0x20, 0x30, 0x40];
@@ -47,9 +48,9 @@ pub fn add_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// elements, if the buffers differ in length, or if their length is not a
 /// whole number of rows.
 #[inline]
-pub fn add_assign_rows<F: FieldKernels>(dst: &mut [u8], row_len: usize, src: &[u8]) {
-    assert_ne!(row_len, 0, "add_assign_rows: row length must be nonzero");
-    check_width::<F>("add_assign_rows", row_len);
+pub fn add_assign_rows<F: FieldBuffer>(dst: &mut [u8], row_len: usize, src: &[u8]) {
+    assert_ne!(row_len, 0, "add_assign_rows: row_len must be nonzero");
+    check_width::<F>("add_assign_rows", "row_len", row_len);
     assert_eq!(
         dst.len(),
         src.len(),
@@ -60,7 +61,8 @@ pub fn add_assign_rows<F: FieldKernels>(dst: &mut [u8], row_len: usize, src: &[u
     assert_eq!(
         dst.len() % row_len,
         0,
-        "add_assign_rows: partial trailing row",
+        "add_assign_rows: dst of {} bytes is not a whole number of {row_len}-byte rows",
+        dst.len(),
     );
     F::add_assign_rows(RawDispatch, dst, src, row_len);
 }
@@ -70,12 +72,12 @@ pub fn add_assign_rows<F: FieldKernels>(dst: &mut [u8], row_len: usize, src: &[u
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
 #[inline]
-pub fn sub_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
+pub fn sub_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     check_pair::<F>("sub_assign", "dst", dst.len(), "src", src.len());
     F::sub_assign(RawDispatch, dst, src);
 }
 
-/// Subtract pairwise rows: `dst_row[j] -= src_row[j]` for every row.
+/// Subtracts pairwise rows: `dst_row[j] -= src_row[j]` for every row.
 ///
 /// The row-geometry counterpart of [`sub_assign`], mirroring
 /// [`add_assign_rows`]: both buffers hold the same number of contiguous
@@ -88,9 +90,9 @@ pub fn sub_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// elements, if the buffers differ in length, or if their length is not a
 /// whole number of rows.
 #[inline]
-pub fn sub_assign_rows<F: FieldKernels>(dst: &mut [u8], row_len: usize, src: &[u8]) {
-    assert_ne!(row_len, 0, "sub_assign_rows: row length must be nonzero");
-    check_width::<F>("sub_assign_rows", row_len);
+pub fn sub_assign_rows<F: FieldBuffer>(dst: &mut [u8], row_len: usize, src: &[u8]) {
+    assert_ne!(row_len, 0, "sub_assign_rows: row_len must be nonzero");
+    check_width::<F>("sub_assign_rows", "row_len", row_len);
     assert_eq!(
         dst.len(),
         src.len(),
@@ -101,7 +103,8 @@ pub fn sub_assign_rows<F: FieldKernels>(dst: &mut [u8], row_len: usize, src: &[u
     assert_eq!(
         dst.len() % row_len,
         0,
-        "sub_assign_rows: partial trailing row",
+        "sub_assign_rows: dst of {} bytes is not a whole number of {row_len}-byte rows",
+        dst.len(),
     );
     F::sub_assign_rows(RawDispatch, dst, src, row_len);
 }
@@ -111,7 +114,7 @@ pub fn sub_assign_rows<F: FieldKernels>(dst: &mut [u8], row_len: usize, src: &[u
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
 #[inline]
-pub fn mul_add<F: FieldKernels>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
+pub fn mul_add<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
     check_pair::<F>("mul_add", "dst", dst.len(), "src", src.len());
     if coeff.is_zero() {
         return;
@@ -128,7 +131,7 @@ pub fn mul_add<F: FieldKernels>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
 #[inline]
-pub fn mul_add_with<F: FieldKernels>(
+pub fn mul_add_with<F: FieldBuffer>(
     dst: &mut [u8],
     coeff: &impl PreparedCoefficient<F>,
     src: &[u8],
@@ -150,7 +153,7 @@ pub fn mul_add_with<F: FieldKernels>(
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
 #[inline]
-pub fn mul_into<F: FieldKernels>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
+pub fn mul_into<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
     check_pair::<F>("mul_into", "dst", dst.len(), "src", src.len());
     if coeff.is_zero() {
         dst.fill(0);
@@ -168,7 +171,7 @@ pub fn mul_into<F: FieldKernels>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
 #[inline]
-pub fn mul_into_with<F: FieldKernels>(
+pub fn mul_into_with<F: FieldBuffer>(
     dst: &mut [u8],
     coeff: &impl PreparedCoefficient<F>,
     src: &[u8],
@@ -191,8 +194,8 @@ pub fn mul_into_with<F: FieldKernels>(
 /// # Panics
 /// Panics on a partial trailing element.
 #[inline]
-pub fn mul_assign<F: FieldKernels>(dst: &mut [u8], coeff: Elem<F>) {
-    check_width::<F>("mul_assign", dst.len());
+pub fn mul_assign<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>) {
+    check_width::<F>("mul_assign", "dst", dst.len());
     if coeff.is_one() {
         return;
     }
@@ -208,8 +211,8 @@ pub fn mul_assign<F: FieldKernels>(dst: &mut [u8], coeff: Elem<F>) {
 /// # Panics
 /// Panics on a partial trailing element.
 #[inline]
-pub fn mul_assign_with<F: FieldKernels>(dst: &mut [u8], coeff: &impl PreparedCoefficient<F>) {
-    check_width::<F>("mul_assign_with", dst.len());
+pub fn mul_assign_with<F: FieldBuffer>(dst: &mut [u8], coeff: &impl PreparedCoefficient<F>) {
+    check_width::<F>("mul_assign_with", "dst", dst.len());
     let value = coeff.value();
     if value.is_one() {
         return;
@@ -223,29 +226,26 @@ pub fn mul_assign_with<F: FieldKernels>(dst: &mut [u8], coeff: &impl PreparedCoe
 
 /// Elementwise product: `dst[i] = a[i] * b[i]`.
 ///
-/// Both operands vary per lane, so there is no coefficient to broadcast and
-/// no nibble table to index. GFNI multiplies the vectors directly; the AVX-512
-/// and AVX2 backends use a lane-parallel shift/reduce sequence. Shuffle-only
-/// x86 backends and non-x86 targets fall back to the scalar reference path.
+/// Both operands vary per lane, so there is no coefficient to prepare.
 ///
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
-pub fn mul_elementwise<F: FieldKernels>(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    check_pair::<F>("mul_elementwise", "dst", dst.len(), "a", a.len());
-    check_pair::<F>("mul_elementwise", "dst", dst.len(), "b", b.len());
+pub fn mul_elementwise_into<F: FieldBuffer>(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    check_pair::<F>("mul_elementwise_into", "dst", dst.len(), "a", a.len());
+    check_pair::<F>("mul_elementwise_into", "dst", dst.len(), "b", b.len());
     F::mul_elementwise(RawDispatch, dst, a, b);
 }
 
 /// In-place elementwise product: `dst[i] *= src[i]`.
 ///
-/// The two-slice spelling of [`mul_elementwise`]: the destination is also the
+/// The two-slice spelling of [`mul_elementwise_into`]: the destination is also the
 /// first operand, so consumers composing lane-parallel Horner steps update
 /// their accumulator without a second output buffer.
 ///
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
 #[inline]
-pub fn mul_elementwise_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
+pub fn mul_elementwise_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     check_pair::<F>("mul_elementwise_assign", "dst", dst.len(), "src", src.len());
     F::mul_elementwise_assign(RawDispatch, dst, src);
 }
@@ -260,8 +260,8 @@ pub fn mul_elementwise_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// # Panics
 /// Panics if `dst` holds a partial trailing element.
 #[inline]
-pub fn add_assign_scalar<F: FieldKernels>(dst: &mut [u8], value: Elem<F>) {
-    check_width::<F>("add_assign_scalar", dst.len());
+pub fn add_assign_scalar<F: FieldBuffer>(dst: &mut [u8], value: Elem<F>) {
+    check_width::<F>("add_assign_scalar", "dst", dst.len());
     F::add_assign_scalar(RawDispatch, dst, &F::prepare(RawDispatch, value));
 }
 
@@ -274,7 +274,7 @@ pub fn add_assign_scalar<F: FieldKernels>(dst: &mut [u8], value: Elem<F>) {
 /// # Panics
 /// Panics if `dst` holds a partial trailing element.
 #[inline]
-pub fn sub_assign_scalar<F: FieldKernels>(dst: &mut [u8], value: Elem<F>) {
-    check_width::<F>("sub_assign_scalar", dst.len());
+pub fn sub_assign_scalar<F: FieldBuffer>(dst: &mut [u8], value: Elem<F>) {
+    check_width::<F>("sub_assign_scalar", "dst", dst.len());
     F::sub_assign_scalar(RawDispatch, dst, &F::prepare(RawDispatch, value));
 }

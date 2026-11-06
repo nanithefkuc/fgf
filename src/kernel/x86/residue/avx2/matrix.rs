@@ -22,13 +22,9 @@
 use core::arch::x86_64::*;
 
 use super::{combine_halves_avx2, narrow_avx2, normalize_avx2, widen_add_avx2};
-#[cfg(test)]
-use crate::kernel::Backend;
 use crate::kernel::Matrix;
 use crate::kernel::proven_checks::check_equal;
 use crate::kernel::residue::PreparedResidue;
-#[cfg(test)]
-use crate::kernel::trace::{Substage, Unit, emit};
 use crate::kernel::x86::residue::SourceGroup;
 
 /// Up to four outputs per delayed tile.
@@ -88,8 +84,6 @@ fn tile_group<M: Matrix<PreparedResidue> + ?Sized>(
     p64: __m256i,
     p64_m1: __m256i,
     shift: i32,
-    #[cfg(test)] id: &'static str,
-    #[cfg(test)] substage: Substage,
 ) {
     // One even/odd pair of 64-bit accumulator vectors per output.
     let mut acc_e = [_mm256_setzero_si256(); TILE];
@@ -122,14 +116,6 @@ fn tile_group<M: Matrix<PreparedResidue> + ?Sized>(
         );
         *sum = widen_add_avx2(*sum, reduced, p64, p64_m1);
     }
-    #[cfg(test)]
-    emit(
-        id,
-        substage,
-        Unit::Elements,
-        count * 8 * terms.len(),
-        Backend::V3,
-    );
 }
 
 /// Many sources overwrite many four-byte rows with delayed reduction:
@@ -298,14 +284,6 @@ fn run_delayed<M: Matrix<PreparedResidue> + ?Sized, const ADD: bool>(
                     p64,
                     p64_m1,
                     shift as i32,
-                    #[cfg(test)]
-                    if ADD {
-                        "residue.avx2.mul_add_matrix"
-                    } else {
-                        "residue.avx2.mul_into_matrix"
-                    },
-                    #[cfg(test)]
-                    if ADD { Substage::MulAdd } else { Substage::Mul },
                 );
                 base += len;
             }

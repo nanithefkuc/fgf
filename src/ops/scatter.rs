@@ -3,15 +3,15 @@
 //! The systematic-encode shape: one arriving source is multiplied by one
 //! coefficient per destination row and accumulated into it.
 
-use crate::field::{Elem, FieldElem};
-use crate::kernel::{FieldKernels, RawDispatch};
+use crate::field::dispatch::RawDispatch;
+use crate::field::{Elem, FieldBuffer, FieldElem};
 
-use super::check_pair;
+use super::geometry::check_pair;
 
 #[cfg(feature = "alloc")]
 use super::CoeffVecRef;
 
-/// Fan one source out to many rows: `rows[j] += coeffs[j] * src`.
+/// Fans one source out to many rows: `rows[j] += coeffs[j] * src`.
 ///
 /// `rows` is a flat buffer of `coeffs.len()` contiguous rows, each `row_len`
 /// bytes and the same length as `src`. This is the systematic-encode shape:
@@ -23,7 +23,7 @@ use super::CoeffVecRef;
 /// # Panics
 /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len` bytes
 /// and `row_len == src.len()`, or on a partial trailing element.
-pub fn mul_add_scatter<F: FieldKernels>(
+pub fn mul_add_scatter<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
     coeffs: &[Elem<F>],
@@ -46,7 +46,7 @@ pub fn mul_add_scatter<F: FieldKernels>(
     F::mul_add_scatter(RawDispatch, &mut rows[..used], row_len, coeffs, src);
 }
 
-/// Overwrite many rows from one source: `rows[j] = coeffs[j] * src`.
+/// Overwrites many rows from one source: `rows[j] = coeffs[j] * src`.
 ///
 /// The overwrite counterpart of [`mul_add_scatter`]: the previous contents
 /// of the rows are ignored, so callers need not zero them. `rows` is a flat
@@ -61,7 +61,7 @@ pub fn mul_add_scatter<F: FieldKernels>(
 /// # Panics
 /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len` bytes
 /// and `row_len == src.len()`, or on a partial trailing element.
-pub fn mul_into_scatter<F: FieldKernels>(
+pub fn mul_into_scatter<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
     coeffs: &[Elem<F>],
@@ -84,7 +84,7 @@ pub fn mul_into_scatter<F: FieldKernels>(
     F::mul_into_scatter(RawDispatch, &mut rows[..used], row_len, coeffs, src);
 }
 
-/// Fan one source out to many rows using prepared coefficients.
+/// Fans one source out to many rows using prepared coefficients.
 ///
 /// Unlike [`mul_add_scatter`], repeated calls do not rebuild backend-specific
 /// coefficient tables. The view comes from
@@ -95,7 +95,7 @@ pub fn mul_into_scatter<F: FieldKernels>(
 /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len` bytes
 /// and `row_len == src.len()`, or on a partial trailing element.
 #[cfg(feature = "alloc")]
-pub fn mul_add_scatter_with<F: FieldKernels>(
+pub fn mul_add_scatter_with<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
     coeffs: CoeffVecRef<'_, F>,
@@ -128,8 +128,9 @@ pub fn mul_add_scatter_with<F: FieldKernels>(
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
-    use crate::field::poly::AES;
-    use crate::field::{Elem as E8, FiniteField, Polynomial};
+    use crate::field::binary::Polynomial;
+    use crate::field::binary::poly::AES;
+    use crate::field::{Elem as E8, FiniteField};
 
     /// Zero-work shapes still validate structure: a non-empty source with a
     /// zero row length is a geometry error, not a silent skip.

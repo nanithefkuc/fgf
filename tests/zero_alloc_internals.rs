@@ -6,7 +6,7 @@ mod common;
 use common::{TEST_LOCK, count_allocations, noise};
 use fgf::ops;
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
 
 /// The token-proven `internals` wrappers replaced eager `format!`
 /// validation with `format_args`; successful direct calls must stay
@@ -16,11 +16,12 @@ type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
 #[test]
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn proven_internals_gather_and_overwrite_allocate_nothing() {
+    use fgf::binary::AES;
+    use fgf::binary::Polynomial;
     use fgf::internals::kernel::gf8::Prepared;
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
     use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken, x86};
-    use fgf::poly::AES;
-    use fgf::{Elem, FiniteField, Polynomial};
+    use fgf::{Elem, FiniteField};
 
     let _guard = TEST_LOCK
         .lock()

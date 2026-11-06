@@ -1,13 +1,17 @@
-use fgf::goldilocks;
+use fgf::Field;
+use fgf::prime::{Goldilocks, PrimeIdentity};
+
+/// The Goldilocks characteristic, read through the prime identity.
+const P: u64 = <<Goldilocks as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC;
 
 /// `a * b (mod p)` by direct 128-bit integer reduction.
 pub(super) fn mulmod(a: u64, b: u64) -> u64 {
-    ((u128::from(a) * u128::from(b)) % u128::from(goldilocks::MODULUS)) as u64
+    ((u128::from(a) * u128::from(b)) % u128::from(P)) as u64
 }
 
 /// `d + a * b (mod p)` by direct 128-bit integer reduction.
 pub(super) fn addmulmod(d: u64, a: u64, b: u64) -> u64 {
-    ((u128::from(d) + u128::from(a) * u128::from(b)) % u128::from(goldilocks::MODULUS)) as u64
+    ((u128::from(d) + u128::from(a) * u128::from(b)) % u128::from(P)) as u64
 }
 
 /// Canonical operands whose pairwise products cross the wrap branch:
@@ -19,7 +23,7 @@ pub(super) fn boundary_family() -> Vec<u64> {
     values.extend((0..=63).map(|k| 1_u64 << k));
     values.extend([0xFFFF_FFFE, 0xFFFF_FFFF, 0x1_0000_0000]);
     values.extend([(1 << 48) - 1, 1 << 48, (1 << 48) + 1]);
-    let p = goldilocks::MODULUS;
+    let p = P;
     values.extend([p - 1, p - 2, (p - 1) / 2]);
     values.extend([128 << 32, 128 * ((1 << 45) + 7)]);
     values

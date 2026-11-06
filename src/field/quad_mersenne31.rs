@@ -1,56 +1,18 @@
-//! The quadratic extension GF((2^31 − 1)^2), the QM31 field.
+//! The QM31 row and its scalar body.
 //!
-//! [`QuadMersenne31`] is the extension row
-//! `FiniteField<0x7FFF_FFFF, 2, Extension<ComplexMersenne31, 2>>`: pairs
-//! `[re, im]` of [`Mersenne31`] limbs with `i² = −1`, under the relation
-//! `t^2 + 1` that [`ComplexMersenne31`] names. Since `p = 2³¹ − 1 ≡ 3
-//! (mod 4)`, `−1` is a quadratic non-residue, so `Fₚ[i]/(i²+1)` is a field.
-//! The raw word is `[u32; 2]`, real limb first, and the stable byte form is
-//! the interleaved little-endian pair `[re: u32, im: u32]`, 8 bytes per
-//! element.
-//!
-//! # Totality and canonicalization
-//!
-//! As with the prime fields, every raw limb bit pattern is a legal input and
-//! [`Elem::from_raw`](crate::field::Elem) reduces each limb into canonical
-//! storage on the way in. Every arithmetic output is canonical (`< p` per
-//! limb). Storage is always canonical, so equality, hashing, and ordering
-//! compare raw words directly. Inspect the stored limbs with
-//! [`Elem::to_raw`](crate::field::Elem::to_raw).
-//!
-//! Arithmetic is variable-time and not for secret data.
-//!
-//! ```
-//! use fgf::{Elem, QuadMersenne31};
-//!
-//! // i² = −1  →  (0 + i)² = (−1 + 0·i)
-//! const I: Elem<QuadMersenne31> = Elem::<QuadMersenne31>::from_raw([0, 1]);
-//! const _: () = assert!(I.square().to_raw()[0] == 0x7FFF_FFFE);
-//! const _: () = assert!(I.square().to_raw()[1] == 0);
-//!
-//! // Known product, pinned against the frozen M31 known answer
-//! // a² = 0x71C7_1C71: (a + a·i)² = 0 + 2a²·i with 2a² mod p = 0x638E_38E3.
-//! const A: Elem<QuadMersenne31> = Elem::<QuadMersenne31>::from_raw([0x5555_5555, 0x5555_5555]);
-//! const _: () = assert!(A.mul(A).to_raw()[0] == 0);
-//! const _: () = assert!(A.mul(A).to_raw()[1] == 0x638E_38E3);
-//!
-//! // Division total
-//! const _: () = assert!(A.div(Elem::<QuadMersenne31>::ZERO).is_zero());
-//!
-//! // Generator has full order p²−1
-//! assert_eq!(
-//!     Elem::<QuadMersenne31>::GENERATOR.pow(0x3FFF_FFFF_0000_0000),
-//!     Elem::<QuadMersenne31>::ONE
-//! );
-//! ```
+//! `QuadMersenne31` is
+//! `FiniteField<0x7FFF_FFFF, 2, Extension<ComplexMersenne31, 2>>` over the
+//! relation `t^2 + 1`. The public contract for this field lives on the
+//! [`extension`](crate::extension) facade.
 
 use super::extension::{Components, Extension, ExtensionSpec, Relation};
 use super::finite_field::FiniteField;
 use super::mersenne31;
-use super::{Elem, HasGenerator, Mersenne31, Validate};
+use super::mersenne31::Mersenne31;
+use super::{Elem, HasGenerator, Validate};
 
 /// The base modulus `p = 2³¹ − 1`.
-pub const MODULUS: u32 = mersenne31::MODULUS;
+pub(crate) const MODULUS: u32 = mersenne31::MODULUS;
 
 /// The defining data of QM31: [`Mersenne31`] extended by `t^2 + 1`, with
 /// one base limb per component.
@@ -75,7 +37,7 @@ const fn limb_canonical(x: u32) -> u32 {
     mersenne31::reduce(x)
 }
 
-/// Add two canonical limbs: one conditional subtract, no re-reduction.
+/// Adds two canonical limbs: one conditional subtract, no re-reduction.
 ///
 /// Storage is canonical by construction: `Elem::from_raw` reduces through
 /// [`raw_canonical`], buffer decodes funnel into `from_raw`, and every
@@ -88,7 +50,7 @@ const fn limb_add(a: u32, b: u32) -> u32 {
     if s >= MODULUS { s - MODULUS } else { s }
 }
 
-/// Subtract two canonical limbs: the wrapping add of `p` absorbs the borrow.
+/// Subtracts two canonical limbs: the wrapping add of `p` absorbs the borrow.
 ///
 /// As for [`limb_add`]: inputs are canonical by construction.
 #[inline]
@@ -98,7 +60,7 @@ const fn limb_sub(a: u32, b: u32) -> u32 {
     if s >= MODULUS { s - MODULUS } else { s }
 }
 
-/// Negate a canonical limb, with `neg(0) == 0`.
+/// Negates a canonical limb, with `neg(0) == 0`.
 ///
 /// As for [`limb_add`]: the input is canonical by construction.
 #[inline]
@@ -107,7 +69,7 @@ const fn limb_neg(a: u32) -> u32 {
     if a == 0 { 0 } else { MODULUS - a }
 }
 
-/// Multiply two canonical limbs, folding the 62-bit product with `2^31 ≡ 1`.
+/// Multiplies two canonical limbs, folding the 62-bit product with `2^31 ≡ 1`.
 ///
 /// As for [`limb_add`]: the inputs are canonical by construction.
 #[inline]
@@ -175,7 +137,7 @@ pub(crate) const fn raw_mul(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
     ]
 }
 
-/// Reduce a nonnegative product sum below `2p²` with two Mersenne folds.
+/// Reduces a nonnegative product sum below `2p²` with two Mersenne folds.
 #[inline]
 #[must_use]
 #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
@@ -263,7 +225,7 @@ const fn is_primitive(candidate: [u32; 2]) -> bool {
     true
 }
 
-impl HasGenerator for QuadMersenne31 {
+impl super::private::GeneratorRaw for QuadMersenne31 {
     const GENERATOR_RAW: [u32; 2] = {
         assert!(
             is_primitive([1, 12]),
@@ -273,11 +235,13 @@ impl HasGenerator for QuadMersenne31 {
     };
 }
 
+impl HasGenerator for QuadMersenne31 {}
+
 impl Elem<QuadMersenne31> {
     /// The imaginary unit `i` with `i² = −1`.
     pub const I: Self = Elem { raw: [0, 1] };
 
-    /// Wrap raw limbs `[re, im]`, reducing each into canonical storage.
+    /// Wraps raw limbs `[re, im]`, reducing each into canonical storage.
     #[inline]
     #[must_use]
     pub const fn from_raw(value: [u32; 2]) -> Self {
@@ -287,7 +251,8 @@ impl Elem<QuadMersenne31> {
         }
     }
 
-    /// Decode from stable little-endian `[re, im]`.
+    /// Decodes little-endian `[re, im]`: every `u32` limb is accepted and
+    /// reduced modulo the characteristic.
     #[inline]
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 8]) -> Self {
@@ -296,7 +261,7 @@ impl Elem<QuadMersenne31> {
         Self::from_raw([re, im])
     }
 
-    /// Encode to stable little-endian `[re, im]`.
+    /// Encodes to stable little-endian `[re, im]`.
     #[inline]
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 8] {
@@ -305,7 +270,7 @@ impl Elem<QuadMersenne31> {
         [re[0], re[1], re[2], re[3], im[0], im[1], im[2], im[3]]
     }
 
-    /// Build from base-field components `[re, im]`.
+    /// Builds from base-field components `[re, im]`.
     #[inline]
     #[must_use]
     pub const fn from_components(components: [Elem<Mersenne31>; 2]) -> Self {
@@ -329,8 +294,8 @@ impl Elem<QuadMersenne31> {
     /// The row's `const` conjugate: the defining relation is `t^2 + 1`,
     /// so `c1 = 0` and the routed `(a - c1*b) - b*t` reduces to `a - b*t`.
     /// Equals `Embedding<Mersenne31, QuadMersenne31>::frobenius` at this
-    /// element. The routed trace and norm have no inherent spelling here:
-    /// use the embedding maps.
+    /// element. The trace has no inherent spelling here: use the embedding
+    /// map; the norm is [`norm`](Self::norm).
     #[inline]
     #[must_use]
     pub const fn conjugate(self) -> Self {
@@ -393,7 +358,7 @@ impl Elem<QuadMersenne31> {
         }
     }
 
-    /// Square over canonical storage: `(a+bi)² = (a²−b²) + 2ab·i`, no
+    /// Squares over canonical storage: `(a+bi)² = (a²−b²) + 2ab·i`, no
     /// re-reduction of the inputs.
     #[inline]
     #[must_use]
@@ -423,7 +388,7 @@ impl Elem<QuadMersenne31> {
         self.mul(rhs.inv())
     }
 
-    /// Raise to an unsigned integer power. `pow(_, 0) == ONE`.
+    /// Raises to an unsigned integer power. `pow(_, 0) == ONE`.
     #[inline]
     #[must_use]
     pub const fn pow(self, mut exponent: u128) -> Self {
@@ -464,7 +429,7 @@ impl Elem<QuadMersenne31> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Elem, HasGenerator, MODULUS, QuadMersenne31, is_primitive};
+    use super::{Elem, MODULUS, QuadMersenne31, is_primitive};
 
     #[test]
     fn deferred_product_sums_match_integer_remainders() {
@@ -489,8 +454,9 @@ mod tests {
     /// the check must accept and reject powers of the generator by that rule.
     #[test]
     fn primitivity_follows_generator_power_coprimality() {
-        let generator =
-            Elem::<QuadMersenne31>::from_raw(core::hint::black_box(QuadMersenne31::GENERATOR_RAW));
+        let generator = Elem::<QuadMersenne31>::from_raw(core::hint::black_box(
+            Elem::<QuadMersenne31>::GENERATOR.to_raw(),
+        ));
         let order = u64::from(MODULUS) * u64::from(MODULUS) - 1;
         for k in 1..=48u64 {
             let candidate = generator.pow(u128::from(k)).to_raw();

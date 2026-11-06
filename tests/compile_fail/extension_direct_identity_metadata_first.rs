@@ -2,7 +2,9 @@
 //! A direct identity query on a degree-128 quadratic over the shipped
 //! GF(2^64) row: the binary degree cap rejects the row before the relation
 //! capacity check runs.
-use fgf::{Components, Elem, Extension, ExtensionSpec, FiniteField, Relation, Rijndael64};
+use fgf::{Elem, FiniteField};
+use fgf::binary::Rijndael64;
+use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
 
 type Base = FiniteField<2, 64, Extension<Rijndael64, 2>>;
 

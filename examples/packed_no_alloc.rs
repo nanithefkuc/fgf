@@ -15,7 +15,8 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::{Elem, Field, FieldBuffer, FiniteField, Goldilocks, backend_for, ops};
+use fgf::prime::Goldilocks;
+use fgf::{Elem, Field, FieldBuffer, FiniteField, backend_for, ops};
 
 /// The largest `u64` prime: eight-byte lanes, no fold identities.
 type WidePrime = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1>;
@@ -83,7 +84,7 @@ fn lanes() {
 
     // Elementwise products agree with scalar arithmetic lane by lane.
     let mut product = [0u8; WIDTH];
-    ops::mul_elementwise::<WidePrime>(&mut product, &source, &source);
+    ops::mul_elementwise_into::<WidePrime>(&mut product, &source, &source);
     ops::unpack::<WidePrime>(&mut lanes, &product);
     for (value, &x) in lanes.iter().zip(&xs) {
         assert_eq!(*value, x.square(), "elementwise product agrees per lane");

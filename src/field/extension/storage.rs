@@ -19,8 +19,10 @@ use super::arithmetic;
 use super::descriptor::Storage;
 use super::private::Sealed;
 use crate::field::binary::BinaryField;
+use crate::field::dispatch::{KernelDispatch, RawDispatch};
 use crate::field::private::RowAccess;
 use crate::field::{Elem, Field, FieldBuffer, FieldElem};
+use simdispatch::Backend;
 
 /// The storage word types a packed extension row may select.
 pub trait PackedWord: Sealed {}
@@ -103,13 +105,13 @@ storage_marker!(PackedPadded);
 /// [`PackedPadded<W>`](PackedPadded), which require a binary base.
 pub trait ExtensionStorage<B: Field, const D: usize>: Sealed + 'static {
     /// The raw word of one element.
-    type Raw: Copy + Eq + Ord + Hash + core::fmt::Debug + 'static;
+    type Raw: Copy + Eq + Ord + Hash + core::fmt::Debug + Send + Sync + 'static;
 }
 
 impl Sealed for Components {}
 
 impl<B: Field, const D: usize> ExtensionStorage<B, D> for Components {
-    type Raw = [<B as Field>::Raw; D];
+    type Raw = [B::Raw; D];
 }
 
 /// The component and raw-word conversions of one storage, behind the
@@ -129,9 +131,9 @@ pub(crate) trait StorageRepr<B: Field, const D: usize>: ExtensionStorage<B, D> {
     /// The canonical form of a raw word.
     fn canonical(raw: Self::Raw) -> Self::Raw;
     /// The base components of a raw word, in component order.
-    fn split(raw: Self::Raw) -> [<B as Field>::Raw; D];
+    fn split(raw: Self::Raw) -> [B::Raw; D];
     /// The raw word of base components, canonicalized on the way in.
-    fn join(components: [<B as Field>::Raw; D]) -> Self::Raw;
+    fn join(components: [B::Raw; D]) -> Self::Raw;
     /// The shipped-instance word of a raw value: the coordinate word of a
     /// packed storage, and `re | im << 32` for the component limbs of the
     /// shipped prime extension.
@@ -154,13 +156,195 @@ pub(crate) trait StorageRepr<B: Field, const D: usize>: ExtensionStorage<B, D> {
     fn from_pinned_word(word: u64) -> Self::Raw;
 }
 
+/// The dispatch contract of one extension storage, generic over the row.
+///
+/// Each entry is the row's [`KernelDispatch`](crate::field::dispatch::KernelDispatch)
+/// entry of the same name, routed through the storage that decides the
+/// row's raw word and byte form; the queries carry the same names. The
+/// contract is declarations only — the engine implements it per storage
+/// and owns every body, default composition included, so a method reaching
+/// another entry calls it through the row `F` and overrides compose
+/// exactly as they do on a row's own implementation. The row parameter is
+/// bounded by [`StorageRow`], which ties the row's raw word and prepared
+/// coefficient to this storage; the helper never appears as a supertrait
+/// here.
+pub(crate) trait StorageDispatch<B: Field, const D: usize>: StorageRepr<B, D> {
+    /// The backend-ready form of one coefficient.
+    type Prepared: Clone + Send + Sync + core::fmt::Debug;
+
+    /// The row's backend query.
+    fn backend<F: StorageRow<B, D, Self>>(proof: RawDispatch) -> Backend;
+
+    /// The row's elementwise-vectorization query.
+    fn has_vector_elementwise<F: StorageRow<B, D, Self>>(proof: RawDispatch) -> bool;
+
+    /// The row's vector-elementwise threshold query.
+    fn vector_elementwise_min_bytes<F: StorageRow<B, D, Self>>(proof: RawDispatch) -> usize;
+
+    /// `KernelDispatch::prepare`.
+    fn prepare<F: StorageRow<B, D, Self>>(proof: RawDispatch, coeff: Elem<F>) -> Self::Prepared;
+
+    /// `KernelDispatch::prepared_coeff`.
+    fn prepared_coeff<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        prepared: &Self::Prepared,
+    ) -> Elem<F>;
+
+    /// `KernelDispatch::add_assign`.
+    fn add_assign<F: StorageRow<B, D, Self>>(proof: RawDispatch, dst: &mut [u8], src: &[u8]);
+
+    /// `KernelDispatch::add_gather_offsets`.
+    fn add_gather_offsets<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        region: &[u8],
+        dst: &mut [u8],
+        offsets: &[u32],
+    );
+
+    /// `KernelDispatch::sub_assign`.
+    fn sub_assign<F: StorageRow<B, D, Self>>(proof: RawDispatch, dst: &mut [u8], src: &[u8]);
+
+    /// `KernelDispatch::mul_add`.
+    fn mul_add<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: &Self::Prepared,
+        src: &[u8],
+    );
+
+    /// `KernelDispatch::mul_into`.
+    fn mul_into<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: &Self::Prepared,
+        src: &[u8],
+    );
+
+    /// `KernelDispatch::mul_assign`.
+    fn mul_assign<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: &Self::Prepared,
+    );
+
+    /// `KernelDispatch::mul_add_scatter`.
+    fn mul_add_scatter<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[Elem<F>],
+        src: &[u8],
+    );
+
+    /// `KernelDispatch::mul_add_gather`.
+    fn mul_add_gather<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Elem<F>],
+        srcs: &[&[u8]],
+    );
+
+    /// `KernelDispatch::mul_add_matrix`.
+    fn mul_add_matrix<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[Elem<F>], &[u8])],
+    );
+
+    /// `KernelDispatch::mul_add_scatter_plan`.
+    #[cfg(feature = "alloc")]
+    fn mul_add_scatter_plan<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        values: &[Elem<F>],
+        coeffs: &[Self::Prepared],
+        src: &[u8],
+    );
+
+    /// `KernelDispatch::mul_add_gather_plan`.
+    #[cfg(feature = "alloc")]
+    fn mul_add_gather_plan<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        values: &[Elem<F>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    );
+
+    /// `KernelDispatch::mul_add_matrix_plan`.
+    #[cfg(feature = "alloc")]
+    fn mul_add_matrix_plan<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        values: &[Elem<F>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    );
+
+    /// `KernelDispatch::mul_elementwise`.
+    fn mul_elementwise<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        a: &[u8],
+        b: &[u8],
+    );
+
+    /// `KernelDispatch::mul_elementwise_assign`.
+    fn mul_elementwise_assign<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        src: &[u8],
+    );
+
+    /// `KernelDispatch::add_assign_scalar`.
+    fn add_assign_scalar<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        value: &Self::Prepared,
+    );
+
+    /// `KernelDispatch::sub_assign_scalar`.
+    fn sub_assign_scalar<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        value: &Self::Prepared,
+    );
+}
+
+/// A field row whose kernels a storage `St` runs: its raw word is the
+/// storage's and its prepared coefficient the storage's.
+///
+/// The helper appears only in [`StorageDispatch`] method bounds. Its
+/// blanket impl repeats the same equalities, so any row satisfying them is
+/// a storage row for `St`; `St` itself needs no byte form.
+pub(crate) trait StorageRow<B: Field, const D: usize, St: StorageDispatch<B, D> + ?Sized>:
+    FieldBuffer
+    + Field<Raw = <St as ExtensionStorage<B, D>>::Raw>
+    + KernelDispatch<Prepared = <St as StorageDispatch<B, D>>::Prepared>
+{
+}
+
+impl<B: Field, const D: usize, St: StorageDispatch<B, D> + ?Sized, F> StorageRow<B, D, St> for F where
+    F: FieldBuffer
+        + Field<Raw = <St as ExtensionStorage<B, D>>::Raw>
+        + KernelDispatch<Prepared = <St as StorageDispatch<B, D>>::Prepared>
+{
+}
+
 /// The fixed-width byte form of one storage, for the rows that carry one.
 ///
 /// Implemented for [`Packed<W>`](Packed) — the little-endian word — and for
 /// [`Components`] over a base with a byte form — the concatenated base
 /// encodings. [`PackedPadded<W>`](PackedPadded) implements none: its
 /// coordinate word is narrower than its storage word.
-pub(crate) trait StorageBuffer<B: Field, const D: usize>: StorageRepr<B, D> {
+pub(crate) trait StorageBuffer<B: Field, const D: usize>:
+    StorageRepr<B, D> + StorageDispatch<B, D>
+{
     /// Width of one element's stable byte representation.
     const BYTES: usize;
     /// Storage bit width of one element: `8 * BYTES`.
@@ -177,20 +361,6 @@ pub(crate) trait StorageBuffer<B: Field, const D: usize>: StorageRepr<B, D> {
     ///
     /// Panics when `bytes` holds the wrong width.
     fn encode(bytes: &mut [u8], raw: &Self::Raw);
-
-    /// `dst += src` on the byte encoding of this storage.
-    ///
-    /// Operates on whole-element byte slices whose length is a multiple of
-    /// [`Self::BYTES`]. Component storage presents contiguous base lanes to one
-    /// base-field call; packed binary storage XORs the bytes.
-    fn add_assign_bytes(dst: &mut [u8], src: &[u8]);
-
-    /// `dst -= src` on the byte encoding of this storage.
-    ///
-    /// Identical to [`add_assign_bytes`](Self::add_assign_bytes) for packed
-    /// binary storage; delegates to the base field's subtraction hooks for
-    /// component storage.
-    fn sub_assign_bytes(dst: &mut [u8], src: &[u8]);
 }
 
 /// The display form of one storage.
@@ -202,23 +372,23 @@ pub(crate) trait StorageDisplay<B: Field, const D: usize>: StorageRepr<B, D> {
 
 impl<B: Field, const D: usize> StorageRepr<B, D> for Components {
     const TAG: Storage = Storage::Components;
-    const ZERO: Self::Raw = [<B as Field>::ZERO_RAW; D];
+    const ZERO: Self::Raw = [B::ZERO_RAW; D];
     const ONE: Self::Raw = {
-        let mut components = [<B as Field>::ZERO_RAW; D];
-        components[0] = <B as Field>::ONE_RAW;
+        let mut components = [B::ZERO_RAW; D];
+        components[0] = B::ONE_RAW;
         components
     };
 
     fn canonical(raw: Self::Raw) -> Self::Raw {
-        raw.map(<B as Field>::canonical_raw)
+        raw.map(B::canonical_raw)
     }
 
-    fn split(raw: Self::Raw) -> [<B as Field>::Raw; D] {
+    fn split(raw: Self::Raw) -> [B::Raw; D] {
         raw
     }
 
-    fn join(components: [<B as Field>::Raw; D]) -> Self::Raw {
-        components.map(<B as Field>::canonical_raw)
+    fn join(components: [B::Raw; D]) -> Self::Raw {
+        components.map(B::canonical_raw)
     }
 
     // The shipped component instance stores two `u32` limbs; the checked
@@ -262,18 +432,6 @@ impl<B: FieldBuffer, const D: usize> StorageBuffer<B, D> for Components {
             let element = Elem::<B> { raw: *component };
             <B as FieldBuffer>::encode(&mut bytes[i * width..(i + 1) * width], element);
         }
-    }
-
-    fn add_assign_bytes(dst: &mut [u8], src: &[u8]) {
-        #[cfg(test)]
-        let _trace_width = crate::kernel::trace::element_bytes(B::BYTES);
-        B::add_assign_bytes(crate::kernel::RawDispatch, dst, src);
-    }
-
-    fn sub_assign_bytes(dst: &mut [u8], src: &[u8]) {
-        #[cfg(test)]
-        let _trace_width = crate::kernel::trace::element_bytes(B::BYTES);
-        B::sub_assign_bytes(crate::kernel::RawDispatch, dst, src);
     }
 }
 
@@ -325,9 +483,9 @@ macro_rules! packed_storage {
             }
 
             #[allow(clippy::cast_lossless)]
-            fn split(raw: Self::Raw) -> [<B as Field>::Raw; D] {
+            fn split(raw: Self::Raw) -> [B::Raw; D] {
                 let word = raw as u64;
-                let degree = <B as Field>::DEGREE as usize;
+                let degree = B::DEGREE as usize;
                 core::array::from_fn(|i| {
                     let component = extract_bits(word, i * degree, degree);
                     // The extracted word holds at most the base's degree
@@ -339,12 +497,12 @@ macro_rules! packed_storage {
             }
 
             #[allow(clippy::cast_possible_truncation)]
-            fn join(components: [<B as Field>::Raw; D]) -> Self::Raw {
-                let degree = <B as Field>::DEGREE as usize;
+            fn join(components: [B::Raw; D]) -> Self::Raw {
+                let degree = B::DEGREE as usize;
                 let mut word = 0u64;
                 for (i, component) in components.iter().enumerate() {
                     let element = Elem::<B> {
-                        raw: <B as Field>::canonical_raw(*component),
+                        raw: B::canonical_raw(*component),
                     };
                     // A packed row places component `i` at the bits
                     // `[i*degree, (i+1)*degree)`; the base index is a
@@ -408,14 +566,6 @@ macro_rules! packed_buffer {
             fn encode(bytes: &mut [u8], raw: &Self::Raw) {
                 bytes.copy_from_slice(&raw.to_le_bytes());
             }
-
-            fn add_assign_bytes(dst: &mut [u8], src: &[u8]) {
-                crate::kernel::xor(dst, src);
-            }
-
-            fn sub_assign_bytes(dst: &mut [u8], src: &[u8]) {
-                crate::kernel::xor(dst, src);
-            }
         }
     };
 }
@@ -439,15 +589,16 @@ pub(crate) const fn extract_bits(word: u64, offset: usize, bits: usize) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::field::binary::poly::{AES, Polynomial};
+    use crate::field::binary::tower::{FanPaar4, FanPaar8, Rijndael16, Rijndael32};
     use crate::field::finite_field::FiniteField;
-    use crate::field::{AES, Polynomial};
 
     type Aes8 = FiniteField<2, 8, Polynomial<AES>>;
     type Gf4 = FiniteField<2, 2, Polynomial<7>>;
-    type FanPaar4Row = FiniteField<2, 4, crate::field::Extension<crate::field::FanPaar4, 2>>;
-    type FanPaar8Row = FiniteField<2, 8, crate::field::Extension<crate::field::FanPaar8, 2>>;
-    type Rijndael16Row = FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>;
-    type Rijndael32Row = FiniteField<2, 32, crate::field::Extension<crate::field::Rijndael32, 2>>;
+    type FanPaar4Row = FiniteField<2, 4, crate::field::extension::Extension<FanPaar4, 2>>;
+    type FanPaar8Row = FiniteField<2, 8, crate::field::extension::Extension<FanPaar8, 2>>;
+    type Rijndael16Row = FiniteField<2, 16, crate::field::extension::Extension<Rijndael16, 2>>;
+    type Rijndael32Row = FiniteField<2, 32, crate::field::extension::Extension<Rijndael32, 2>>;
 
     /// One packed storage joins its components, splits back, canonicalizes
     /// padding, and carries the base identity in component zero.

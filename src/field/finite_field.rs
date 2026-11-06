@@ -1,43 +1,12 @@
 //! The canonical generic field family `GF(P^N)`.
 //!
-//! [`FiniteField<P, N, R>`] names a field by its prime characteristic `P`,
-//! its absolute degree `N` over GF(P), and a presentation `R`. Identity and
-//! representation are type-selected: values are [`Elem<FiniteField<P, N,
-//! R>>`](crate::field::Elem), and equal `P` and `N` with different
-//! presentations stay distinct types. The default presentation,
-//! [`Residue`], is implemented at degree one only — so `FiniteField<P, 1>`
-//! is the prime field GF(P) for every `u64` prime, and `FiniteField<P, N>`
-//! with `N > 1` does not compile without an explicit presentation. The
-//! other presentations are the named prime folds
-//! ([`MersenneFold`](crate::field::MersenneFold),
-//! [`GoldilocksFold`](crate::field::GoldilocksFold)), the flat binary
-//! presentations at characteristic two
-//! ([`Polynomial`](crate::field::Polynomial),
-//! [`Normal`](crate::field::Normal), [`Cantor`](crate::field::Cantor)), and
-//! [`Extension`](crate::field::Extension) over any of these rows.
-//!
-//! # Capability rows
-//!
-//! [`Field`](crate::field::Field),
-//! [`PrimeField`](crate::field::PrimeField),
-//! [`FieldBuffer`](crate::field::FieldBuffer), and
-//! [`FieldKernels`](crate::kernel::FieldKernels) are implemented on real
-//! representation/degree rows, never as a blanket over all `P`, `N`, and
-//! `R`. Metadata membership alone does not imply a degree has an arithmetic
-//! body: generic code over the family supplies `R: FiniteFieldRepr<P, N>`
-//! *and* the capability bound, e.g. `FiniteField<P, N, R>: Field`.
-//!
-//! # Validation
-//!
-//! The shared metadata check reuses the crate's deterministic `u64`
-//! primality proof and validates, in order: the characteristic is prime, the
-//! degree is positive, the total degree cap of 64 holds at every
-//! characteristic, and `P^N` fits `u128` with overflow checking. Every
-//! value-producing
-//! constructor, identity, and raw method on the family's rows evaluates it
-//! before any remainder, exponent, or size arithmetic runs, so an invalid
-//! `P` or `N` fails const evaluation in const contexts and panics at first
-//! value use otherwise. Merely naming an unused type evaluates nothing.
+//! `FiniteField<P, N, R>` names a field by its prime characteristic `P`, its
+//! absolute degree `N` over GF(P), and a presentation `R`; identity and
+//! representation are type-selected, so equal `P` and `N` with different
+//! presentations stay distinct types. The default presentation `Residue` is
+//! implemented at degree one only, so `FiniteField<P, N>` with `N > 1` needs
+//! an explicit presentation. Capability traits are implemented on real
+//! representation/degree rows, never as a blanket over all parameters.
 
 use core::marker::PhantomData;
 
@@ -83,11 +52,33 @@ pub(crate) const fn checked_order<const P: u64, const N: u32>() -> u128 {
 /// A finite field with prime characteristic `P`, absolute degree `N`, and
 /// presentation `R`.
 ///
+/// Identity and representation are type-selected: values are
+/// [`Elem<FiniteField<P, N, R>>`](crate::Elem), and equal `P` and `N` with
+/// different presentations stay distinct types. The default presentation,
+/// [`Residue`](crate::prime::Residue), is implemented at degree one only —
+/// so `FiniteField<P, 1>` is the prime field GF(P) for every `u64` prime, and
+/// `FiniteField<P, N>` with `N > 1` does not compile without an explicit
+/// presentation. The other presentations are the named prime folds
+/// ([`MersenneFold`](crate::prime::MersenneFold),
+/// [`GoldilocksFold`](crate::prime::GoldilocksFold)), the flat binary
+/// presentations at characteristic two
+/// ([`Polynomial`](crate::binary::Polynomial),
+/// [`Normal`](crate::binary::Normal), [`Cantor`](crate::binary::Cantor)),
+/// and [`Extension`](crate::extension::Extension) over any of these rows.
+///
 /// The marker carries no runtime state and imposes no traits on `R` beyond
-/// the representation metadata. Arithmetic bodies live on real rows: the
-/// default [`Residue`] presentation supplies the degree-one row over every
-/// `u64` prime, and further presentations implement their own rows on this
-/// marker.
+/// the representation metadata. Arithmetic bodies live on real rows: metadata
+/// membership alone supplies no arithmetic body, and generic code bounds on
+/// the capability trait it needs.
+///
+/// Every value-producing constructor, identity, and raw method validates the
+/// metadata in order: the characteristic is prime, the degree is positive
+/// and at most 64, and `P^N` fits `u128` with overflow checking. The field's
+/// `ORDER` equals that checked power. The checks are associated constants,
+/// so an invalid `P` or `N` is a compile error in any build that generates
+/// code using one of those operations, whichever branch the call would
+/// take at run time. Merely naming the type, or type-checking code that is
+/// never generated, evaluates nothing.
 pub struct FiniteField<const P: u64, const N: u32, R: FiniteFieldRepr<P, N> = Residue>(
     PhantomData<fn() -> R>,
 );
@@ -148,13 +139,14 @@ impl<const P: u64, const N: u32, R: FiniteFieldRepr<P, N>> core::fmt::Debug
 /// Sealed, like the elements: representations are crate-defined,
 /// and downstream code names a row with its public type rather than
 /// implementing this trait. `NAME` is a human-readable presentation label,
-/// distinct from the field name a [`Field`](crate::field::Field) row
-/// reports. `VALID` is the use-time proof of the representation's defining
-/// data; it must not read the row's field identities, and it runs before any
-/// [`Field`](crate::field::Field) validation that chains it.
-pub trait FiniteFieldRepr<const P: u64, const N: u32>: private::Sealed + 'static {
+/// distinct from the field name a [`Field`](crate::Field) row
+/// reports. The representation's defining-data proof stays crate-private; it
+/// must not read the row's field identities, and it runs before any
+/// [`Field`](crate::Field) validation that chains it.
+#[allow(private_bounds)]
+pub trait FiniteFieldRepr<const P: u64, const N: u32>:
+    private::Sealed + private::FiniteFieldReprValidation<P, N> + 'static
+{
     /// Human-readable presentation label.
     const NAME: &'static str;
-    /// Use-time validity proof for the representation's defining data.
-    const VALID: ();
 }

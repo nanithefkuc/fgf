@@ -37,17 +37,18 @@
 //! # Running
 //!
 //! ```sh
-//! FEC_GOLDEN_CORE=<p-core> just bench-gf-comp   # from the fgf crate directory
+//! FEC_GOLDEN_CORE=<p-core> just bench-comp gf   # from the fgf crate directory
 //! ```
 //!
-//! Record the output in `benchmarks/v3/gf8.md` with the host, the resolved `fgf`
-//! backend, the versions printed in the header, and the pinning core.
+//! Raw captures include the host, the resolved `fgf` backend, the
+//! versions printed in the header, and the pinning core.
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::poly::RS;
-use fgf::{Elem, FiniteField, Polynomial, backend, backend_for, ops};
+use fgf::binary::Polynomial;
+use fgf::binary::RS;
+use fgf::{Elem, FiniteField, backend, backend_for, ops};
 
 /// Every fixture is page-aligned. ISA-L only requires 32 bytes, but equal
 /// page offsets hold the 4 KiB store-to-load aliasing penalty identical for
@@ -767,7 +768,11 @@ fn single_source() {
     let mut mul_table = isal::vect_mul_init(raw);
     let mut mad_tables = isal::init_tables(1, 1, &[raw]);
 
-    ops::mul_into::<FiniteField<2, 8, Polynomial<RS>>>(ours.as_mut_slice(), coefficient, src.as_slice());
+    ops::mul_into::<FiniteField<2, 8, Polynomial<RS>>>(
+        ours.as_mut_slice(),
+        coefficient,
+        src.as_slice(),
+    );
     isal::vect_mul(&mut mul_table, src.as_slice(), isal_dest.as_mut_slice());
     assert_eq!(
         ours.as_slice(),
@@ -788,7 +793,11 @@ fn single_source() {
     ours.as_mut_slice().fill(0);
     isal_dest.as_mut_slice().fill(0);
     kp_accumulate.as_mut_slice().fill(0);
-    ops::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(ours.as_mut_slice(), coefficient, src.as_slice());
+    ops::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(
+        ours.as_mut_slice(),
+        coefficient,
+        src.as_slice(),
+    );
     isal::vect_mad(&mut mad_tables, src.as_slice(), isal_dest.as_mut_slice());
     assert_eq!(
         ours.as_slice(),
@@ -870,7 +879,11 @@ fn gather(len: usize) {
     let mut isal_dest = AlignedBuf::new(len, 0x381);
     let mut kp_dest = AlignedBuf::new(len, 0x382);
 
-    ops::mul_into_gather::<FiniteField<2, 8, Polynomial<RS>>>(ours.as_mut_slice(), &coefficients, &sources);
+    ops::mul_into_gather::<FiniteField<2, 8, Polynomial<RS>>>(
+        ours.as_mut_slice(),
+        &coefficients,
+        &sources,
+    );
     {
         let mut check = isal::DotProd::new(&raw, &sources, isal_dest.as_mut_slice());
         check.run();
@@ -918,7 +931,11 @@ fn encode(len: usize, nrows: usize) {
     let columns: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..ENCODE_SOURCES)
         .map(|source| {
             (0..nrows)
-                .map(|row| Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(matrix[row * ENCODE_SOURCES + source]))
+                .map(|row| {
+                    Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(
+                        matrix[row * ENCODE_SOURCES + source],
+                    )
+                })
                 .collect()
         })
         .collect();
@@ -931,7 +948,12 @@ fn encode(len: usize, nrows: usize) {
     let mut ours = AlignedBuf::new(len * nrows, 0x480);
     let mut isal_dest = AlignedBuf::new(len * nrows, 0x481);
     let mut kp_dest = AlignedBuf::new(len * nrows, 0x482);
-    ops::mul_into_matrix::<FiniteField<2, 8, Polynomial<RS>>>(ours.as_mut_slice(), len, nrows, &terms);
+    ops::mul_into_matrix::<FiniteField<2, 8, Polynomial<RS>>>(
+        ours.as_mut_slice(),
+        len,
+        nrows,
+        &terms,
+    );
     {
         let mut encoder = isal::Encode::new(&matrix, nrows, &sources, isal_dest.as_mut_slice());
         encoder.run();

@@ -1,0 +1,1664 @@
+pub mod fgf
+pub use fgf::Backend
+pub mod fgf::binary
+pub struct fgf::binary::Cantor<const P: u128, const SEED: u8>
+impl<const P: u128, const SEED: u8> core::clone::Clone for fgf::binary::Cantor<P, SEED>
+pub fn fgf::binary::Cantor<P, SEED>::clone(&self) -> Self
+impl<const P: u128, const SEED: u8> core::clone::TrivialClone for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> core::cmp::Eq for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> core::cmp::Ord for fgf::binary::Cantor<P, SEED>
+pub fn fgf::binary::Cantor<P, SEED>::cmp(&self, &Self) -> core::cmp::Ordering
+impl<const P: u128, const SEED: u8> core::cmp::PartialEq for fgf::binary::Cantor<P, SEED>
+pub fn fgf::binary::Cantor<P, SEED>::eq(&self, &Self) -> bool
+impl<const P: u128, const SEED: u8> core::cmp::PartialOrd for fgf::binary::Cantor<P, SEED>
+pub fn fgf::binary::Cantor<P, SEED>::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl<const P: u128, const SEED: u8> core::default::Default for fgf::binary::Cantor<P, SEED>
+pub fn fgf::binary::Cantor<P, SEED>::default() -> Self
+impl<const P: u128, const SEED: u8> core::fmt::Debug for fgf::binary::Cantor<P, SEED>
+pub fn fgf::binary::Cantor<P, SEED>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const P: u128, const SEED: u8> core::hash::Hash for fgf::binary::Cantor<P, SEED>
+pub fn fgf::binary::Cantor<P, SEED>::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl<const P: u128, const SEED: u8> core::marker::Copy for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> core::marker::StructuralPartialEq for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> fgf::FiniteFieldRepr<2, 2> for fgf::binary::Cantor<P, SEED>
+pub const fgf::binary::Cantor<P, SEED>::NAME: &'static str
+impl<const P: u128, const SEED: u8> fgf::FiniteFieldRepr<2, 4> for fgf::binary::Cantor<P, SEED>
+pub const fgf::binary::Cantor<P, SEED>::NAME: &'static str
+impl<const P: u128, const SEED: u8> fgf::FiniteFieldRepr<2, 8> for fgf::binary::Cantor<P, SEED>
+pub const fgf::binary::Cantor<P, SEED>::NAME: &'static str
+impl<const P: u128, const SEED: u8> fgf::binary::BinaryRepr<2> for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> fgf::binary::BinaryRepr<4> for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> fgf::binary::BinaryRepr<8> for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> core::marker::Freeze for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> core::marker::Send for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> core::marker::Sync for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> core::marker::Unpin for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> core::marker::UnsafeUnpin for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> core::panic::unwind_safe::RefUnwindSafe for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> core::panic::unwind_safe::UnwindSafe for fgf::binary::Cantor<P, SEED>
+pub struct fgf::binary::FanPaar16
+impl core::clone::Clone for fgf::binary::FanPaar16
+pub fn fgf::binary::FanPaar16::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::binary::FanPaar16
+impl core::cmp::Eq for fgf::binary::FanPaar16
+impl core::cmp::PartialEq for fgf::binary::FanPaar16
+pub fn fgf::binary::FanPaar16::eq(&self, &Self) -> bool
+impl core::default::Default for fgf::binary::FanPaar16
+pub fn fgf::binary::FanPaar16::default() -> Self
+impl core::fmt::Debug for fgf::binary::FanPaar16
+pub fn fgf::binary::FanPaar16::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::binary::FanPaar16
+pub fn fgf::binary::FanPaar16::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::binary::FanPaar16
+impl core::marker::StructuralPartialEq for fgf::binary::FanPaar16
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::FanPaar16
+pub type fgf::binary::FanPaar16::Base = fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>
+pub type fgf::binary::FanPaar16::Storage = fgf::extension::Packed<u16>
+pub const fgf::binary::FanPaar16::NAME: &'static str
+pub const fgf::binary::FanPaar16::RELATION: fgf::extension::Relation
+impl core::marker::Freeze for fgf::binary::FanPaar16
+impl core::marker::Send for fgf::binary::FanPaar16
+impl core::marker::Sync for fgf::binary::FanPaar16
+impl core::marker::Unpin for fgf::binary::FanPaar16
+impl core::marker::UnsafeUnpin for fgf::binary::FanPaar16
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::binary::FanPaar16
+impl core::panic::unwind_safe::UnwindSafe for fgf::binary::FanPaar16
+pub struct fgf::binary::FanPaar2
+impl core::clone::Clone for fgf::binary::FanPaar2
+pub fn fgf::binary::FanPaar2::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::binary::FanPaar2
+impl core::cmp::Eq for fgf::binary::FanPaar2
+impl core::cmp::PartialEq for fgf::binary::FanPaar2
+pub fn fgf::binary::FanPaar2::eq(&self, &Self) -> bool
+impl core::default::Default for fgf::binary::FanPaar2
+pub fn fgf::binary::FanPaar2::default() -> Self
+impl core::fmt::Debug for fgf::binary::FanPaar2
+pub fn fgf::binary::FanPaar2::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::binary::FanPaar2
+pub fn fgf::binary::FanPaar2::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::binary::FanPaar2
+impl core::marker::StructuralPartialEq for fgf::binary::FanPaar2
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::FanPaar2
+pub type fgf::binary::FanPaar2::Base = fgf::FiniteField<2, 1, fgf::binary::Polynomial<3>>
+pub type fgf::binary::FanPaar2::Storage = fgf::extension::PackedPadded<u8>
+pub const fgf::binary::FanPaar2::NAME: &'static str
+pub const fgf::binary::FanPaar2::RELATION: fgf::extension::Relation
+impl core::marker::Freeze for fgf::binary::FanPaar2
+impl core::marker::Send for fgf::binary::FanPaar2
+impl core::marker::Sync for fgf::binary::FanPaar2
+impl core::marker::Unpin for fgf::binary::FanPaar2
+impl core::marker::UnsafeUnpin for fgf::binary::FanPaar2
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::binary::FanPaar2
+impl core::panic::unwind_safe::UnwindSafe for fgf::binary::FanPaar2
+pub struct fgf::binary::FanPaar32
+impl core::clone::Clone for fgf::binary::FanPaar32
+pub fn fgf::binary::FanPaar32::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::binary::FanPaar32
+impl core::cmp::Eq for fgf::binary::FanPaar32
+impl core::cmp::PartialEq for fgf::binary::FanPaar32
+pub fn fgf::binary::FanPaar32::eq(&self, &Self) -> bool
+impl core::default::Default for fgf::binary::FanPaar32
+pub fn fgf::binary::FanPaar32::default() -> Self
+impl core::fmt::Debug for fgf::binary::FanPaar32
+pub fn fgf::binary::FanPaar32::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::binary::FanPaar32
+pub fn fgf::binary::FanPaar32::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::binary::FanPaar32
+impl core::marker::StructuralPartialEq for fgf::binary::FanPaar32
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::FanPaar32
+pub type fgf::binary::FanPaar32::Base = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>
+pub type fgf::binary::FanPaar32::Storage = fgf::extension::Packed<u32>
+pub const fgf::binary::FanPaar32::NAME: &'static str
+pub const fgf::binary::FanPaar32::RELATION: fgf::extension::Relation
+impl core::marker::Freeze for fgf::binary::FanPaar32
+impl core::marker::Send for fgf::binary::FanPaar32
+impl core::marker::Sync for fgf::binary::FanPaar32
+impl core::marker::Unpin for fgf::binary::FanPaar32
+impl core::marker::UnsafeUnpin for fgf::binary::FanPaar32
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::binary::FanPaar32
+impl core::panic::unwind_safe::UnwindSafe for fgf::binary::FanPaar32
+pub struct fgf::binary::FanPaar4
+impl core::clone::Clone for fgf::binary::FanPaar4
+pub fn fgf::binary::FanPaar4::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::binary::FanPaar4
+impl core::cmp::Eq for fgf::binary::FanPaar4
+impl core::cmp::PartialEq for fgf::binary::FanPaar4
+pub fn fgf::binary::FanPaar4::eq(&self, &Self) -> bool
+impl core::default::Default for fgf::binary::FanPaar4
+pub fn fgf::binary::FanPaar4::default() -> Self
+impl core::fmt::Debug for fgf::binary::FanPaar4
+pub fn fgf::binary::FanPaar4::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::binary::FanPaar4
+pub fn fgf::binary::FanPaar4::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::binary::FanPaar4
+impl core::marker::StructuralPartialEq for fgf::binary::FanPaar4
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::FanPaar4
+pub type fgf::binary::FanPaar4::Base = fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>
+pub type fgf::binary::FanPaar4::Storage = fgf::extension::PackedPadded<u8>
+pub const fgf::binary::FanPaar4::NAME: &'static str
+pub const fgf::binary::FanPaar4::RELATION: fgf::extension::Relation
+impl core::marker::Freeze for fgf::binary::FanPaar4
+impl core::marker::Send for fgf::binary::FanPaar4
+impl core::marker::Sync for fgf::binary::FanPaar4
+impl core::marker::Unpin for fgf::binary::FanPaar4
+impl core::marker::UnsafeUnpin for fgf::binary::FanPaar4
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::binary::FanPaar4
+impl core::panic::unwind_safe::UnwindSafe for fgf::binary::FanPaar4
+pub struct fgf::binary::FanPaar64
+impl core::clone::Clone for fgf::binary::FanPaar64
+pub fn fgf::binary::FanPaar64::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::binary::FanPaar64
+impl core::cmp::Eq for fgf::binary::FanPaar64
+impl core::cmp::PartialEq for fgf::binary::FanPaar64
+pub fn fgf::binary::FanPaar64::eq(&self, &Self) -> bool
+impl core::default::Default for fgf::binary::FanPaar64
+pub fn fgf::binary::FanPaar64::default() -> Self
+impl core::fmt::Debug for fgf::binary::FanPaar64
+pub fn fgf::binary::FanPaar64::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::binary::FanPaar64
+pub fn fgf::binary::FanPaar64::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::binary::FanPaar64
+impl core::marker::StructuralPartialEq for fgf::binary::FanPaar64
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::FanPaar64
+pub type fgf::binary::FanPaar64::Base = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>
+pub type fgf::binary::FanPaar64::Storage = fgf::extension::Packed<u64>
+pub const fgf::binary::FanPaar64::NAME: &'static str
+pub const fgf::binary::FanPaar64::RELATION: fgf::extension::Relation
+impl core::marker::Freeze for fgf::binary::FanPaar64
+impl core::marker::Send for fgf::binary::FanPaar64
+impl core::marker::Sync for fgf::binary::FanPaar64
+impl core::marker::Unpin for fgf::binary::FanPaar64
+impl core::marker::UnsafeUnpin for fgf::binary::FanPaar64
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::binary::FanPaar64
+impl core::panic::unwind_safe::UnwindSafe for fgf::binary::FanPaar64
+pub struct fgf::binary::FanPaar8
+impl core::clone::Clone for fgf::binary::FanPaar8
+pub fn fgf::binary::FanPaar8::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::binary::FanPaar8
+impl core::cmp::Eq for fgf::binary::FanPaar8
+impl core::cmp::PartialEq for fgf::binary::FanPaar8
+pub fn fgf::binary::FanPaar8::eq(&self, &Self) -> bool
+impl core::default::Default for fgf::binary::FanPaar8
+pub fn fgf::binary::FanPaar8::default() -> Self
+impl core::fmt::Debug for fgf::binary::FanPaar8
+pub fn fgf::binary::FanPaar8::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::binary::FanPaar8
+pub fn fgf::binary::FanPaar8::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::binary::FanPaar8
+impl core::marker::StructuralPartialEq for fgf::binary::FanPaar8
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::FanPaar8
+pub type fgf::binary::FanPaar8::Base = fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>
+pub type fgf::binary::FanPaar8::Storage = fgf::extension::Packed<u8>
+pub const fgf::binary::FanPaar8::NAME: &'static str
+pub const fgf::binary::FanPaar8::RELATION: fgf::extension::Relation
+impl core::marker::Freeze for fgf::binary::FanPaar8
+impl core::marker::Send for fgf::binary::FanPaar8
+impl core::marker::Sync for fgf::binary::FanPaar8
+impl core::marker::Unpin for fgf::binary::FanPaar8
+impl core::marker::UnsafeUnpin for fgf::binary::FanPaar8
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::binary::FanPaar8
+impl core::panic::unwind_safe::UnwindSafe for fgf::binary::FanPaar8
+pub struct fgf::binary::Normal<const P: u128, const E: u8>
+impl<const P: u128, const E: u8> core::clone::Clone for fgf::binary::Normal<P, E>
+pub fn fgf::binary::Normal<P, E>::clone(&self) -> Self
+impl<const P: u128, const E: u8> core::clone::TrivialClone for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> core::cmp::Eq for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> core::cmp::Ord for fgf::binary::Normal<P, E>
+pub fn fgf::binary::Normal<P, E>::cmp(&self, &Self) -> core::cmp::Ordering
+impl<const P: u128, const E: u8> core::cmp::PartialEq for fgf::binary::Normal<P, E>
+pub fn fgf::binary::Normal<P, E>::eq(&self, &Self) -> bool
+impl<const P: u128, const E: u8> core::cmp::PartialOrd for fgf::binary::Normal<P, E>
+pub fn fgf::binary::Normal<P, E>::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl<const P: u128, const E: u8> core::default::Default for fgf::binary::Normal<P, E>
+pub fn fgf::binary::Normal<P, E>::default() -> Self
+impl<const P: u128, const E: u8> core::fmt::Debug for fgf::binary::Normal<P, E>
+pub fn fgf::binary::Normal<P, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const P: u128, const E: u8> core::hash::Hash for fgf::binary::Normal<P, E>
+pub fn fgf::binary::Normal<P, E>::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl<const P: u128, const E: u8> core::marker::Copy for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> core::marker::StructuralPartialEq for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> fgf::FiniteFieldRepr<2, 2> for fgf::binary::Normal<P, E>
+pub const fgf::binary::Normal<P, E>::NAME: &'static str
+impl<const P: u128, const E: u8> fgf::FiniteFieldRepr<2, 4> for fgf::binary::Normal<P, E>
+pub const fgf::binary::Normal<P, E>::NAME: &'static str
+impl<const P: u128, const E: u8> fgf::FiniteFieldRepr<2, 8> for fgf::binary::Normal<P, E>
+pub const fgf::binary::Normal<P, E>::NAME: &'static str
+impl<const P: u128, const E: u8> fgf::binary::BinaryRepr<2> for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> fgf::binary::BinaryRepr<4> for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> fgf::binary::BinaryRepr<8> for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> core::marker::Freeze for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> core::marker::Send for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> core::marker::Sync for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> core::marker::Unpin for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> core::marker::UnsafeUnpin for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> core::panic::unwind_safe::RefUnwindSafe for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> core::panic::unwind_safe::UnwindSafe for fgf::binary::Normal<P, E>
+pub struct fgf::binary::Polynomial<const P: u128>
+impl<const P: u128> fgf::binary::Polynomial<P>
+pub const fgf::binary::Polynomial<P>::POLY: u128
+impl<const P: u128> core::clone::Clone for fgf::binary::Polynomial<P>
+pub fn fgf::binary::Polynomial<P>::clone(&self) -> Self
+impl<const P: u128> core::clone::TrivialClone for fgf::binary::Polynomial<P>
+impl<const P: u128> core::cmp::Eq for fgf::binary::Polynomial<P>
+impl<const P: u128> core::cmp::Ord for fgf::binary::Polynomial<P>
+pub fn fgf::binary::Polynomial<P>::cmp(&self, &Self) -> core::cmp::Ordering
+impl<const P: u128> core::cmp::PartialEq for fgf::binary::Polynomial<P>
+pub fn fgf::binary::Polynomial<P>::eq(&self, &Self) -> bool
+impl<const P: u128> core::cmp::PartialOrd for fgf::binary::Polynomial<P>
+pub fn fgf::binary::Polynomial<P>::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl<const P: u128> core::default::Default for fgf::binary::Polynomial<P>
+pub fn fgf::binary::Polynomial<P>::default() -> Self
+impl<const P: u128> core::fmt::Debug for fgf::binary::Polynomial<P>
+pub fn fgf::binary::Polynomial<P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const P: u128> core::hash::Hash for fgf::binary::Polynomial<P>
+pub fn fgf::binary::Polynomial<P>::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl<const P: u128> core::marker::Copy for fgf::binary::Polynomial<P>
+impl<const P: u128> core::marker::StructuralPartialEq for fgf::binary::Polynomial<P>
+impl<const P: u128> fgf::FiniteFieldRepr<2, 1> for fgf::binary::Polynomial<P>
+pub const fgf::binary::Polynomial<P>::NAME: &'static str
+impl<const P: u128> fgf::FiniteFieldRepr<2, 2> for fgf::binary::Polynomial<P>
+pub const fgf::binary::Polynomial<P>::NAME: &'static str
+impl<const P: u128> fgf::FiniteFieldRepr<2, 4> for fgf::binary::Polynomial<P>
+pub const fgf::binary::Polynomial<P>::NAME: &'static str
+impl<const P: u128> fgf::FiniteFieldRepr<2, 8> for fgf::binary::Polynomial<P>
+pub const fgf::binary::Polynomial<P>::NAME: &'static str
+impl<const P: u128> fgf::binary::BinaryRepr<1> for fgf::binary::Polynomial<P>
+impl<const P: u128> fgf::binary::BinaryRepr<2> for fgf::binary::Polynomial<P>
+impl<const P: u128> fgf::binary::BinaryRepr<4> for fgf::binary::Polynomial<P>
+impl<const P: u128> fgf::binary::BinaryRepr<8> for fgf::binary::Polynomial<P>
+impl<const P: u128> core::marker::Freeze for fgf::binary::Polynomial<P>
+impl<const P: u128> core::marker::Send for fgf::binary::Polynomial<P>
+impl<const P: u128> core::marker::Sync for fgf::binary::Polynomial<P>
+impl<const P: u128> core::marker::Unpin for fgf::binary::Polynomial<P>
+impl<const P: u128> core::marker::UnsafeUnpin for fgf::binary::Polynomial<P>
+impl<const P: u128> core::panic::unwind_safe::RefUnwindSafe for fgf::binary::Polynomial<P>
+impl<const P: u128> core::panic::unwind_safe::UnwindSafe for fgf::binary::Polynomial<P>
+pub struct fgf::binary::Rijndael16
+impl core::clone::Clone for fgf::binary::Rijndael16
+pub fn fgf::binary::Rijndael16::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::binary::Rijndael16
+impl core::cmp::Eq for fgf::binary::Rijndael16
+impl core::cmp::PartialEq for fgf::binary::Rijndael16
+pub fn fgf::binary::Rijndael16::eq(&self, &Self) -> bool
+impl core::default::Default for fgf::binary::Rijndael16
+pub fn fgf::binary::Rijndael16::default() -> Self
+impl core::fmt::Debug for fgf::binary::Rijndael16
+pub fn fgf::binary::Rijndael16::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::binary::Rijndael16
+pub fn fgf::binary::Rijndael16::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::binary::Rijndael16
+impl core::marker::StructuralPartialEq for fgf::binary::Rijndael16
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::Rijndael16
+pub type fgf::binary::Rijndael16::Base = fgf::FiniteField<2, 8, fgf::binary::Polynomial<AES>>
+pub type fgf::binary::Rijndael16::Storage = fgf::extension::Packed<u16>
+pub const fgf::binary::Rijndael16::NAME: &'static str
+pub const fgf::binary::Rijndael16::RELATION: fgf::extension::Relation
+impl core::marker::Freeze for fgf::binary::Rijndael16
+impl core::marker::Send for fgf::binary::Rijndael16
+impl core::marker::Sync for fgf::binary::Rijndael16
+impl core::marker::Unpin for fgf::binary::Rijndael16
+impl core::marker::UnsafeUnpin for fgf::binary::Rijndael16
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::binary::Rijndael16
+impl core::panic::unwind_safe::UnwindSafe for fgf::binary::Rijndael16
+pub struct fgf::binary::Rijndael32
+impl core::clone::Clone for fgf::binary::Rijndael32
+pub fn fgf::binary::Rijndael32::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::binary::Rijndael32
+impl core::cmp::Eq for fgf::binary::Rijndael32
+impl core::cmp::PartialEq for fgf::binary::Rijndael32
+pub fn fgf::binary::Rijndael32::eq(&self, &Self) -> bool
+impl core::default::Default for fgf::binary::Rijndael32
+pub fn fgf::binary::Rijndael32::default() -> Self
+impl core::fmt::Debug for fgf::binary::Rijndael32
+pub fn fgf::binary::Rijndael32::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::binary::Rijndael32
+pub fn fgf::binary::Rijndael32::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::binary::Rijndael32
+impl core::marker::StructuralPartialEq for fgf::binary::Rijndael32
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::Rijndael32
+pub type fgf::binary::Rijndael32::Base = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>
+pub type fgf::binary::Rijndael32::Storage = fgf::extension::Packed<u32>
+pub const fgf::binary::Rijndael32::NAME: &'static str
+pub const fgf::binary::Rijndael32::RELATION: fgf::extension::Relation
+impl core::marker::Freeze for fgf::binary::Rijndael32
+impl core::marker::Send for fgf::binary::Rijndael32
+impl core::marker::Sync for fgf::binary::Rijndael32
+impl core::marker::Unpin for fgf::binary::Rijndael32
+impl core::marker::UnsafeUnpin for fgf::binary::Rijndael32
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::binary::Rijndael32
+impl core::panic::unwind_safe::UnwindSafe for fgf::binary::Rijndael32
+pub struct fgf::binary::Rijndael64
+impl core::clone::Clone for fgf::binary::Rijndael64
+pub fn fgf::binary::Rijndael64::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::binary::Rijndael64
+impl core::cmp::Eq for fgf::binary::Rijndael64
+impl core::cmp::PartialEq for fgf::binary::Rijndael64
+pub fn fgf::binary::Rijndael64::eq(&self, &Self) -> bool
+impl core::default::Default for fgf::binary::Rijndael64
+pub fn fgf::binary::Rijndael64::default() -> Self
+impl core::fmt::Debug for fgf::binary::Rijndael64
+pub fn fgf::binary::Rijndael64::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::binary::Rijndael64
+pub fn fgf::binary::Rijndael64::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::binary::Rijndael64
+impl core::marker::StructuralPartialEq for fgf::binary::Rijndael64
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::Rijndael64
+pub type fgf::binary::Rijndael64::Base = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>
+pub type fgf::binary::Rijndael64::Storage = fgf::extension::Packed<u64>
+pub const fgf::binary::Rijndael64::NAME: &'static str
+pub const fgf::binary::Rijndael64::RELATION: fgf::extension::Relation
+impl core::marker::Freeze for fgf::binary::Rijndael64
+impl core::marker::Send for fgf::binary::Rijndael64
+impl core::marker::Sync for fgf::binary::Rijndael64
+impl core::marker::Unpin for fgf::binary::Rijndael64
+impl core::marker::UnsafeUnpin for fgf::binary::Rijndael64
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::binary::Rijndael64
+impl core::panic::unwind_safe::UnwindSafe for fgf::binary::Rijndael64
+pub const fgf::binary::AES: u128
+pub const fgf::binary::RS: u128
+pub trait fgf::binary::BinaryDegree<const N: u32>: fgf::binary::BinaryField
+impl<R: fgf::binary::BinaryRepr<1>> fgf::binary::BinaryDegree<1> for fgf::FiniteField<2, 1, R>
+impl<R: fgf::binary::BinaryRepr<2>> fgf::binary::BinaryDegree<2> for fgf::FiniteField<2, 2, R>
+impl<R: fgf::binary::BinaryRepr<4>> fgf::binary::BinaryDegree<4> for fgf::FiniteField<2, 4, R>
+impl<R: fgf::binary::BinaryRepr<8>> fgf::binary::BinaryDegree<8> for fgf::FiniteField<2, 8, R>
+impl<const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::binary::BinaryDegree<N> for fgf::FiniteField<2, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageRepr<<S as fgf::extension::ExtensionSpec>::Base, D>, <S as fgf::extension::ExtensionSpec>::Base: fgf::binary::BinaryField
+pub trait fgf::binary::BinaryField: fgf::Field<Characteristic = fgf::prime::PrimeCharacteristic<2>> + fgf::field::binary::binary_private::Sealed + binary_private::BinaryFieldData
+impl<R: fgf::binary::BinaryRepr<1>> fgf::binary::BinaryField for fgf::FiniteField<2, 1, R>
+impl<R: fgf::binary::BinaryRepr<2>> fgf::binary::BinaryField for fgf::FiniteField<2, 2, R>
+impl<R: fgf::binary::BinaryRepr<4>> fgf::binary::BinaryField for fgf::FiniteField<2, 4, R>
+impl<R: fgf::binary::BinaryRepr<8>> fgf::binary::BinaryField for fgf::FiniteField<2, 8, R>
+impl<const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::binary::BinaryField for fgf::FiniteField<2, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageRepr<<S as fgf::extension::ExtensionSpec>::Base, D>, <S as fgf::extension::ExtensionSpec>::Base: fgf::binary::BinaryField
+pub trait fgf::binary::BinaryRepr<const N: u32>: fgf::FiniteFieldRepr<2, N> + binary_private::BinaryReprData<N>
+impl<const P: u128, const E: u8> fgf::binary::BinaryRepr<2> for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> fgf::binary::BinaryRepr<4> for fgf::binary::Normal<P, E>
+impl<const P: u128, const E: u8> fgf::binary::BinaryRepr<8> for fgf::binary::Normal<P, E>
+impl<const P: u128, const SEED: u8> fgf::binary::BinaryRepr<2> for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> fgf::binary::BinaryRepr<4> for fgf::binary::Cantor<P, SEED>
+impl<const P: u128, const SEED: u8> fgf::binary::BinaryRepr<8> for fgf::binary::Cantor<P, SEED>
+impl<const P: u128> fgf::binary::BinaryRepr<1> for fgf::binary::Polynomial<P>
+impl<const P: u128> fgf::binary::BinaryRepr<2> for fgf::binary::Polynomial<P>
+impl<const P: u128> fgf::binary::BinaryRepr<4> for fgf::binary::Polynomial<P>
+impl<const P: u128> fgf::binary::BinaryRepr<8> for fgf::binary::Polynomial<P>
+pub mod fgf::extension
+pub struct fgf::extension::ComplexMersenne31
+impl core::clone::Clone for fgf::extension::ComplexMersenne31
+pub fn fgf::extension::ComplexMersenne31::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::extension::ComplexMersenne31
+impl core::cmp::Eq for fgf::extension::ComplexMersenne31
+impl core::cmp::PartialEq for fgf::extension::ComplexMersenne31
+pub fn fgf::extension::ComplexMersenne31::eq(&self, &Self) -> bool
+impl core::default::Default for fgf::extension::ComplexMersenne31
+pub fn fgf::extension::ComplexMersenne31::default() -> Self
+impl core::fmt::Debug for fgf::extension::ComplexMersenne31
+pub fn fgf::extension::ComplexMersenne31::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::extension::ComplexMersenne31
+pub fn fgf::extension::ComplexMersenne31::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::extension::ComplexMersenne31
+impl core::marker::StructuralPartialEq for fgf::extension::ComplexMersenne31
+impl fgf::extension::ExtensionSpec<2> for fgf::extension::ComplexMersenne31
+pub type fgf::extension::ComplexMersenne31::Base = fgf::FiniteField<2147483647, 1, fgf::prime::MersenneFold>
+pub type fgf::extension::ComplexMersenne31::Storage = fgf::extension::Components
+pub const fgf::extension::ComplexMersenne31::NAME: &'static str
+pub const fgf::extension::ComplexMersenne31::RELATION: fgf::extension::Relation
+impl core::marker::Freeze for fgf::extension::ComplexMersenne31
+impl core::marker::Send for fgf::extension::ComplexMersenne31
+impl core::marker::Sync for fgf::extension::ComplexMersenne31
+impl core::marker::Unpin for fgf::extension::ComplexMersenne31
+impl core::marker::UnsafeUnpin for fgf::extension::ComplexMersenne31
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::extension::ComplexMersenne31
+impl core::panic::unwind_safe::UnwindSafe for fgf::extension::ComplexMersenne31
+pub struct fgf::extension::Components
+impl core::clone::Clone for fgf::extension::Components
+pub fn fgf::extension::Components::clone(&self) -> Self
+impl core::default::Default for fgf::extension::Components
+pub fn fgf::extension::Components::default() -> Self
+impl core::fmt::Debug for fgf::extension::Components
+pub fn fgf::extension::Components::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for fgf::extension::Components
+impl<B: fgf::Field, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::Components
+pub type fgf::extension::Components::Raw = [<B as fgf::Field>::Raw; D]
+impl core::marker::Freeze for fgf::extension::Components
+impl core::marker::Send for fgf::extension::Components
+impl core::marker::Sync for fgf::extension::Components
+impl core::marker::Unpin for fgf::extension::Components
+impl core::marker::UnsafeUnpin for fgf::extension::Components
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::extension::Components
+impl core::panic::unwind_safe::UnwindSafe for fgf::extension::Components
+pub struct fgf::extension::Extension<S: fgf::extension::ExtensionSpec<D>, const D: usize>(_)
+impl<S: fgf::extension::ExtensionSpec<D>, const D: usize> core::clone::Clone for fgf::extension::Extension<S, D>
+pub fn fgf::extension::Extension<S, D>::clone(&self) -> Self
+impl<S: fgf::extension::ExtensionSpec<D>, const D: usize> core::default::Default for fgf::extension::Extension<S, D>
+pub fn fgf::extension::Extension<S, D>::default() -> Self
+impl<S: fgf::extension::ExtensionSpec<D>, const D: usize> core::fmt::Debug for fgf::extension::Extension<S, D>
+pub fn fgf::extension::Extension<S, D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<S: fgf::extension::ExtensionSpec<D>, const D: usize> core::marker::Copy for fgf::extension::Extension<S, D>
+impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::FiniteFieldRepr<P, N> for fgf::extension::Extension<S, D>
+pub const fgf::extension::Extension<S, D>::NAME: &'static str
+impl<S, const D: usize> core::marker::Freeze for fgf::extension::Extension<S, D> where core::marker::PhantomData<fn() -> S>: core::marker::Freeze
+impl<S, const D: usize> core::marker::Send for fgf::extension::Extension<S, D> where core::marker::PhantomData<fn() -> S>: core::marker::Send
+impl<S, const D: usize> core::marker::Sync for fgf::extension::Extension<S, D> where core::marker::PhantomData<fn() -> S>: core::marker::Sync
+impl<S, const D: usize> core::marker::Unpin for fgf::extension::Extension<S, D> where core::marker::PhantomData<fn() -> S>: core::marker::Unpin
+impl<S, const D: usize> core::marker::UnsafeUnpin for fgf::extension::Extension<S, D> where core::marker::PhantomData<fn() -> S>: core::marker::UnsafeUnpin
+impl<S, const D: usize> core::panic::unwind_safe::RefUnwindSafe for fgf::extension::Extension<S, D> where core::marker::PhantomData<fn() -> S>: core::panic::unwind_safe::RefUnwindSafe
+impl<S, const D: usize> core::panic::unwind_safe::UnwindSafe for fgf::extension::Extension<S, D> where core::marker::PhantomData<fn() -> S>: core::panic::unwind_safe::UnwindSafe
+pub struct fgf::extension::Packed<W: fgf::extension::PackedWord>(_)
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::Packed<u16>
+pub type fgf::extension::Packed<u16>::Raw = u16
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::Packed<u32>
+pub type fgf::extension::Packed<u32>::Raw = u32
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::Packed<u64>
+pub type fgf::extension::Packed<u64>::Raw = u64
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::Packed<u8>
+pub type fgf::extension::Packed<u8>::Raw = u8
+impl<W: fgf::extension::PackedWord> core::clone::Clone for fgf::extension::Packed<W>
+pub fn fgf::extension::Packed<W>::clone(&self) -> Self
+impl<W: fgf::extension::PackedWord> core::default::Default for fgf::extension::Packed<W>
+pub fn fgf::extension::Packed<W>::default() -> Self
+impl<W: fgf::extension::PackedWord> core::fmt::Debug for fgf::extension::Packed<W>
+pub fn fgf::extension::Packed<W>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<W: fgf::extension::PackedWord> core::marker::Copy for fgf::extension::Packed<W>
+impl<W> core::marker::Freeze for fgf::extension::Packed<W> where core::marker::PhantomData<W>: core::marker::Freeze
+impl<W> core::marker::Send for fgf::extension::Packed<W> where core::marker::PhantomData<W>: core::marker::Send
+impl<W> core::marker::Sync for fgf::extension::Packed<W> where core::marker::PhantomData<W>: core::marker::Sync
+impl<W> core::marker::Unpin for fgf::extension::Packed<W> where core::marker::PhantomData<W>: core::marker::Unpin
+impl<W> core::marker::UnsafeUnpin for fgf::extension::Packed<W> where core::marker::PhantomData<W>: core::marker::UnsafeUnpin
+impl<W> core::panic::unwind_safe::RefUnwindSafe for fgf::extension::Packed<W> where core::marker::PhantomData<W>: core::panic::unwind_safe::RefUnwindSafe
+impl<W> core::panic::unwind_safe::UnwindSafe for fgf::extension::Packed<W> where core::marker::PhantomData<W>: core::panic::unwind_safe::UnwindSafe
+pub struct fgf::extension::PackedPadded<W: fgf::extension::PackedWord>(_)
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::PackedPadded<u16>
+pub type fgf::extension::PackedPadded<u16>::Raw = u16
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::PackedPadded<u32>
+pub type fgf::extension::PackedPadded<u32>::Raw = u32
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::PackedPadded<u64>
+pub type fgf::extension::PackedPadded<u64>::Raw = u64
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::PackedPadded<u8>
+pub type fgf::extension::PackedPadded<u8>::Raw = u8
+impl<W: fgf::extension::PackedWord> core::clone::Clone for fgf::extension::PackedPadded<W>
+pub fn fgf::extension::PackedPadded<W>::clone(&self) -> Self
+impl<W: fgf::extension::PackedWord> core::default::Default for fgf::extension::PackedPadded<W>
+pub fn fgf::extension::PackedPadded<W>::default() -> Self
+impl<W: fgf::extension::PackedWord> core::fmt::Debug for fgf::extension::PackedPadded<W>
+pub fn fgf::extension::PackedPadded<W>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<W: fgf::extension::PackedWord> core::marker::Copy for fgf::extension::PackedPadded<W>
+impl<W> core::marker::Freeze for fgf::extension::PackedPadded<W> where core::marker::PhantomData<W>: core::marker::Freeze
+impl<W> core::marker::Send for fgf::extension::PackedPadded<W> where core::marker::PhantomData<W>: core::marker::Send
+impl<W> core::marker::Sync for fgf::extension::PackedPadded<W> where core::marker::PhantomData<W>: core::marker::Sync
+impl<W> core::marker::Unpin for fgf::extension::PackedPadded<W> where core::marker::PhantomData<W>: core::marker::Unpin
+impl<W> core::marker::UnsafeUnpin for fgf::extension::PackedPadded<W> where core::marker::PhantomData<W>: core::marker::UnsafeUnpin
+impl<W> core::panic::unwind_safe::RefUnwindSafe for fgf::extension::PackedPadded<W> where core::marker::PhantomData<W>: core::panic::unwind_safe::RefUnwindSafe
+impl<W> core::panic::unwind_safe::UnwindSafe for fgf::extension::PackedPadded<W> where core::marker::PhantomData<W>: core::panic::unwind_safe::UnwindSafe
+pub struct fgf::extension::Relation
+impl fgf::extension::Relation
+pub const fn fgf::extension::Relation::from_binary_words<B: fgf::binary::BinaryField>(&[u64]) -> Self
+pub const fn fgf::extension::Relation::from_coordinates(&[u64]) -> Self
+pub fn fgf::extension::Relation::to_binary_words<B: fgf::binary::BinaryField>(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = u64> + '_
+pub const fn fgf::extension::Relation::to_coordinates(&self) -> &[u64]
+impl core::clone::Clone for fgf::extension::Relation
+pub fn fgf::extension::Relation::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::extension::Relation
+impl core::cmp::Eq for fgf::extension::Relation
+pub fn fgf::extension::Relation::assert_fields_are_eq(&self)
+impl core::cmp::PartialEq for fgf::extension::Relation
+pub fn fgf::extension::Relation::eq(&self, &Self) -> bool
+impl core::fmt::Debug for fgf::extension::Relation
+pub fn fgf::extension::Relation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for fgf::extension::Relation
+impl core::marker::StructuralPartialEq for fgf::extension::Relation
+impl core::marker::Freeze for fgf::extension::Relation
+impl core::marker::Send for fgf::extension::Relation
+impl core::marker::Sync for fgf::extension::Relation
+impl core::marker::Unpin for fgf::extension::Relation
+impl core::marker::UnsafeUnpin for fgf::extension::Relation
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::extension::Relation
+impl core::panic::unwind_safe::UnwindSafe for fgf::extension::Relation
+pub trait fgf::extension::ExtensionField<const D: usize>: fgf::Field + fgf::field::extension::private::Sealed
+pub type fgf::extension::ExtensionField::Base: fgf::Field
+pub fn fgf::extension::ExtensionField::from_components([fgf::Elem<Self::Base>; D]) -> fgf::Elem<Self>
+pub fn fgf::extension::ExtensionField::to_components(fgf::Elem<Self>) -> [fgf::Elem<Self::Base>; D]
+impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::extension::ExtensionField<D> for fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>
+pub type fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::Base = <S as fgf::extension::ExtensionSpec<D>>::Base
+pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::from_components([fgf::Elem<<S as fgf::extension::ExtensionSpec>::Base>; D]) -> fgf::Elem<Self>
+pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::to_components(fgf::Elem<Self>) -> [fgf::Elem<<S as fgf::extension::ExtensionSpec>::Base>; D]
+pub trait fgf::extension::ExtensionSpec<const D: usize>: 'static
+pub type fgf::extension::ExtensionSpec::Base: fgf::Field
+pub type fgf::extension::ExtensionSpec::Storage: fgf::extension::ExtensionStorage<Self::Base, D> + storage::StorageRepr<Self::Base, D>
+pub const fgf::extension::ExtensionSpec::NAME: &'static str
+pub const fgf::extension::ExtensionSpec::RELATION: fgf::extension::Relation
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::FanPaar16
+pub type fgf::binary::FanPaar16::Base = fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>
+pub type fgf::binary::FanPaar16::Storage = fgf::extension::Packed<u16>
+pub const fgf::binary::FanPaar16::NAME: &'static str
+pub const fgf::binary::FanPaar16::RELATION: fgf::extension::Relation
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::FanPaar2
+pub type fgf::binary::FanPaar2::Base = fgf::FiniteField<2, 1, fgf::binary::Polynomial<3>>
+pub type fgf::binary::FanPaar2::Storage = fgf::extension::PackedPadded<u8>
+pub const fgf::binary::FanPaar2::NAME: &'static str
+pub const fgf::binary::FanPaar2::RELATION: fgf::extension::Relation
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::FanPaar32
+pub type fgf::binary::FanPaar32::Base = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>
+pub type fgf::binary::FanPaar32::Storage = fgf::extension::Packed<u32>
+pub const fgf::binary::FanPaar32::NAME: &'static str
+pub const fgf::binary::FanPaar32::RELATION: fgf::extension::Relation
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::FanPaar4
+pub type fgf::binary::FanPaar4::Base = fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>
+pub type fgf::binary::FanPaar4::Storage = fgf::extension::PackedPadded<u8>
+pub const fgf::binary::FanPaar4::NAME: &'static str
+pub const fgf::binary::FanPaar4::RELATION: fgf::extension::Relation
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::FanPaar64
+pub type fgf::binary::FanPaar64::Base = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>
+pub type fgf::binary::FanPaar64::Storage = fgf::extension::Packed<u64>
+pub const fgf::binary::FanPaar64::NAME: &'static str
+pub const fgf::binary::FanPaar64::RELATION: fgf::extension::Relation
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::FanPaar8
+pub type fgf::binary::FanPaar8::Base = fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>
+pub type fgf::binary::FanPaar8::Storage = fgf::extension::Packed<u8>
+pub const fgf::binary::FanPaar8::NAME: &'static str
+pub const fgf::binary::FanPaar8::RELATION: fgf::extension::Relation
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::Rijndael16
+pub type fgf::binary::Rijndael16::Base = fgf::FiniteField<2, 8, fgf::binary::Polynomial<AES>>
+pub type fgf::binary::Rijndael16::Storage = fgf::extension::Packed<u16>
+pub const fgf::binary::Rijndael16::NAME: &'static str
+pub const fgf::binary::Rijndael16::RELATION: fgf::extension::Relation
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::Rijndael32
+pub type fgf::binary::Rijndael32::Base = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>
+pub type fgf::binary::Rijndael32::Storage = fgf::extension::Packed<u32>
+pub const fgf::binary::Rijndael32::NAME: &'static str
+pub const fgf::binary::Rijndael32::RELATION: fgf::extension::Relation
+impl fgf::extension::ExtensionSpec<2> for fgf::binary::Rijndael64
+pub type fgf::binary::Rijndael64::Base = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>
+pub type fgf::binary::Rijndael64::Storage = fgf::extension::Packed<u64>
+pub const fgf::binary::Rijndael64::NAME: &'static str
+pub const fgf::binary::Rijndael64::RELATION: fgf::extension::Relation
+impl fgf::extension::ExtensionSpec<2> for fgf::extension::ComplexMersenne31
+pub type fgf::extension::ComplexMersenne31::Base = fgf::FiniteField<2147483647, 1, fgf::prime::MersenneFold>
+pub type fgf::extension::ComplexMersenne31::Storage = fgf::extension::Components
+pub const fgf::extension::ComplexMersenne31::NAME: &'static str
+pub const fgf::extension::ComplexMersenne31::RELATION: fgf::extension::Relation
+pub trait fgf::extension::ExtensionStorage<B: fgf::Field, const D: usize>: fgf::field::extension::private::Sealed + 'static
+pub type fgf::extension::ExtensionStorage::Raw: core::marker::Copy + core::cmp::Eq + core::cmp::Ord + core::hash::Hash + core::fmt::Debug + core::marker::Send + core::marker::Sync + 'static
+impl<B: fgf::Field, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::Components
+pub type fgf::extension::Components::Raw = [<B as fgf::Field>::Raw; D]
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::Packed<u16>
+pub type fgf::extension::Packed<u16>::Raw = u16
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::Packed<u32>
+pub type fgf::extension::Packed<u32>::Raw = u32
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::Packed<u64>
+pub type fgf::extension::Packed<u64>::Raw = u64
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::Packed<u8>
+pub type fgf::extension::Packed<u8>::Raw = u8
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::PackedPadded<u16>
+pub type fgf::extension::PackedPadded<u16>::Raw = u16
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::PackedPadded<u32>
+pub type fgf::extension::PackedPadded<u32>::Raw = u32
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::PackedPadded<u64>
+pub type fgf::extension::PackedPadded<u64>::Raw = u64
+impl<B: fgf::binary::BinaryField, const D: usize> fgf::extension::ExtensionStorage<B, D> for fgf::extension::PackedPadded<u8>
+pub type fgf::extension::PackedPadded<u8>::Raw = u8
+pub trait fgf::extension::PackedWord: fgf::field::extension::private::Sealed
+impl fgf::extension::PackedWord for u16
+impl fgf::extension::PackedWord for u32
+impl fgf::extension::PackedWord for u64
+impl fgf::extension::PackedWord for u8
+pub type fgf::extension::QuadMersenne31 = fgf::FiniteField<0x7FFF_FFFF, 2, fgf::extension::Extension<fgf::extension::ComplexMersenne31, 2>>
+pub mod fgf::maps
+pub struct fgf::maps::Embedding<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>>
+impl<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>> fgf::maps::Embedding<S, T>
+pub fn fgf::maps::Embedding<S, T>::contains(&self, fgf::Elem<T>) -> bool
+pub fn fgf::maps::Embedding<S, T>::embed(&self, fgf::Elem<S>) -> fgf::Elem<T>
+pub fn fgf::maps::Embedding<S, T>::frobenius(&self, fgf::Elem<T>) -> fgf::Elem<T>
+pub fn fgf::maps::Embedding<S, T>::from_images(&[fgf::Elem<T>]) -> core::result::Result<Self, fgf::maps::ImageError>
+pub fn fgf::maps::Embedding<S, T>::generator(usize) -> fgf::Elem<S>
+pub fn fgf::maps::Embedding<S, T>::generator_count() -> usize
+pub fn fgf::maps::Embedding<S, T>::new() -> Self
+pub fn fgf::maps::Embedding<S, T>::norm(&self, fgf::Elem<T>) -> fgf::Elem<S>
+pub fn fgf::maps::Embedding<S, T>::relative_degree(&self) -> u32
+pub fn fgf::maps::Embedding<S, T>::restrict(&self, fgf::Elem<T>) -> core::option::Option<fgf::Elem<S>>
+pub fn fgf::maps::Embedding<S, T>::then<M, U>(&self, &M) -> fgf::maps::Embedding<S, U> where M: fgf::maps::Postcompose<T, U>, U: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>
+pub fn fgf::maps::Embedding<S, T>::to_images(&self) -> &[fgf::Elem<T>]
+pub fn fgf::maps::Embedding<S, T>::trace(&self, fgf::Elem<T>) -> fgf::Elem<S>
+impl<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>> core::clone::Clone for fgf::maps::Embedding<S, T>
+pub fn fgf::maps::Embedding<S, T>::clone(&self) -> Self
+impl<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>> core::fmt::Debug for fgf::maps::Embedding<S, T>
+pub fn fgf::maps::Embedding<S, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>> core::marker::Copy for fgf::maps::Embedding<S, T>
+impl<S, T> core::marker::Freeze for fgf::maps::Embedding<S, T> where [fgf::Elem<T>; 8]: core::marker::Freeze, core::marker::PhantomData<fn() -> (S, T)>: core::marker::Freeze
+impl<S, T> core::marker::Send for fgf::maps::Embedding<S, T> where [fgf::Elem<T>; 8]: core::marker::Send, core::marker::PhantomData<fn() -> (S, T)>: core::marker::Send
+impl<S, T> core::marker::Sync for fgf::maps::Embedding<S, T> where [fgf::Elem<T>; 8]: core::marker::Sync, core::marker::PhantomData<fn() -> (S, T)>: core::marker::Sync
+impl<S, T> core::marker::Unpin for fgf::maps::Embedding<S, T> where [fgf::Elem<T>; 8]: core::marker::Unpin, core::marker::PhantomData<fn() -> (S, T)>: core::marker::Unpin
+impl<S, T> core::marker::UnsafeUnpin for fgf::maps::Embedding<S, T> where [fgf::Elem<T>; 8]: core::marker::UnsafeUnpin, core::marker::PhantomData<fn() -> (S, T)>: core::marker::UnsafeUnpin
+impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::maps::Embedding<S, T> where [fgf::Elem<T>; 8]: core::panic::unwind_safe::RefUnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::RefUnwindSafe
+impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::maps::Embedding<S, T> where [fgf::Elem<T>; 8]: core::panic::unwind_safe::UnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::UnwindSafe
+#[non_exhaustive] pub struct fgf::maps::ImageError
+impl core::clone::Clone for fgf::maps::ImageError
+pub fn fgf::maps::ImageError::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::maps::ImageError
+impl core::cmp::Eq for fgf::maps::ImageError
+impl core::cmp::PartialEq for fgf::maps::ImageError
+pub fn fgf::maps::ImageError::eq(&self, &Self) -> bool
+impl core::error::Error for fgf::maps::ImageError
+impl core::fmt::Debug for fgf::maps::ImageError
+pub fn fgf::maps::ImageError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for fgf::maps::ImageError
+pub fn fgf::maps::ImageError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for fgf::maps::ImageError
+impl core::marker::StructuralPartialEq for fgf::maps::ImageError
+impl core::marker::Freeze for fgf::maps::ImageError
+impl core::marker::Send for fgf::maps::ImageError
+impl core::marker::Sync for fgf::maps::ImageError
+impl core::marker::Unpin for fgf::maps::ImageError
+impl core::marker::UnsafeUnpin for fgf::maps::ImageError
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::maps::ImageError
+impl core::panic::unwind_safe::UnwindSafe for fgf::maps::ImageError
+pub struct fgf::maps::Isomorphism<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>>
+impl<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>> fgf::maps::Isomorphism<S, T>
+pub fn fgf::maps::Isomorphism<S, T>::apply(&self, fgf::Elem<S>) -> fgf::Elem<T>
+pub fn fgf::maps::Isomorphism<S, T>::from_images(&[fgf::Elem<T>]) -> core::result::Result<Self, fgf::maps::ImageError>
+pub fn fgf::maps::Isomorphism<S, T>::inverse(&self) -> fgf::maps::Isomorphism<T, S>
+pub fn fgf::maps::Isomorphism<S, T>::new() -> Self
+pub fn fgf::maps::Isomorphism<S, T>::then<U: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>>(&self, &fgf::maps::Isomorphism<T, U>) -> fgf::maps::Isomorphism<S, U>
+pub fn fgf::maps::Isomorphism<S, T>::then_embedding<U: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>>(&self, &fgf::maps::Embedding<T, U>) -> fgf::maps::Embedding<S, U>
+pub fn fgf::maps::Isomorphism<S, T>::to_images(&self) -> &[fgf::Elem<T>]
+pub fn fgf::maps::Isomorphism<S, T>::unapply(&self, fgf::Elem<T>) -> fgf::Elem<S>
+impl<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>> core::clone::Clone for fgf::maps::Isomorphism<S, T>
+pub fn fgf::maps::Isomorphism<S, T>::clone(&self) -> Self
+impl<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>> core::fmt::Debug for fgf::maps::Isomorphism<S, T>
+pub fn fgf::maps::Isomorphism<S, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<S: fgf::Field, T: fgf::Field<Characteristic = <S as fgf::Field>::Characteristic>> core::marker::Copy for fgf::maps::Isomorphism<S, T>
+impl<S, T> core::marker::Freeze for fgf::maps::Isomorphism<S, T> where [fgf::Elem<T>; 8]: core::marker::Freeze, [fgf::Elem<S>; 8]: core::marker::Freeze, core::marker::PhantomData<fn() -> (S, T)>: core::marker::Freeze
+impl<S, T> core::marker::Send for fgf::maps::Isomorphism<S, T> where [fgf::Elem<T>; 8]: core::marker::Send, [fgf::Elem<S>; 8]: core::marker::Send, core::marker::PhantomData<fn() -> (S, T)>: core::marker::Send
+impl<S, T> core::marker::Sync for fgf::maps::Isomorphism<S, T> where [fgf::Elem<T>; 8]: core::marker::Sync, [fgf::Elem<S>; 8]: core::marker::Sync, core::marker::PhantomData<fn() -> (S, T)>: core::marker::Sync
+impl<S, T> core::marker::Unpin for fgf::maps::Isomorphism<S, T> where [fgf::Elem<T>; 8]: core::marker::Unpin, [fgf::Elem<S>; 8]: core::marker::Unpin, core::marker::PhantomData<fn() -> (S, T)>: core::marker::Unpin
+impl<S, T> core::marker::UnsafeUnpin for fgf::maps::Isomorphism<S, T> where [fgf::Elem<T>; 8]: core::marker::UnsafeUnpin, [fgf::Elem<S>; 8]: core::marker::UnsafeUnpin, core::marker::PhantomData<fn() -> (S, T)>: core::marker::UnsafeUnpin
+impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::maps::Isomorphism<S, T> where [fgf::Elem<T>; 8]: core::panic::unwind_safe::RefUnwindSafe, [fgf::Elem<S>; 8]: core::panic::unwind_safe::RefUnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::RefUnwindSafe
+impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::maps::Isomorphism<S, T> where [fgf::Elem<T>; 8]: core::panic::unwind_safe::UnwindSafe, [fgf::Elem<S>; 8]: core::panic::unwind_safe::UnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::UnwindSafe
+pub trait fgf::maps::Postcompose<Mid: fgf::Field, Out: fgf::Field>: compose::Postcompose<Mid, Out>
+impl<Mid: fgf::Field, Out: fgf::Field, M: compose::Postcompose<Mid, Out>> fgf::maps::Postcompose<Mid, Out> for M
+pub mod fgf::ops
+pub mod fgf::ops::bits
+pub struct fgf::ops::bits::XorRange
+impl fgf::ops::bits::XorRange
+pub fn fgf::ops::bits::XorRange::new(usize, usize, usize) -> Self
+impl core::clone::Clone for fgf::ops::bits::XorRange
+pub fn fgf::ops::bits::XorRange::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::ops::bits::XorRange
+impl core::cmp::Eq for fgf::ops::bits::XorRange
+pub fn fgf::ops::bits::XorRange::assert_fields_are_eq(&self)
+impl core::cmp::PartialEq for fgf::ops::bits::XorRange
+pub fn fgf::ops::bits::XorRange::eq(&self, &Self) -> bool
+impl core::fmt::Debug for fgf::ops::bits::XorRange
+pub fn fgf::ops::bits::XorRange::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for fgf::ops::bits::XorRange
+impl core::marker::StructuralPartialEq for fgf::ops::bits::XorRange
+impl core::marker::Freeze for fgf::ops::bits::XorRange
+impl core::marker::Send for fgf::ops::bits::XorRange
+impl core::marker::Sync for fgf::ops::bits::XorRange
+impl core::marker::Unpin for fgf::ops::bits::XorRange
+impl core::marker::UnsafeUnpin for fgf::ops::bits::XorRange
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::ops::bits::XorRange
+impl core::panic::unwind_safe::UnwindSafe for fgf::ops::bits::XorRange
+pub fn fgf::ops::bits::and_assign(&mut [u8], &[u8])
+pub fn fgf::ops::bits::and_into(&mut [u8], &[u8], &[u8])
+pub fn fgf::ops::bits::andnot_assign(&mut [u8], &[u8])
+pub const fn fgf::ops::bits::bytes_for(usize) -> usize
+pub fn fgf::ops::bits::clear_range(&mut [u8], usize, usize, usize)
+pub fn fgf::ops::bits::dot_product(&[u8], &[u8], usize) -> fgf::Elem<fgf::FiniteField<2, 1, fgf::binary::Polynomial<3>>>
+pub fn fgf::ops::bits::set_range(&mut [u8], usize, usize, usize)
+pub fn fgf::ops::bits::weight(&[u8], usize) -> usize
+pub fn fgf::ops::bits::xor_assign(&mut [u8], &[u8])
+pub fn fgf::ops::bits::xor_gather(&mut [u8], usize, u64, &[&[u8]])
+pub fn fgf::ops::bits::xor_range(&mut [u8], usize, usize, usize, &[u8])
+pub fn fgf::ops::bits::xor_range_with(&mut [u8], &fgf::ops::bits::XorRange, &[u8])
+pub struct fgf::ops::Coeff<F: fgf::FieldBuffer>
+impl<F: fgf::FieldBuffer> fgf::ops::Coeff<F>
+pub fn fgf::ops::Coeff<F>::new(fgf::Elem<F>) -> Self
+pub fn fgf::ops::Coeff<F>::value(&self) -> fgf::Elem<F>
+impl<F: fgf::FieldBuffer> core::clone::Clone for fgf::ops::Coeff<F>
+pub fn fgf::ops::Coeff<F>::clone(&self) -> Self
+impl<F: fgf::FieldBuffer> core::fmt::Debug for fgf::ops::Coeff<F>
+pub fn fgf::ops::Coeff<F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<F: fgf::FieldBuffer> fgf::ops::PreparedCoefficient<F> for fgf::ops::Coeff<F>
+pub fn fgf::ops::Coeff<F>::value(&self) -> fgf::Elem<F>
+impl<F> core::marker::Freeze for fgf::ops::Coeff<F> where <F as KernelDispatch>::Prepared: core::marker::Freeze
+impl<F> core::marker::Send for fgf::ops::Coeff<F> where <F as KernelDispatch>::Prepared: core::marker::Send
+impl<F> core::marker::Sync for fgf::ops::Coeff<F> where <F as KernelDispatch>::Prepared: core::marker::Sync
+impl<F> core::marker::Unpin for fgf::ops::Coeff<F> where <F as KernelDispatch>::Prepared: core::marker::Unpin
+impl<F> core::marker::UnsafeUnpin for fgf::ops::Coeff<F> where <F as KernelDispatch>::Prepared: core::marker::UnsafeUnpin
+impl<F> core::panic::unwind_safe::RefUnwindSafe for fgf::ops::Coeff<F> where <F as KernelDispatch>::Prepared: core::panic::unwind_safe::RefUnwindSafe
+impl<F> core::panic::unwind_safe::UnwindSafe for fgf::ops::Coeff<F> where <F as KernelDispatch>::Prepared: core::panic::unwind_safe::UnwindSafe
+pub struct fgf::ops::CoeffMatrix<F: fgf::FieldBuffer>
+impl<F: fgf::FieldBuffer> fgf::ops::CoeffMatrix<F>
+pub fn fgf::ops::CoeffMatrix<F>::from_source_major(usize, usize, &[fgf::Elem<F>]) -> Self
+pub fn fgf::ops::CoeffMatrix<F>::get_at(&self, usize, usize) -> core::option::Option<fgf::ops::CoeffRef<'_, F>>
+pub fn fgf::ops::CoeffMatrix<F>::is_empty(&self) -> bool
+pub fn fgf::ops::CoeffMatrix<F>::len(&self) -> usize
+pub const fn fgf::ops::CoeffMatrix<F>::output_count(&self) -> usize
+pub fn fgf::ops::CoeffMatrix<F>::source(&self, usize) -> core::option::Option<fgf::ops::CoeffVecRef<'_, F>>
+pub const fn fgf::ops::CoeffMatrix<F>::source_count(&self) -> usize
+pub fn fgf::ops::CoeffMatrix<F>::to_source_major(&self) -> alloc::vec::Vec<fgf::Elem<F>>
+impl<F: fgf::FieldBuffer> core::clone::Clone for fgf::ops::CoeffMatrix<F>
+pub fn fgf::ops::CoeffMatrix<F>::clone(&self) -> Self
+impl<F: fgf::FieldBuffer> core::fmt::Debug for fgf::ops::CoeffMatrix<F>
+pub fn fgf::ops::CoeffMatrix<F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<F> core::marker::Freeze for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::Freeze, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::Freeze
+impl<F> core::marker::Send for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::Send, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::Send
+impl<F> core::marker::Sync for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::Sync, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::Sync
+impl<F> core::marker::Unpin for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::Unpin, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::Unpin
+impl<F> core::marker::UnsafeUnpin for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::UnsafeUnpin, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::UnsafeUnpin
+impl<F> core::panic::unwind_safe::RefUnwindSafe for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::panic::unwind_safe::RefUnwindSafe, alloc::boxed::Box<[fgf::Elem<F>]>: core::panic::unwind_safe::RefUnwindSafe
+impl<F> core::panic::unwind_safe::UnwindSafe for fgf::ops::CoeffMatrix<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::panic::unwind_safe::UnwindSafe, alloc::boxed::Box<[fgf::Elem<F>]>: core::panic::unwind_safe::UnwindSafe
+pub struct fgf::ops::CoeffRef<'a, F: fgf::FieldBuffer>
+impl<F: fgf::FieldBuffer> fgf::ops::CoeffRef<'_, F>
+pub fn fgf::ops::CoeffRef<'_, F>::value(self) -> fgf::Elem<F>
+impl<'a, F: core::clone::Clone + fgf::FieldBuffer> core::clone::Clone for fgf::ops::CoeffRef<'a, F>
+pub fn fgf::ops::CoeffRef<'a, F>::clone(&self) -> Self
+impl<'a, F: core::marker::Copy + fgf::FieldBuffer> core::marker::Copy for fgf::ops::CoeffRef<'a, F>
+impl<F: fgf::FieldBuffer> core::fmt::Debug for fgf::ops::CoeffRef<'_, F>
+pub fn fgf::ops::CoeffRef<'_, F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<F: fgf::FieldBuffer> fgf::ops::PreparedCoefficient<F> for fgf::ops::CoeffRef<'_, F>
+pub fn fgf::ops::CoeffRef<'_, F>::value(&self) -> fgf::Elem<F>
+impl<'a, F> core::marker::Freeze for fgf::ops::CoeffRef<'a, F> where &'a <F as KernelDispatch>::Prepared: core::marker::Freeze, core::marker::PhantomData<F>: core::marker::Freeze
+impl<'a, F> core::marker::Send for fgf::ops::CoeffRef<'a, F> where &'a <F as KernelDispatch>::Prepared: core::marker::Send, core::marker::PhantomData<F>: core::marker::Send
+impl<'a, F> core::marker::Sync for fgf::ops::CoeffRef<'a, F> where &'a <F as KernelDispatch>::Prepared: core::marker::Sync, core::marker::PhantomData<F>: core::marker::Sync
+impl<'a, F> core::marker::Unpin for fgf::ops::CoeffRef<'a, F> where &'a <F as KernelDispatch>::Prepared: core::marker::Unpin, core::marker::PhantomData<F>: core::marker::Unpin
+impl<'a, F> core::marker::UnsafeUnpin for fgf::ops::CoeffRef<'a, F> where &'a <F as KernelDispatch>::Prepared: core::marker::UnsafeUnpin, core::marker::PhantomData<F>: core::marker::UnsafeUnpin
+impl<'a, F> core::panic::unwind_safe::RefUnwindSafe for fgf::ops::CoeffRef<'a, F> where &'a <F as KernelDispatch>::Prepared: core::panic::unwind_safe::RefUnwindSafe, core::marker::PhantomData<F>: core::panic::unwind_safe::RefUnwindSafe
+impl<'a, F> core::panic::unwind_safe::UnwindSafe for fgf::ops::CoeffRef<'a, F> where &'a <F as KernelDispatch>::Prepared: core::panic::unwind_safe::UnwindSafe, core::marker::PhantomData<F>: core::panic::unwind_safe::UnwindSafe
+pub struct fgf::ops::CoeffVec<F: fgf::FieldBuffer>
+impl<F: fgf::FieldBuffer> fgf::ops::CoeffVec<F>
+pub fn fgf::ops::CoeffVec<F>::as_ref(&self) -> fgf::ops::CoeffVecRef<'_, F>
+pub fn fgf::ops::CoeffVec<F>::coeffs(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = fgf::ops::CoeffRef<'_, F>>
+pub fn fgf::ops::CoeffVec<F>::get(&self, usize) -> core::option::Option<fgf::ops::CoeffRef<'_, F>>
+pub fn fgf::ops::CoeffVec<F>::is_empty(&self) -> bool
+pub fn fgf::ops::CoeffVec<F>::len(&self) -> usize
+pub fn fgf::ops::CoeffVec<F>::new(&[fgf::Elem<F>]) -> Self
+pub fn fgf::ops::CoeffVec<F>::values(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = fgf::Elem<F>> + '_
+impl<F: fgf::FieldBuffer> core::clone::Clone for fgf::ops::CoeffVec<F>
+pub fn fgf::ops::CoeffVec<F>::clone(&self) -> Self
+impl<F: fgf::FieldBuffer> core::fmt::Debug for fgf::ops::CoeffVec<F>
+pub fn fgf::ops::CoeffVec<F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<F> core::marker::Freeze for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::Freeze, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::Freeze
+impl<F> core::marker::Send for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::Send, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::Send
+impl<F> core::marker::Sync for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::Sync, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::Sync
+impl<F> core::marker::Unpin for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::Unpin, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::Unpin
+impl<F> core::marker::UnsafeUnpin for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::marker::UnsafeUnpin, alloc::boxed::Box<[fgf::Elem<F>]>: core::marker::UnsafeUnpin
+impl<F> core::panic::unwind_safe::RefUnwindSafe for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::panic::unwind_safe::RefUnwindSafe, alloc::boxed::Box<[fgf::Elem<F>]>: core::panic::unwind_safe::RefUnwindSafe
+impl<F> core::panic::unwind_safe::UnwindSafe for fgf::ops::CoeffVec<F> where alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>: core::panic::unwind_safe::UnwindSafe, alloc::boxed::Box<[fgf::Elem<F>]>: core::panic::unwind_safe::UnwindSafe
+pub struct fgf::ops::CoeffVecRef<'a, F: fgf::FieldBuffer>
+impl<'a, F: fgf::FieldBuffer> fgf::ops::CoeffVecRef<'a, F>
+pub fn fgf::ops::CoeffVecRef<'a, F>::get(self, usize) -> core::option::Option<fgf::ops::CoeffRef<'a, F>>
+pub fn fgf::ops::CoeffVecRef<'a, F>::into_coeffs(self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = fgf::ops::CoeffRef<'a, F>>
+pub fn fgf::ops::CoeffVecRef<'a, F>::is_empty(self) -> bool
+pub fn fgf::ops::CoeffVecRef<'a, F>::len(self) -> usize
+pub fn fgf::ops::CoeffVecRef<'a, F>::values(self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = fgf::Elem<F>> + 'a
+impl<'a, F: core::clone::Clone + fgf::FieldBuffer> core::clone::Clone for fgf::ops::CoeffVecRef<'a, F>
+pub fn fgf::ops::CoeffVecRef<'a, F>::clone(&self) -> Self
+impl<'a, F: core::marker::Copy + fgf::FieldBuffer> core::marker::Copy for fgf::ops::CoeffVecRef<'a, F>
+impl<F: fgf::FieldBuffer> core::fmt::Debug for fgf::ops::CoeffVecRef<'_, F>
+pub fn fgf::ops::CoeffVecRef<'_, F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a, F> core::marker::Freeze for fgf::ops::CoeffVecRef<'a, F> where &'a [<F as KernelDispatch>::Prepared]: core::marker::Freeze, &'a [fgf::Elem<F>]: core::marker::Freeze, core::marker::PhantomData<F>: core::marker::Freeze
+impl<'a, F> core::marker::Send for fgf::ops::CoeffVecRef<'a, F> where &'a [<F as KernelDispatch>::Prepared]: core::marker::Send, &'a [fgf::Elem<F>]: core::marker::Send, core::marker::PhantomData<F>: core::marker::Send
+impl<'a, F> core::marker::Sync for fgf::ops::CoeffVecRef<'a, F> where &'a [<F as KernelDispatch>::Prepared]: core::marker::Sync, &'a [fgf::Elem<F>]: core::marker::Sync, core::marker::PhantomData<F>: core::marker::Sync
+impl<'a, F> core::marker::Unpin for fgf::ops::CoeffVecRef<'a, F> where &'a [<F as KernelDispatch>::Prepared]: core::marker::Unpin, &'a [fgf::Elem<F>]: core::marker::Unpin, core::marker::PhantomData<F>: core::marker::Unpin
+impl<'a, F> core::marker::UnsafeUnpin for fgf::ops::CoeffVecRef<'a, F> where &'a [<F as KernelDispatch>::Prepared]: core::marker::UnsafeUnpin, &'a [fgf::Elem<F>]: core::marker::UnsafeUnpin, core::marker::PhantomData<F>: core::marker::UnsafeUnpin
+impl<'a, F> core::panic::unwind_safe::RefUnwindSafe for fgf::ops::CoeffVecRef<'a, F> where &'a [<F as KernelDispatch>::Prepared]: core::panic::unwind_safe::RefUnwindSafe, &'a [fgf::Elem<F>]: core::panic::unwind_safe::RefUnwindSafe, core::marker::PhantomData<F>: core::panic::unwind_safe::RefUnwindSafe
+impl<'a, F> core::panic::unwind_safe::UnwindSafe for fgf::ops::CoeffVecRef<'a, F> where &'a [<F as KernelDispatch>::Prepared]: core::panic::unwind_safe::UnwindSafe, &'a [fgf::Elem<F>]: core::panic::unwind_safe::UnwindSafe, core::marker::PhantomData<F>: core::panic::unwind_safe::UnwindSafe
+pub trait fgf::ops::PreparedCoefficient<F: fgf::FieldBuffer>: fgf::ops::coefficient::private::Sealed + PreparedRepr<F>
+pub fn fgf::ops::PreparedCoefficient::value(&self) -> fgf::Elem<F>
+impl<F: fgf::FieldBuffer> fgf::ops::PreparedCoefficient<F> for fgf::ops::Coeff<F>
+pub fn fgf::ops::Coeff<F>::value(&self) -> fgf::Elem<F>
+impl<F: fgf::FieldBuffer> fgf::ops::PreparedCoefficient<F> for fgf::ops::CoeffRef<'_, F>
+pub fn fgf::ops::CoeffRef<'_, F>::value(&self) -> fgf::Elem<F>
+pub fn fgf::ops::add_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::add_assign_rows<F: fgf::FieldBuffer>(&mut [u8], usize, &[u8])
+pub fn fgf::ops::add_assign_scalar<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>)
+pub fn fgf::ops::add_gather_offsets<F: fgf::FieldBuffer>(&mut [u8], &[u32], &[u8])
+pub fn fgf::ops::div_elementwise_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::div_elementwise_into<F: fgf::FieldBuffer>(&mut [u8], &[u8], &[u8])
+pub fn fgf::ops::dot_product<F: fgf::FieldBuffer>(&[u8], &[u8]) -> fgf::Elem<F>
+pub fn fgf::ops::inv_assign<F: fgf::FieldBuffer>(&mut [u8])
+pub fn fgf::ops::inv_into<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::mul_add<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>, &[u8])
+pub fn fgf::ops::mul_add_gather<F: fgf::FieldBuffer>(&mut [u8], &[fgf::Elem<F>], &[&[u8]])
+pub fn fgf::ops::mul_add_gather_with<F: fgf::FieldBuffer>(&mut [u8], fgf::ops::CoeffVecRef<'_, F>, &[&[u8]])
+pub fn fgf::ops::mul_add_matrix<F: fgf::FieldBuffer>(&mut [u8], usize, usize, &[(&[fgf::Elem<F>], &[u8])])
+pub fn fgf::ops::mul_add_matrix_at<F: fgf::FieldBuffer>(&mut [u8], usize, &[usize], &[(&[fgf::Elem<F>], &[u8])])
+pub fn fgf::ops::mul_add_matrix_at_with<F: fgf::FieldBuffer>(&mut [u8], usize, &[usize], &fgf::ops::CoeffMatrix<F>, &[&[u8]])
+pub fn fgf::ops::mul_add_matrix_with<F: fgf::FieldBuffer>(&mut [u8], usize, &fgf::ops::CoeffMatrix<F>, &[&[u8]])
+pub fn fgf::ops::mul_add_scatter<F: fgf::FieldBuffer>(&mut [u8], usize, &[fgf::Elem<F>], &[u8])
+pub fn fgf::ops::mul_add_scatter_with<F: fgf::FieldBuffer>(&mut [u8], usize, fgf::ops::CoeffVecRef<'_, F>, &[u8])
+pub fn fgf::ops::mul_add_with<F: fgf::FieldBuffer>(&mut [u8], &impl fgf::ops::PreparedCoefficient<F>, &[u8])
+pub fn fgf::ops::mul_assign<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>)
+pub fn fgf::ops::mul_assign_with<F: fgf::FieldBuffer>(&mut [u8], &impl fgf::ops::PreparedCoefficient<F>)
+pub fn fgf::ops::mul_elementwise_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::mul_elementwise_into<F: fgf::FieldBuffer>(&mut [u8], &[u8], &[u8])
+pub fn fgf::ops::mul_into<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>, &[u8])
+pub fn fgf::ops::mul_into_gather<F: fgf::FieldBuffer>(&mut [u8], &[fgf::Elem<F>], &[&[u8]])
+pub fn fgf::ops::mul_into_gather_with<F: fgf::FieldBuffer>(&mut [u8], fgf::ops::CoeffVecRef<'_, F>, &[&[u8]])
+pub fn fgf::ops::mul_into_matrix<F: fgf::FieldBuffer>(&mut [u8], usize, usize, &[(&[fgf::Elem<F>], &[u8])])
+pub fn fgf::ops::mul_into_matrix_at<F: fgf::FieldBuffer>(&mut [u8], usize, &[usize], &[(&[fgf::Elem<F>], &[u8])])
+pub fn fgf::ops::mul_into_matrix_at_with<F: fgf::FieldBuffer>(&mut [u8], usize, &[usize], &fgf::ops::CoeffMatrix<F>, &[&[u8]])
+pub fn fgf::ops::mul_into_matrix_with<F: fgf::FieldBuffer>(&mut [u8], usize, &fgf::ops::CoeffMatrix<F>, &[&[u8]])
+pub fn fgf::ops::mul_into_scatter<F: fgf::FieldBuffer>(&mut [u8], usize, &[fgf::Elem<F>], &[u8])
+pub fn fgf::ops::mul_into_with<F: fgf::FieldBuffer>(&mut [u8], &impl fgf::ops::PreparedCoefficient<F>, &[u8])
+pub fn fgf::ops::pack<F: fgf::FieldBuffer>(&mut [u8], &[fgf::Elem<F>])
+pub fn fgf::ops::pack_to_vec<F: fgf::FieldBuffer>(&[fgf::Elem<F>]) -> alloc::vec::Vec<u8>
+pub fn fgf::ops::sub_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::sub_assign_rows<F: fgf::FieldBuffer>(&mut [u8], usize, &[u8])
+pub fn fgf::ops::sub_assign_scalar<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>)
+pub fn fgf::ops::unpack<F: fgf::FieldBuffer>(&mut [fgf::Elem<F>], &[u8])
+pub fn fgf::ops::unpack_to_vec<F: fgf::FieldBuffer>(&[u8]) -> alloc::vec::Vec<fgf::Elem<F>>
+pub mod fgf::prime
+pub struct fgf::prime::GoldilocksFold
+impl core::clone::Clone for fgf::prime::GoldilocksFold
+pub fn fgf::prime::GoldilocksFold::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::prime::GoldilocksFold
+impl core::cmp::Eq for fgf::prime::GoldilocksFold
+impl core::cmp::Ord for fgf::prime::GoldilocksFold
+pub fn fgf::prime::GoldilocksFold::cmp(&self, &Self) -> core::cmp::Ordering
+impl core::cmp::PartialEq for fgf::prime::GoldilocksFold
+pub fn fgf::prime::GoldilocksFold::eq(&self, &Self) -> bool
+impl core::cmp::PartialOrd for fgf::prime::GoldilocksFold
+pub fn fgf::prime::GoldilocksFold::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl core::default::Default for fgf::prime::GoldilocksFold
+pub fn fgf::prime::GoldilocksFold::default() -> Self
+impl core::fmt::Debug for fgf::prime::GoldilocksFold
+pub fn fgf::prime::GoldilocksFold::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::prime::GoldilocksFold
+pub fn fgf::prime::GoldilocksFold::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::prime::GoldilocksFold
+impl core::marker::StructuralPartialEq for fgf::prime::GoldilocksFold
+impl fgf::FiniteFieldRepr<18446744069414584321, 1> for fgf::prime::GoldilocksFold
+pub const fgf::prime::GoldilocksFold::NAME: &'static str
+impl core::marker::Freeze for fgf::prime::GoldilocksFold
+impl core::marker::Send for fgf::prime::GoldilocksFold
+impl core::marker::Sync for fgf::prime::GoldilocksFold
+impl core::marker::Unpin for fgf::prime::GoldilocksFold
+impl core::marker::UnsafeUnpin for fgf::prime::GoldilocksFold
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::prime::GoldilocksFold
+impl core::panic::unwind_safe::UnwindSafe for fgf::prime::GoldilocksFold
+pub struct fgf::prime::MersenneFold
+impl core::clone::Clone for fgf::prime::MersenneFold
+pub fn fgf::prime::MersenneFold::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::prime::MersenneFold
+impl core::cmp::Eq for fgf::prime::MersenneFold
+impl core::cmp::Ord for fgf::prime::MersenneFold
+pub fn fgf::prime::MersenneFold::cmp(&self, &Self) -> core::cmp::Ordering
+impl core::cmp::PartialEq for fgf::prime::MersenneFold
+pub fn fgf::prime::MersenneFold::eq(&self, &Self) -> bool
+impl core::cmp::PartialOrd for fgf::prime::MersenneFold
+pub fn fgf::prime::MersenneFold::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl core::default::Default for fgf::prime::MersenneFold
+pub fn fgf::prime::MersenneFold::default() -> Self
+impl core::fmt::Debug for fgf::prime::MersenneFold
+pub fn fgf::prime::MersenneFold::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::prime::MersenneFold
+pub fn fgf::prime::MersenneFold::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::prime::MersenneFold
+impl core::marker::StructuralPartialEq for fgf::prime::MersenneFold
+impl fgf::FiniteFieldRepr<2147483647, 1> for fgf::prime::MersenneFold
+pub const fgf::prime::MersenneFold::NAME: &'static str
+impl core::marker::Freeze for fgf::prime::MersenneFold
+impl core::marker::Send for fgf::prime::MersenneFold
+impl core::marker::Sync for fgf::prime::MersenneFold
+impl core::marker::Unpin for fgf::prime::MersenneFold
+impl core::marker::UnsafeUnpin for fgf::prime::MersenneFold
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::prime::MersenneFold
+impl core::panic::unwind_safe::UnwindSafe for fgf::prime::MersenneFold
+pub struct fgf::prime::PrimeCharacteristic<const P: u64>
+impl<const P: u64> core::clone::Clone for fgf::prime::PrimeCharacteristic<P>
+pub fn fgf::prime::PrimeCharacteristic<P>::clone(&self) -> Self
+impl<const P: u64> core::clone::TrivialClone for fgf::prime::PrimeCharacteristic<P>
+impl<const P: u64> core::fmt::Debug for fgf::prime::PrimeCharacteristic<P>
+pub fn fgf::prime::PrimeCharacteristic<P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const P: u64> core::marker::Copy for fgf::prime::PrimeCharacteristic<P>
+impl<const P: u64> fgf::prime::PrimeIdentity for fgf::prime::PrimeCharacteristic<P>
+pub const fgf::prime::PrimeCharacteristic<P>::BITS: u32
+pub const fgf::prime::PrimeCharacteristic<P>::CHARACTERISTIC: u64
+pub const fgf::prime::PrimeCharacteristic<P>::RESIDUE_MOD_8: u8
+pub const fgf::prime::PrimeCharacteristic<P>::TWO_ADICITY: u32
+impl<const P: u64> core::marker::Freeze for fgf::prime::PrimeCharacteristic<P>
+impl<const P: u64> core::marker::Send for fgf::prime::PrimeCharacteristic<P>
+impl<const P: u64> core::marker::Sync for fgf::prime::PrimeCharacteristic<P>
+impl<const P: u64> core::marker::Unpin for fgf::prime::PrimeCharacteristic<P>
+impl<const P: u64> core::marker::UnsafeUnpin for fgf::prime::PrimeCharacteristic<P>
+impl<const P: u64> core::panic::unwind_safe::RefUnwindSafe for fgf::prime::PrimeCharacteristic<P>
+impl<const P: u64> core::panic::unwind_safe::UnwindSafe for fgf::prime::PrimeCharacteristic<P>
+pub struct fgf::prime::Residue
+impl core::clone::Clone for fgf::prime::Residue
+pub fn fgf::prime::Residue::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::prime::Residue
+impl core::cmp::Eq for fgf::prime::Residue
+impl core::cmp::Ord for fgf::prime::Residue
+pub fn fgf::prime::Residue::cmp(&self, &Self) -> core::cmp::Ordering
+impl core::cmp::PartialEq for fgf::prime::Residue
+pub fn fgf::prime::Residue::eq(&self, &Self) -> bool
+impl core::cmp::PartialOrd for fgf::prime::Residue
+pub fn fgf::prime::Residue::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl core::default::Default for fgf::prime::Residue
+pub fn fgf::prime::Residue::default() -> Self
+impl core::fmt::Debug for fgf::prime::Residue
+pub fn fgf::prime::Residue::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for fgf::prime::Residue
+pub fn fgf::prime::Residue::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for fgf::prime::Residue
+impl core::marker::StructuralPartialEq for fgf::prime::Residue
+impl<const P: u64> fgf::FiniteFieldRepr<P, 1> for fgf::prime::Residue
+pub const fgf::prime::Residue::NAME: &'static str
+impl core::marker::Freeze for fgf::prime::Residue
+impl core::marker::Send for fgf::prime::Residue
+impl core::marker::Sync for fgf::prime::Residue
+impl core::marker::Unpin for fgf::prime::Residue
+impl core::marker::UnsafeUnpin for fgf::prime::Residue
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::prime::Residue
+impl core::panic::unwind_safe::UnwindSafe for fgf::prime::Residue
+pub trait fgf::prime::PrimeField: fgf::Field + fgf::field::private::PrimeFieldSeal
+impl fgf::prime::PrimeField for fgf::prime::Goldilocks
+impl fgf::prime::PrimeField for fgf::prime::Mersenne31
+impl<R: fgf::binary::BinaryRepr<1>> fgf::prime::PrimeField for fgf::FiniteField<2, 1, R>
+impl<const P: u64> fgf::prime::PrimeField for fgf::FiniteField<P, 1, fgf::prime::Residue>
+pub trait fgf::prime::PrimeIdentity: fgf::field::private::Sealed + private::PrimeIdentityValidation + core::marker::Copy + 'static
+pub const fgf::prime::PrimeIdentity::BITS: u32
+pub const fgf::prime::PrimeIdentity::CHARACTERISTIC: u64
+pub const fgf::prime::PrimeIdentity::RESIDUE_MOD_8: u8
+pub const fgf::prime::PrimeIdentity::TWO_ADICITY: u32
+impl<const P: u64> fgf::prime::PrimeIdentity for fgf::prime::PrimeCharacteristic<P>
+pub const fgf::prime::PrimeCharacteristic<P>::BITS: u32
+pub const fgf::prime::PrimeCharacteristic<P>::CHARACTERISTIC: u64
+pub const fgf::prime::PrimeCharacteristic<P>::RESIDUE_MOD_8: u8
+pub const fgf::prime::PrimeCharacteristic<P>::TWO_ADICITY: u32
+pub const fn fgf::prime::is_prime(u64) -> bool
+pub type fgf::prime::Goldilocks = fgf::FiniteField<0xFFFF_FFFF_0000_0001, 1, fgf::prime::GoldilocksFold>
+pub type fgf::prime::Mersenne31 = fgf::FiniteField<0x7FFF_FFFF, 1, fgf::prime::MersenneFold>
+pub struct fgf::Elem<F: fgf::Field>
+impl fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::from_bytes([u8; 2]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::from_raw(u16) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::to_bytes(self) -> [u8; 2]
+impl fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::from_components([fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>; 2]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::to_components(self) -> [fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>; 2]
+impl fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>::mul_alpha(self) -> Self
+impl fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::from_bytes([u8; 2]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::from_raw(u16) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::to_bytes(self) -> [u8; 2]
+impl fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::from_components([fgf::Elem<fgf::FiniteField<2, 8, fgf::binary::Polynomial<AES>>>; 2]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>::to_components(self) -> [fgf::Elem<fgf::FiniteField<2, 8, fgf::binary::Polynomial<AES>>>; 2]
+impl fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::from_bytes([u8; 1]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::from_raw(u8) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>>::to_bytes(self) -> [u8; 1]
+impl fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::from_bytes([u8; 4]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::from_raw(u32) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::to_bytes(self) -> [u8; 4]
+impl fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::from_components([fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>; 2]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::to_components(self) -> [fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>>; 2]
+impl fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>::mul_alpha(self) -> Self
+impl fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::from_bytes([u8; 4]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::from_raw(u32) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::to_bytes(self) -> [u8; 4]
+impl fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::from_components([fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>; 2]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>::to_components(self) -> [fgf::Elem<fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>>; 2]
+impl fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::from_bytes([u8; 1]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::from_raw(u8) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>>::to_bytes(self) -> [u8; 1]
+impl fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::from_bytes([u8; 8]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::from_raw(u64) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::to_bytes(self) -> [u8; 8]
+impl fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::from_components([fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>; 2]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>>::to_components(self) -> [fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>>; 2]
+impl fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::from_bytes([u8; 8]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::from_raw(u64) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::to_bytes(self) -> [u8; 8]
+impl fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::from_components([fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>; 2]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>>::to_components(self) -> [fgf::Elem<fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>>; 2]
+impl fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::from_bytes([u8; 1]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::from_raw(u8) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::to_bytes(self) -> [u8; 1]
+impl fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>>::mul_alpha(self) -> Self
+impl fgf::Elem<fgf::extension::QuadMersenne31>
+pub const fgf::Elem<fgf::extension::QuadMersenne31>::I: Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::conjugate(self) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::from_bytes([u8; 8]) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::from_components([fgf::Elem<fgf::prime::Mersenne31>; 2]) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::from_raw([u32; 2]) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::norm(self) -> fgf::Elem<fgf::prime::Mersenne31>
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::square(self) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::to_bytes(self) -> [u8; 8]
+pub const fn fgf::Elem<fgf::extension::QuadMersenne31>::to_components(self) -> [fgf::Elem<fgf::prime::Mersenne31>; 2]
+impl fgf::Elem<fgf::prime::Goldilocks>
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::from_bytes([u8; 8]) -> Self
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::from_raw(u64) -> Self
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::from_residue(u64) -> core::result::Result<Self, fgf::RangeError>
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::square(self) -> Self
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::to_bytes(self) -> [u8; 8]
+pub const fn fgf::Elem<fgf::prime::Goldilocks>::to_residue(self) -> core::option::Option<u64>
+impl fgf::Elem<fgf::prime::Mersenne31>
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::from_bytes([u8; 4]) -> Self
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::from_raw(u32) -> Self
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::from_residue(u64) -> core::result::Result<Self, fgf::RangeError>
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::square(self) -> Self
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::to_bytes(self) -> [u8; 4]
+pub const fn fgf::Elem<fgf::prime::Mersenne31>::to_residue(self) -> core::option::Option<u64>
+impl<F: fgf::Field> fgf::Elem<F>
+pub const fgf::Elem<F>::ONE: Self
+pub const fgf::Elem<F>::ZERO: Self
+pub const fn fgf::Elem<F>::to_raw(self) -> <F as fgf::Field>::Raw
+impl<F: fgf::HasGenerator> fgf::Elem<F>
+pub const fgf::Elem<F>::GENERATOR: Self
+impl<R: fgf::binary::BinaryRepr<1>> fgf::Elem<fgf::FiniteField<2, 1, R>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::from_bytes([u8; 1]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::from_raw(u8) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::to_bytes(self) -> [u8; 1]
+impl<R: fgf::binary::BinaryRepr<1>> fgf::Elem<fgf::FiniteField<2, 1, R>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::from_residue(u64) -> core::result::Result<Self, fgf::RangeError>
+pub const fn fgf::Elem<fgf::FiniteField<2, 1, R>>::to_residue(self) -> core::option::Option<u64>
+impl<R: fgf::binary::BinaryRepr<2>> fgf::Elem<fgf::FiniteField<2, 2, R>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::from_bytes([u8; 1]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::from_raw(u8) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 2, R>>::to_bytes(self) -> [u8; 1]
+impl<R: fgf::binary::BinaryRepr<4>> fgf::Elem<fgf::FiniteField<2, 4, R>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::from_bytes([u8; 1]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::from_raw(u8) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 4, R>>::to_bytes(self) -> [u8; 1]
+impl<R: fgf::binary::BinaryRepr<8>> fgf::Elem<fgf::FiniteField<2, 8, R>>
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::from_bytes([u8; 1]) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::from_raw(u8) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<2, 8, R>>::to_bytes(self) -> [u8; 1]
+impl<const P: u64> fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::add(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::canonical(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::div(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::from_raw(u64) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::from_residue(u64) -> core::result::Result<Self, fgf::RangeError>
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::inv(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::is_one(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::is_zero(self) -> bool
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::mul(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::neg(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::pow(self, u128) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::square(self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::sub(self, Self) -> Self
+pub const fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::to_residue(self) -> core::option::Option<u64>
+impl core::fmt::Display for fgf::Elem<fgf::prime::Goldilocks>
+pub fn fgf::Elem<fgf::prime::Goldilocks>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for fgf::Elem<fgf::prime::Mersenne31>
+pub fn fgf::Elem<fgf::prime::Mersenne31>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a, F: fgf::Field> core::iter::traits::accum::Product<&'a fgf::Elem<F>> for fgf::Elem<F>
+pub fn fgf::Elem<F>::product<I: core::iter::traits::iterator::Iterator<Item = &'a fgf::Elem<F>>>(I) -> Self
+impl<'a, F: fgf::Field> core::iter::traits::accum::Sum<&'a fgf::Elem<F>> for fgf::Elem<F>
+pub fn fgf::Elem<F>::sum<I: core::iter::traits::iterator::Iterator<Item = &'a fgf::Elem<F>>>(I) -> Self
+impl<F: fgf::Field> core::clone::Clone for fgf::Elem<F>
+pub fn fgf::Elem<F>::clone(&self) -> Self
+impl<F: fgf::Field> core::cmp::Eq for fgf::Elem<F>
+impl<F: fgf::Field> core::cmp::Ord for fgf::Elem<F>
+pub fn fgf::Elem<F>::cmp(&self, &Self) -> core::cmp::Ordering
+impl<F: fgf::Field> core::cmp::PartialEq for fgf::Elem<F>
+pub fn fgf::Elem<F>::eq(&self, &Self) -> bool
+impl<F: fgf::Field> core::cmp::PartialOrd for fgf::Elem<F>
+pub fn fgf::Elem<F>::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl<F: fgf::Field> core::default::Default for fgf::Elem<F>
+pub fn fgf::Elem<F>::default() -> Self
+impl<F: fgf::Field> core::fmt::Debug for fgf::Elem<F>
+pub fn fgf::Elem<F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<F: fgf::Field> core::hash::Hash for fgf::Elem<F>
+pub fn fgf::Elem<F>::hash<H: core::hash::Hasher>(&self, &mut H)
+impl<F: fgf::Field> core::iter::traits::accum::Product for fgf::Elem<F>
+pub fn fgf::Elem<F>::product<I: core::iter::traits::iterator::Iterator<Item = Self>>(I) -> Self
+impl<F: fgf::Field> core::iter::traits::accum::Sum for fgf::Elem<F>
+pub fn fgf::Elem<F>::sum<I: core::iter::traits::iterator::Iterator<Item = Self>>(I) -> Self
+impl<F: fgf::Field> core::marker::Copy for fgf::Elem<F>
+impl<F: fgf::Field> core::ops::arith::Add for fgf::Elem<F>
+pub type fgf::Elem<F>::Output = fgf::Elem<F>
+pub fn fgf::Elem<F>::add(self, Self) -> Self
+impl<F: fgf::Field> core::ops::arith::AddAssign for fgf::Elem<F>
+pub fn fgf::Elem<F>::add_assign(&mut self, Self)
+impl<F: fgf::Field> core::ops::arith::Div for fgf::Elem<F>
+pub type fgf::Elem<F>::Output = fgf::Elem<F>
+pub fn fgf::Elem<F>::div(self, Self) -> Self
+impl<F: fgf::Field> core::ops::arith::DivAssign for fgf::Elem<F>
+pub fn fgf::Elem<F>::div_assign(&mut self, Self)
+impl<F: fgf::Field> core::ops::arith::Mul for fgf::Elem<F>
+pub type fgf::Elem<F>::Output = fgf::Elem<F>
+pub fn fgf::Elem<F>::mul(self, Self) -> Self
+impl<F: fgf::Field> core::ops::arith::MulAssign for fgf::Elem<F>
+pub fn fgf::Elem<F>::mul_assign(&mut self, Self)
+impl<F: fgf::Field> core::ops::arith::Neg for fgf::Elem<F>
+pub type fgf::Elem<F>::Output = fgf::Elem<F>
+pub fn fgf::Elem<F>::neg(self) -> Self
+impl<F: fgf::Field> core::ops::arith::Sub for fgf::Elem<F>
+pub type fgf::Elem<F>::Output = fgf::Elem<F>
+pub fn fgf::Elem<F>::sub(self, Self) -> Self
+impl<F: fgf::Field> core::ops::arith::SubAssign for fgf::Elem<F>
+pub fn fgf::Elem<F>::sub_assign(&mut self, Self)
+impl<F: fgf::Field> fgf::FieldElem for fgf::Elem<F>
+pub type fgf::Elem<F>::Field = F
+pub const fgf::Elem<F>::ONE: Self
+pub const fgf::Elem<F>::ZERO: Self
+pub fn fgf::Elem<F>::add(self, Self) -> Self
+pub fn fgf::Elem<F>::div(self, Self) -> Self
+pub fn fgf::Elem<F>::from_index(u128) -> core::result::Result<Self, fgf::RangeError>
+pub fn fgf::Elem<F>::from_raw(<F as fgf::Field>::Raw) -> Self
+pub fn fgf::Elem<F>::from_residue(u64) -> core::result::Result<Self, fgf::RangeError>
+pub fn fgf::Elem<F>::inv(self) -> Self
+pub fn fgf::Elem<F>::is_one(self) -> bool
+pub fn fgf::Elem<F>::is_zero(self) -> bool
+pub fn fgf::Elem<F>::mul(self, Self) -> Self
+pub fn fgf::Elem<F>::neg(self) -> Self
+pub fn fgf::Elem<F>::pow(self, u128) -> Self
+pub fn fgf::Elem<F>::square(self) -> Self
+pub fn fgf::Elem<F>::sub(self, Self) -> Self
+pub fn fgf::Elem<F>::to_index(self) -> u128
+pub fn fgf::Elem<F>::to_residue(self) -> core::option::Option<u64>
+impl<R: fgf::binary::BinaryRepr<1>> core::fmt::Display for fgf::Elem<fgf::FiniteField<2, 1, R>>
+pub fn fgf::Elem<fgf::FiniteField<2, 1, R>>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<R: fgf::binary::BinaryRepr<2>> core::fmt::Display for fgf::Elem<fgf::FiniteField<2, 2, R>>
+pub fn fgf::Elem<fgf::FiniteField<2, 2, R>>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<R: fgf::binary::BinaryRepr<4>> core::fmt::Display for fgf::Elem<fgf::FiniteField<2, 4, R>>
+pub fn fgf::Elem<fgf::FiniteField<2, 4, R>>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<R: fgf::binary::BinaryRepr<8>> core::fmt::Display for fgf::Elem<fgf::FiniteField<2, 8, R>>
+pub fn fgf::Elem<fgf::FiniteField<2, 8, R>>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> core::fmt::Display for fgf::Elem<fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageDisplay<<S as fgf::extension::ExtensionSpec>::Base, D>
+pub fn fgf::Elem<fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const P: u64> core::fmt::Display for fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>
+pub fn fgf::Elem<fgf::FiniteField<P, 1, fgf::prime::Residue>>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<F> core::marker::Freeze for fgf::Elem<F> where <F as fgf::Field>::Raw: core::marker::Freeze
+impl<F> core::marker::Send for fgf::Elem<F> where <F as fgf::Field>::Raw: core::marker::Send
+impl<F> core::marker::Sync for fgf::Elem<F> where <F as fgf::Field>::Raw: core::marker::Sync
+impl<F> core::marker::Unpin for fgf::Elem<F> where <F as fgf::Field>::Raw: core::marker::Unpin
+impl<F> core::marker::UnsafeUnpin for fgf::Elem<F> where <F as fgf::Field>::Raw: core::marker::UnsafeUnpin
+impl<F> core::panic::unwind_safe::RefUnwindSafe for fgf::Elem<F> where <F as fgf::Field>::Raw: core::panic::unwind_safe::RefUnwindSafe
+impl<F> core::panic::unwind_safe::UnwindSafe for fgf::Elem<F> where <F as fgf::Field>::Raw: core::panic::unwind_safe::UnwindSafe
+pub struct fgf::FiniteField<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>>(_)
+impl fgf::HasGenerator for fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>
+impl<R: fgf::binary::BinaryRepr<1>> fgf::Field for fgf::FiniteField<2, 1, R>
+pub type fgf::FiniteField<2, 1, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
+pub type fgf::FiniteField<2, 1, R>::Raw = u8
+pub const fgf::FiniteField<2, 1, R>::DEGREE: u32
+pub const fgf::FiniteField<2, 1, R>::NAME: &'static str
+pub const fgf::FiniteField<2, 1, R>::ORDER: u128
+impl<R: fgf::binary::BinaryRepr<1>> fgf::binary::BinaryDegree<1> for fgf::FiniteField<2, 1, R>
+impl<R: fgf::binary::BinaryRepr<1>> fgf::binary::BinaryField for fgf::FiniteField<2, 1, R>
+impl<R: fgf::binary::BinaryRepr<1>> fgf::prime::PrimeField for fgf::FiniteField<2, 1, R>
+impl<R: fgf::binary::BinaryRepr<2>> fgf::Field for fgf::FiniteField<2, 2, R>
+pub type fgf::FiniteField<2, 2, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
+pub type fgf::FiniteField<2, 2, R>::Raw = u8
+pub const fgf::FiniteField<2, 2, R>::DEGREE: u32
+pub const fgf::FiniteField<2, 2, R>::NAME: &'static str
+pub const fgf::FiniteField<2, 2, R>::ORDER: u128
+impl<R: fgf::binary::BinaryRepr<2>> fgf::binary::BinaryDegree<2> for fgf::FiniteField<2, 2, R>
+impl<R: fgf::binary::BinaryRepr<2>> fgf::binary::BinaryField for fgf::FiniteField<2, 2, R>
+impl<R: fgf::binary::BinaryRepr<4>> fgf::Field for fgf::FiniteField<2, 4, R>
+pub type fgf::FiniteField<2, 4, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
+pub type fgf::FiniteField<2, 4, R>::Raw = u8
+pub const fgf::FiniteField<2, 4, R>::DEGREE: u32
+pub const fgf::FiniteField<2, 4, R>::NAME: &'static str
+pub const fgf::FiniteField<2, 4, R>::ORDER: u128
+impl<R: fgf::binary::BinaryRepr<4>> fgf::binary::BinaryDegree<4> for fgf::FiniteField<2, 4, R>
+impl<R: fgf::binary::BinaryRepr<4>> fgf::binary::BinaryField for fgf::FiniteField<2, 4, R>
+impl<R: fgf::binary::BinaryRepr<8>> fgf::Field for fgf::FiniteField<2, 8, R>
+pub type fgf::FiniteField<2, 8, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
+pub type fgf::FiniteField<2, 8, R>::Raw = u8
+pub const fgf::FiniteField<2, 8, R>::DEGREE: u32
+pub const fgf::FiniteField<2, 8, R>::NAME: &'static str
+pub const fgf::FiniteField<2, 8, R>::ORDER: u128
+impl<R: fgf::binary::BinaryRepr<8>> fgf::FieldBuffer for fgf::FiniteField<2, 8, R>
+pub const fgf::FiniteField<2, 8, R>::BYTES: usize
+pub const fgf::FiniteField<2, 8, R>::STORAGE_BITS: u32
+pub fn fgf::FiniteField<2, 8, R>::decode(&[u8]) -> fgf::Elem<Self>
+pub fn fgf::FiniteField<2, 8, R>::encode(&mut [u8], fgf::Elem<Self>)
+impl<R: fgf::binary::BinaryRepr<8>> fgf::binary::BinaryDegree<8> for fgf::FiniteField<2, 8, R>
+impl<R: fgf::binary::BinaryRepr<8>> fgf::binary::BinaryField for fgf::FiniteField<2, 8, R>
+impl<const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::binary::BinaryDegree<N> for fgf::FiniteField<2, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageRepr<<S as fgf::extension::ExtensionSpec>::Base, D>, <S as fgf::extension::ExtensionSpec>::Base: fgf::binary::BinaryField
+impl<const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::binary::BinaryField for fgf::FiniteField<2, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageRepr<<S as fgf::extension::ExtensionSpec>::Base, D>, <S as fgf::extension::ExtensionSpec>::Base: fgf::binary::BinaryField
+impl<const P: u128, const E: u8> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Normal<P, E>>
+impl<const P: u128, const E: u8> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Normal<P, E>>
+impl<const P: u128, const E: u8> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Normal<P, E>>
+impl<const P: u128, const SEED: u8> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Cantor<P, SEED>>
+impl<const P: u128, const SEED: u8> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Cantor<P, SEED>>
+impl<const P: u128, const SEED: u8> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Cantor<P, SEED>>
+impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 1, fgf::binary::Polynomial<P>>
+impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Polynomial<P>>
+impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Polynomial<P>>
+impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Polynomial<P>>
+impl<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>> core::clone::Clone for fgf::FiniteField<P, N, R>
+pub fn fgf::FiniteField<P, N, R>::clone(&self) -> Self
+impl<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>> core::cmp::Eq for fgf::FiniteField<P, N, R>
+impl<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>> core::cmp::Ord for fgf::FiniteField<P, N, R>
+pub fn fgf::FiniteField<P, N, R>::cmp(&self, &Self) -> core::cmp::Ordering
+impl<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>> core::cmp::PartialEq for fgf::FiniteField<P, N, R>
+pub fn fgf::FiniteField<P, N, R>::eq(&self, &Self) -> bool
+impl<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>> core::cmp::PartialOrd for fgf::FiniteField<P, N, R>
+pub fn fgf::FiniteField<P, N, R>::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>> core::default::Default for fgf::FiniteField<P, N, R>
+pub fn fgf::FiniteField<P, N, R>::default() -> Self
+impl<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>> core::fmt::Debug for fgf::FiniteField<P, N, R>
+pub fn fgf::FiniteField<P, N, R>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>> core::hash::Hash for fgf::FiniteField<P, N, R>
+pub fn fgf::FiniteField<P, N, R>::hash<H: core::hash::Hasher>(&self, &mut H)
+impl<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>> core::marker::Copy for fgf::FiniteField<P, N, R>
+impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::Field for fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>
+pub type fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::Characteristic = fgf::prime::PrimeCharacteristic<P>
+pub type fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::Raw = <<S as fgf::extension::ExtensionSpec<D>>::Storage as fgf::extension::ExtensionStorage<<S as fgf::extension::ExtensionSpec<D>>::Base, D>>::Raw
+pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::DEGREE: u32
+pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::NAME: &'static str
+pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::ORDER: u128
+impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::FieldBuffer for fgf::FiniteField<P, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageBuffer<<S as fgf::extension::ExtensionSpec>::Base, D>
+pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::BYTES: usize
+pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::STORAGE_BITS: u32
+pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::decode(&[u8]) -> fgf::Elem<Self>
+pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::encode(&mut [u8], fgf::Elem<Self>)
+impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::extension::ExtensionField<D> for fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>
+pub type fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::Base = <S as fgf::extension::ExtensionSpec<D>>::Base
+pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::from_components([fgf::Elem<<S as fgf::extension::ExtensionSpec>::Base>; D]) -> fgf::Elem<Self>
+pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::to_components(fgf::Elem<Self>) -> [fgf::Elem<<S as fgf::extension::ExtensionSpec>::Base>; D]
+impl<const P: u64> fgf::Field for fgf::FiniteField<P, 1, fgf::prime::Residue>
+pub type fgf::FiniteField<P, 1, fgf::prime::Residue>::Characteristic = fgf::prime::PrimeCharacteristic<P>
+pub type fgf::FiniteField<P, 1, fgf::prime::Residue>::Raw = u64
+pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::DEGREE: u32
+pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::NAME: &'static str
+pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::ORDER: u128
+impl<const P: u64> fgf::FieldBuffer for fgf::FiniteField<P, 1, fgf::prime::Residue>
+pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::BYTES: usize
+pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::STORAGE_BITS: u32
+pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::decode(&[u8]) -> fgf::Elem<Self>
+pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::encode(&mut [u8], fgf::Elem<Self>)
+impl<const P: u64> fgf::prime::PrimeField for fgf::FiniteField<P, 1, fgf::prime::Residue>
+impl<const P: u64, const N: u32, R> core::marker::Freeze for fgf::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::marker::Freeze
+impl<const P: u64, const N: u32, R> core::marker::Send for fgf::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::marker::Send
+impl<const P: u64, const N: u32, R> core::marker::Sync for fgf::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::marker::Sync
+impl<const P: u64, const N: u32, R> core::marker::Unpin for fgf::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::marker::Unpin
+impl<const P: u64, const N: u32, R> core::marker::UnsafeUnpin for fgf::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::marker::UnsafeUnpin
+impl<const P: u64, const N: u32, R> core::panic::unwind_safe::RefUnwindSafe for fgf::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::panic::unwind_safe::RefUnwindSafe
+impl<const P: u64, const N: u32, R> core::panic::unwind_safe::UnwindSafe for fgf::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::panic::unwind_safe::UnwindSafe
+#[non_exhaustive] pub struct fgf::RangeError
+impl core::clone::Clone for fgf::RangeError
+pub fn fgf::RangeError::clone(&self) -> Self
+impl core::clone::TrivialClone for fgf::RangeError
+impl core::cmp::Eq for fgf::RangeError
+impl core::cmp::PartialEq for fgf::RangeError
+pub fn fgf::RangeError::eq(&self, &Self) -> bool
+impl core::error::Error for fgf::RangeError
+impl core::fmt::Debug for fgf::RangeError
+pub fn fgf::RangeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for fgf::RangeError
+pub fn fgf::RangeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for fgf::RangeError
+impl core::marker::StructuralPartialEq for fgf::RangeError
+impl core::marker::Freeze for fgf::RangeError
+impl core::marker::Send for fgf::RangeError
+impl core::marker::Sync for fgf::RangeError
+impl core::marker::Unpin for fgf::RangeError
+impl core::marker::UnsafeUnpin for fgf::RangeError
+impl core::panic::unwind_safe::RefUnwindSafe for fgf::RangeError
+impl core::panic::unwind_safe::UnwindSafe for fgf::RangeError
+pub trait fgf::Field: private::RowAccess + private::RawArithmetic<<Self as fgf::Field>::Raw> + core::marker::Copy + core::fmt::Debug + 'static
+pub type fgf::Field::Characteristic: fgf::prime::PrimeIdentity
+pub type fgf::Field::Raw: core::marker::Copy + core::cmp::Eq + core::cmp::Ord + core::hash::Hash + core::fmt::Debug + core::marker::Send + core::marker::Sync + 'static
+pub const fgf::Field::DEGREE: u32
+pub const fgf::Field::NAME: &'static str
+pub const fgf::Field::ORDER: u128
+impl fgf::Field for fgf::prime::Goldilocks
+pub type fgf::prime::Goldilocks::Characteristic = fgf::prime::PrimeCharacteristic<MODULUS>
+pub type fgf::prime::Goldilocks::Raw = u64
+pub const fgf::prime::Goldilocks::DEGREE: u32
+pub const fgf::prime::Goldilocks::NAME: &'static str
+pub const fgf::prime::Goldilocks::ORDER: u128
+impl fgf::Field for fgf::prime::Mersenne31
+pub type fgf::prime::Mersenne31::Characteristic = fgf::prime::PrimeCharacteristic<{ MODULUS as u64 }>
+pub type fgf::prime::Mersenne31::Raw = u32
+pub const fgf::prime::Mersenne31::DEGREE: u32
+pub const fgf::prime::Mersenne31::NAME: &'static str
+pub const fgf::prime::Mersenne31::ORDER: u128
+impl<R: fgf::binary::BinaryRepr<1>> fgf::Field for fgf::FiniteField<2, 1, R>
+pub type fgf::FiniteField<2, 1, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
+pub type fgf::FiniteField<2, 1, R>::Raw = u8
+pub const fgf::FiniteField<2, 1, R>::DEGREE: u32
+pub const fgf::FiniteField<2, 1, R>::NAME: &'static str
+pub const fgf::FiniteField<2, 1, R>::ORDER: u128
+impl<R: fgf::binary::BinaryRepr<2>> fgf::Field for fgf::FiniteField<2, 2, R>
+pub type fgf::FiniteField<2, 2, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
+pub type fgf::FiniteField<2, 2, R>::Raw = u8
+pub const fgf::FiniteField<2, 2, R>::DEGREE: u32
+pub const fgf::FiniteField<2, 2, R>::NAME: &'static str
+pub const fgf::FiniteField<2, 2, R>::ORDER: u128
+impl<R: fgf::binary::BinaryRepr<4>> fgf::Field for fgf::FiniteField<2, 4, R>
+pub type fgf::FiniteField<2, 4, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
+pub type fgf::FiniteField<2, 4, R>::Raw = u8
+pub const fgf::FiniteField<2, 4, R>::DEGREE: u32
+pub const fgf::FiniteField<2, 4, R>::NAME: &'static str
+pub const fgf::FiniteField<2, 4, R>::ORDER: u128
+impl<R: fgf::binary::BinaryRepr<8>> fgf::Field for fgf::FiniteField<2, 8, R>
+pub type fgf::FiniteField<2, 8, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
+pub type fgf::FiniteField<2, 8, R>::Raw = u8
+pub const fgf::FiniteField<2, 8, R>::DEGREE: u32
+pub const fgf::FiniteField<2, 8, R>::NAME: &'static str
+pub const fgf::FiniteField<2, 8, R>::ORDER: u128
+impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::Field for fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>
+pub type fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::Characteristic = fgf::prime::PrimeCharacteristic<P>
+pub type fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::Raw = <<S as fgf::extension::ExtensionSpec<D>>::Storage as fgf::extension::ExtensionStorage<<S as fgf::extension::ExtensionSpec<D>>::Base, D>>::Raw
+pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::DEGREE: u32
+pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::NAME: &'static str
+pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::ORDER: u128
+impl<const P: u64> fgf::Field for fgf::FiniteField<P, 1, fgf::prime::Residue>
+pub type fgf::FiniteField<P, 1, fgf::prime::Residue>::Characteristic = fgf::prime::PrimeCharacteristic<P>
+pub type fgf::FiniteField<P, 1, fgf::prime::Residue>::Raw = u64
+pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::DEGREE: u32
+pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::NAME: &'static str
+pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::ORDER: u128
+pub trait fgf::FieldBuffer: fgf::Field + fgf::field::private::FieldSeal + dispatch::KernelDispatch
+pub const fgf::FieldBuffer::BYTES: usize
+pub const fgf::FieldBuffer::STORAGE_BITS: u32
+pub fn fgf::FieldBuffer::decode(&[u8]) -> fgf::Elem<Self>
+pub fn fgf::FieldBuffer::encode(&mut [u8], fgf::Elem<Self>)
+impl fgf::FieldBuffer for fgf::prime::Goldilocks
+pub const fgf::prime::Goldilocks::BYTES: usize
+pub const fgf::prime::Goldilocks::STORAGE_BITS: u32
+pub fn fgf::prime::Goldilocks::decode(&[u8]) -> fgf::Elem<Self>
+pub fn fgf::prime::Goldilocks::encode(&mut [u8], fgf::Elem<Self>)
+impl fgf::FieldBuffer for fgf::prime::Mersenne31
+pub const fgf::prime::Mersenne31::BYTES: usize
+pub const fgf::prime::Mersenne31::STORAGE_BITS: u32
+pub fn fgf::prime::Mersenne31::decode(&[u8]) -> fgf::Elem<Self>
+pub fn fgf::prime::Mersenne31::encode(&mut [u8], fgf::Elem<Self>)
+impl<R: fgf::binary::BinaryRepr<8>> fgf::FieldBuffer for fgf::FiniteField<2, 8, R>
+pub const fgf::FiniteField<2, 8, R>::BYTES: usize
+pub const fgf::FiniteField<2, 8, R>::STORAGE_BITS: u32
+pub fn fgf::FiniteField<2, 8, R>::decode(&[u8]) -> fgf::Elem<Self>
+pub fn fgf::FiniteField<2, 8, R>::encode(&mut [u8], fgf::Elem<Self>)
+impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::FieldBuffer for fgf::FiniteField<P, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageBuffer<<S as fgf::extension::ExtensionSpec>::Base, D>
+pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::BYTES: usize
+pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::STORAGE_BITS: u32
+pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::decode(&[u8]) -> fgf::Elem<Self>
+pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::encode(&mut [u8], fgf::Elem<Self>)
+impl<const P: u64> fgf::FieldBuffer for fgf::FiniteField<P, 1, fgf::prime::Residue>
+pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::BYTES: usize
+pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::STORAGE_BITS: u32
+pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::decode(&[u8]) -> fgf::Elem<Self>
+pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::encode(&mut [u8], fgf::Elem<Self>)
+pub trait fgf::FieldElem: fgf::field::element_private::Sealed + core::marker::Copy + core::cmp::Eq + core::fmt::Debug + core::hash::Hash + core::default::Default + 'static
+pub type fgf::FieldElem::Field: fgf::Field
+pub const fgf::FieldElem::ONE: Self
+pub const fgf::FieldElem::ZERO: Self
+pub fn fgf::FieldElem::add(self, Self) -> Self
+pub fn fgf::FieldElem::div(self, Self) -> Self
+pub fn fgf::FieldElem::from_index(u128) -> core::result::Result<Self, fgf::RangeError>
+pub fn fgf::FieldElem::from_raw(<Self::Field as fgf::Field>::Raw) -> Self
+pub fn fgf::FieldElem::from_residue(u64) -> core::result::Result<Self, fgf::RangeError>
+pub fn fgf::FieldElem::inv(self) -> Self
+pub fn fgf::FieldElem::is_one(self) -> bool
+pub fn fgf::FieldElem::is_zero(self) -> bool
+pub fn fgf::FieldElem::mul(self, Self) -> Self
+pub fn fgf::FieldElem::neg(self) -> Self
+pub fn fgf::FieldElem::pow(self, u128) -> Self
+pub fn fgf::FieldElem::square(self) -> Self
+pub fn fgf::FieldElem::sub(self, Self) -> Self
+pub fn fgf::FieldElem::to_index(self) -> u128
+pub fn fgf::FieldElem::to_residue(self) -> core::option::Option<u64>
+impl<F: fgf::Field> fgf::FieldElem for fgf::Elem<F>
+pub type fgf::Elem<F>::Field = F
+pub const fgf::Elem<F>::ONE: Self
+pub const fgf::Elem<F>::ZERO: Self
+pub fn fgf::Elem<F>::add(self, Self) -> Self
+pub fn fgf::Elem<F>::div(self, Self) -> Self
+pub fn fgf::Elem<F>::from_index(u128) -> core::result::Result<Self, fgf::RangeError>
+pub fn fgf::Elem<F>::from_raw(<F as fgf::Field>::Raw) -> Self
+pub fn fgf::Elem<F>::from_residue(u64) -> core::result::Result<Self, fgf::RangeError>
+pub fn fgf::Elem<F>::inv(self) -> Self
+pub fn fgf::Elem<F>::is_one(self) -> bool
+pub fn fgf::Elem<F>::is_zero(self) -> bool
+pub fn fgf::Elem<F>::mul(self, Self) -> Self
+pub fn fgf::Elem<F>::neg(self) -> Self
+pub fn fgf::Elem<F>::pow(self, u128) -> Self
+pub fn fgf::Elem<F>::square(self) -> Self
+pub fn fgf::Elem<F>::sub(self, Self) -> Self
+pub fn fgf::Elem<F>::to_index(self) -> u128
+pub fn fgf::Elem<F>::to_residue(self) -> core::option::Option<u64>
+pub trait fgf::FiniteFieldRepr<const P: u64, const N: u32>: fgf::field::private::Sealed + private::FiniteFieldReprValidation<P, N> + 'static
+pub const fgf::FiniteFieldRepr::NAME: &'static str
+impl fgf::FiniteFieldRepr<18446744069414584321, 1> for fgf::prime::GoldilocksFold
+pub const fgf::prime::GoldilocksFold::NAME: &'static str
+impl fgf::FiniteFieldRepr<2147483647, 1> for fgf::prime::MersenneFold
+pub const fgf::prime::MersenneFold::NAME: &'static str
+impl<const P: u128, const E: u8> fgf::FiniteFieldRepr<2, 2> for fgf::binary::Normal<P, E>
+pub const fgf::binary::Normal<P, E>::NAME: &'static str
+impl<const P: u128, const E: u8> fgf::FiniteFieldRepr<2, 4> for fgf::binary::Normal<P, E>
+pub const fgf::binary::Normal<P, E>::NAME: &'static str
+impl<const P: u128, const E: u8> fgf::FiniteFieldRepr<2, 8> for fgf::binary::Normal<P, E>
+pub const fgf::binary::Normal<P, E>::NAME: &'static str
+impl<const P: u128, const SEED: u8> fgf::FiniteFieldRepr<2, 2> for fgf::binary::Cantor<P, SEED>
+pub const fgf::binary::Cantor<P, SEED>::NAME: &'static str
+impl<const P: u128, const SEED: u8> fgf::FiniteFieldRepr<2, 4> for fgf::binary::Cantor<P, SEED>
+pub const fgf::binary::Cantor<P, SEED>::NAME: &'static str
+impl<const P: u128, const SEED: u8> fgf::FiniteFieldRepr<2, 8> for fgf::binary::Cantor<P, SEED>
+pub const fgf::binary::Cantor<P, SEED>::NAME: &'static str
+impl<const P: u128> fgf::FiniteFieldRepr<2, 1> for fgf::binary::Polynomial<P>
+pub const fgf::binary::Polynomial<P>::NAME: &'static str
+impl<const P: u128> fgf::FiniteFieldRepr<2, 2> for fgf::binary::Polynomial<P>
+pub const fgf::binary::Polynomial<P>::NAME: &'static str
+impl<const P: u128> fgf::FiniteFieldRepr<2, 4> for fgf::binary::Polynomial<P>
+pub const fgf::binary::Polynomial<P>::NAME: &'static str
+impl<const P: u128> fgf::FiniteFieldRepr<2, 8> for fgf::binary::Polynomial<P>
+pub const fgf::binary::Polynomial<P>::NAME: &'static str
+impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::FiniteFieldRepr<P, N> for fgf::extension::Extension<S, D>
+pub const fgf::extension::Extension<S, D>::NAME: &'static str
+impl<const P: u64> fgf::FiniteFieldRepr<P, 1> for fgf::prime::Residue
+pub const fgf::prime::Residue::NAME: &'static str
+pub trait fgf::HasGenerator: fgf::Field + fgf::field::private::FieldSeal + private::GeneratorRaw
+impl fgf::HasGenerator for fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>
+impl fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>
+impl fgf::HasGenerator for fgf::extension::QuadMersenne31
+impl fgf::HasGenerator for fgf::prime::Goldilocks
+impl fgf::HasGenerator for fgf::prime::Mersenne31
+impl<const P: u128, const E: u8> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Normal<P, E>>
+impl<const P: u128, const E: u8> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Normal<P, E>>
+impl<const P: u128, const E: u8> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Normal<P, E>>
+impl<const P: u128, const SEED: u8> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Cantor<P, SEED>>
+impl<const P: u128, const SEED: u8> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Cantor<P, SEED>>
+impl<const P: u128, const SEED: u8> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Cantor<P, SEED>>
+impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 1, fgf::binary::Polynomial<P>>
+impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Polynomial<P>>
+impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Polynomial<P>>
+impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Polynomial<P>>
+pub fn fgf::backend() -> simdispatch::backend::Backend
+pub fn fgf::backend_for<F: fgf::FieldBuffer>() -> simdispatch::backend::Backend
+# external re-exports
+reexport fgf::Backend = simdispatch::backend::Backend

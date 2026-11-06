@@ -19,7 +19,8 @@ adds sources addressed in one region. Subtraction mirrors addition:
 (identical to addition in characteristic two).
 
 ```rust
-use fgf::{AES, Elem, FiniteField, Polynomial, ops};
+use fgf::{Elem, FiniteField, ops};
+use fgf::binary::{AES, Polynomial};
 
 type F = FiniteField<2, 8, Polynomial<AES>>;
 let source = [1u8, 2, 3];
@@ -45,7 +46,7 @@ skip validation or imply allocation-free construction.
 
 [Prepared coefficients](Prepared-coefficients) covers coefficient, vector,
 and matrix ownership. Bit operations use the same convention:
-`bits::xor_range_with` borrows an `XorRange` with cached masks.
+`ops::bits::xor_range_with` borrows an `XorRange` with cached masks.
 
 ## Which rows does the call address?
 
@@ -80,6 +81,6 @@ caller-owned element storage.
 `_scratch` operation.
 
 Use [row geometry](Linear-operations-and-row-geometry) to select the call and
-the [ops reference](https://docs.rs/fgf/3.0.2/fgf/ops/index.html) for exact sizes,
+the [ops reference](https://docs.rs/fgf/4.0.0/fgf/ops/index.html) for exact sizes,
 empty-input behavior, and errors. Names are not a substitute for the contract:
-`pack` and `mul_elementwise` overwrite without an `_into` suffix.
+`pack` overwrites its destination without an `_into` suffix.

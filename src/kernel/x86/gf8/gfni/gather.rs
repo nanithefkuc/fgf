@@ -114,14 +114,6 @@ fn gather_tiles<const NATIVE: bool, const TILE_LANES: usize>(
         }
         offset += tile;
     }
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.gfni.gather",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        offset * coeffs.count(),
-        crate::kernel::Backend::V3GfniCrypto,
-    );
 }
 
 /// The source-fused remainder blocks: at most one 64-byte pair and one
@@ -154,14 +146,6 @@ fn gather_native_tail<const NATIVE: bool>(
         _mm256_storeu_si256(&mut dl[0], a0);
         _mm256_storeu_si256(&mut dl[1], a1);
         consumed += 64;
-        #[cfg(test)]
-        crate::kernel::trace::emit(
-            "gf8.gfni.gather",
-            crate::kernel::trace::Substage::MulAdd,
-            crate::kernel::trace::Unit::Elements,
-            64 * coeffs.count(),
-            crate::kernel::Backend::V3GfniCrypto,
-        );
         after
     } else {
         rest
@@ -178,14 +162,6 @@ fn gather_native_tail<const NATIVE: bool>(
         }
         _mm256_storeu_si256(&mut dl[0], acc);
         consumed += 32;
-        #[cfg(test)]
-        crate::kernel::trace::emit(
-            "gf8.gfni.gather",
-            crate::kernel::trace::Substage::MulAdd,
-            crate::kernel::trace::Unit::Elements,
-            32 * coeffs.count(),
-            crate::kernel::Backend::V3GfniCrypto,
-        );
     }
     consumed
 }

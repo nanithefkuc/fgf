@@ -1,6 +1,7 @@
 // expect: extension degree is not the base degree times the relative degree
 //! A degree-two relation over GF(7) named as a degree-three field.
-use fgf::{Components, Elem, Extension, ExtensionSpec, FiniteField, Relation};
+use fgf::{Elem, FiniteField};
+use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
 
 struct Spec;
 impl ExtensionSpec<2> for Spec {

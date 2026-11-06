@@ -3,21 +3,24 @@
 //! Compiles and runs exactly what a downstream crate can see from outside:
 //! every shipped row through the generic [`Field`] surface, the degree-one
 //! rows through [`PrimeField`], every wire-format row through
-//! [`FieldBuffer`], every dispatchable row through [`FieldKernels`], const
+//! [`FieldBuffer`], every dispatchable row through the same bound, const
 //! constructors and arithmetic in real const contexts, and generic code
 //! whose raw word type is a primitive. Compile-fail counterparts live in
 //! `tests/compile_fail/` and run through `just compile-fail`.
 
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
-use fgf::field::{Field, FieldBuffer, FieldElem};
-use fgf::poly::{AES, RS};
-use fgf::{
-    BinaryField, BinaryRepr, Cantor, Components, Elem, Extension, ExtensionField, ExtensionSpec,
-    FieldKernels, FiniteField, FiniteFieldRepr, Goldilocks, Mersenne31, Normal, Packed,
-    PackedPadded, Polynomial, PrimeField, QuadMersenne31, Relation, Residue, Rijndael16,
-    Rijndael32, Rijndael64, ops,
+use fgf::binary::{AES, RS};
+use fgf::binary::{
+    BinaryField, BinaryRepr, Cantor, Normal, Polynomial, Rijndael16, Rijndael32, Rijndael64,
 };
+use fgf::extension::{
+    Components, Extension, ExtensionField, ExtensionSpec, ExtensionStorage, Packed, PackedPadded,
+    QuadMersenne31, Relation,
+};
+use fgf::maps::{Embedding, ImageError, Isomorphism};
+use fgf::prime::{Goldilocks, Mersenne31, PrimeField, Residue};
+use fgf::{Elem, Field, FieldBuffer, FieldElem, FiniteField, FiniteFieldRepr, ops};
 
 type Residue2 = FiniteField<2, 1, Residue>;
 type Residue7 = FiniteField<7, 1, Residue>;
@@ -27,12 +30,12 @@ type ResidueWide = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>;
 type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
 type Gf32 = FiniteField<2, 32, Extension<Rijndael32, 2>>;
 type Gf64 = FiniteField<2, 64, Extension<Rijndael64, 2>>;
-type FanPaar2Row = FiniteField<2, 2, Extension<fgf::FanPaar2, 2>>;
-type FanPaar4Row = FiniteField<2, 4, Extension<fgf::FanPaar4, 2>>;
-type FanPaar8Row = FiniteField<2, 8, Extension<fgf::FanPaar8, 2>>;
-type FanPaar16Row = FiniteField<2, 16, Extension<fgf::FanPaar16, 2>>;
-type FanPaar32Row = FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>;
-type FanPaar64Row = FiniteField<2, 64, Extension<fgf::FanPaar64, 2>>;
+type FanPaar2Row = FiniteField<2, 2, Extension<fgf::binary::FanPaar2, 2>>;
+type FanPaar4Row = FiniteField<2, 4, Extension<fgf::binary::FanPaar4, 2>>;
+type FanPaar8Row = FiniteField<2, 8, Extension<fgf::binary::FanPaar8, 2>>;
+type FanPaar16Row = FiniteField<2, 16, Extension<fgf::binary::FanPaar16, 2>>;
+type FanPaar32Row = FiniteField<2, 32, Extension<fgf::binary::FanPaar32, 2>>;
+type FanPaar64Row = FiniteField<2, 64, Extension<fgf::binary::FanPaar64, 2>>;
 
 /// A downstream extension specification over a shipped byte field with the
 /// Rijndael relation `t^2 + t + 0x20`, reaching the library-owned kernels.
@@ -119,7 +122,7 @@ fn exercise_buffer<F: FieldBuffer>(value: Elem<F>) {
 
 /// Dispatchable rows: one packed operation per row through `ops`, plus the
 /// backend report every consumer can query.
-fn exercise_kernels<F: FieldKernels>(coeff: Elem<F>) {
+fn exercise_kernels<F: FieldBuffer>(coeff: Elem<F>) {
     let len = 8 * F::BYTES;
     let mut src = vec![0u8; len];
     F::encode(&mut src[..F::BYTES], coeff);
@@ -137,6 +140,606 @@ fn exercise_kernels<F: FieldKernels>(coeff: Elem<F>) {
     let prepared = ops::Coeff::<F>::new(coeff);
     assert_eq!(prepared.value(), coeff);
     let _ = fgf::backend_for::<F>();
+}
+
+/// Decode a flat byte buffer into its lanes.
+fn lane_values<F: FieldBuffer>(bytes: &[u8]) -> Vec<Elem<F>> {
+    bytes.chunks_exact(F::BYTES).map(F::decode).collect()
+}
+
+/// Encode a lane sequence into a flat byte buffer.
+fn lane_bytes<F: FieldBuffer>(lanes: &[Elem<F>]) -> Vec<u8> {
+    let mut out = vec![0u8; lanes.len() * F::BYTES];
+    for (lane, &value) in out.chunks_exact_mut(F::BYTES).zip(lanes) {
+        F::encode(lane, value);
+    }
+    out
+}
+
+/// One unary lane oracle.
+fn unary_oracle<F: FieldBuffer>(x: &[u8], f: impl Fn(Elem<F>) -> Elem<F>) -> Vec<u8> {
+    let values: Vec<Elem<F>> = lane_values::<F>(x).into_iter().map(f).collect();
+    lane_bytes::<F>(&values)
+}
+
+/// One binary lane oracle.
+fn binary_oracle<F: FieldBuffer>(
+    x: &[u8],
+    y: &[u8],
+    f: impl Fn(Elem<F>, Elem<F>) -> Elem<F>,
+) -> Vec<u8> {
+    let left = lane_values::<F>(x);
+    let right = lane_values::<F>(y);
+    let values: Vec<Elem<F>> = left.into_iter().zip(right).map(|(a, b)| f(a, b)).collect();
+    lane_bytes::<F>(&values)
+}
+
+/// `rows[j] += sum_t coeffs[t][j] * src[t]` over contiguous rows, with the
+/// destinations seeded from `base`.
+fn matrix_oracle<F: FieldBuffer>(
+    base: &[u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[Elem<F>], &[u8])],
+    overwrite: bool,
+) -> Vec<u8> {
+    let lanes_per_row = row_len / F::BYTES;
+    let mut values = lane_values::<F>(base);
+    for (row, row_values) in values
+        .chunks_exact_mut(lanes_per_row)
+        .enumerate()
+        .take(nrows)
+    {
+        for (column, lane) in row_values.iter_mut().enumerate() {
+            let mut acc = if overwrite { Elem::<F>::ZERO } else { *lane };
+            for &(coeffs, src) in terms {
+                let source = lane_values::<F>(src);
+                acc = acc.add(coeffs[row].mul(source[column]));
+            }
+            *lane = acc;
+        }
+    }
+    lane_bytes::<F>(&values)
+}
+
+/// `dst[row_starts[j]..][..row_len] += sum_t coeffs[t][j] * src[t]`, with the
+/// whole destination seeded from `base`.
+fn scattered_oracle<F: FieldBuffer>(
+    base: &[u8],
+    row_len: usize,
+    row_starts: &[usize],
+    terms: &[(&[Elem<F>], &[u8])],
+    overwrite: bool,
+) -> Vec<u8> {
+    let lanes_per_row = row_len / F::BYTES;
+    let mut values = lane_values::<F>(base);
+    for (row, &start) in row_starts.iter().enumerate() {
+        let first = start / F::BYTES;
+        for column in 0..lanes_per_row {
+            let mut acc = if overwrite {
+                Elem::<F>::ZERO
+            } else {
+                values[first + column]
+            };
+            for &(coeffs, src) in terms {
+                let source = lane_values::<F>(src);
+                acc = acc.add(coeffs[row].mul(source[column]));
+            }
+            values[first + column] = acc;
+        }
+    }
+    lane_bytes::<F>(&values)
+}
+
+/// Every stable byte operation and prepared coefficient type reachable from
+/// `F: FieldBuffer` alone, each against an independently encoded lane oracle.
+///
+/// The helper adds no bound beyond the public one: `F: FieldBuffer` reaches
+/// the checked operations, the prepared forms, and the coefficient
+/// collections; it never names the private dispatch contract. Empty and
+/// zero-work shapes are exercised beside the live ones, and the alloc-only
+/// calls are gated on the library's `alloc` feature.
+fn exercise_byte_operations<F: FieldBuffer>(a: Elem<F>, b: Elem<F>) {
+    let zero = Elem::<F>::ZERO;
+    let one = Elem::<F>::ONE;
+    let width = F::BYTES;
+    let base = [a, b, a.add(b), a.mul(b), one];
+    let row = lane_bytes::<F>(&base);
+    let other = lane_bytes::<F>(&[b, a, a.sub(b), one, zero]);
+    let add = |x: Elem<F>, y: Elem<F>| x.add(y);
+    let sub = |x: Elem<F>, y: Elem<F>| x.sub(y);
+    let mul = |x: Elem<F>, y: Elem<F>| x.mul(y);
+    let div = |x: Elem<F>, y: Elem<F>| x.div(y);
+
+    // Elementwise add and subtract, flat and row-addressed.
+    let mut dst = row.clone();
+    ops::add_assign::<F>(&mut dst, &other);
+    assert_eq!(dst, binary_oracle::<F>(&row, &other, add), "add_assign");
+    let mut dst = row.clone();
+    ops::add_assign_rows::<F>(&mut dst, width, &other);
+    assert_eq!(
+        dst,
+        binary_oracle::<F>(&row, &other, add),
+        "add_assign_rows"
+    );
+    let mut dst = row.clone();
+    ops::sub_assign::<F>(&mut dst, &other);
+    assert_eq!(dst, binary_oracle::<F>(&row, &other, sub), "sub_assign");
+    let mut dst = row.clone();
+    ops::sub_assign_rows::<F>(&mut dst, width, &other);
+    assert_eq!(
+        dst,
+        binary_oracle::<F>(&row, &other, sub),
+        "sub_assign_rows"
+    );
+
+    // Scalar broadcast.
+    let mut dst = row.clone();
+    ops::add_assign_scalar::<F>(&mut dst, b);
+    assert_eq!(
+        dst,
+        unary_oracle::<F>(&row, |x| x.add(b)),
+        "add_assign_scalar"
+    );
+    let mut dst = row.clone();
+    ops::sub_assign_scalar::<F>(&mut dst, b);
+    assert_eq!(
+        dst,
+        unary_oracle::<F>(&row, |x| x.sub(b)),
+        "sub_assign_scalar"
+    );
+
+    // Offset gather over one backing region.
+    let region = [row.clone(), other.clone()].concat();
+    let mut dst = row.clone();
+    ops::add_gather_offsets::<F>(&mut dst, &[0, row.len() as u32], &region);
+    let mut want = row.clone();
+    for source in [&row, &other] {
+        want = binary_oracle::<F>(&want, source, add);
+    }
+    assert_eq!(dst, want, "add_gather_offsets");
+
+    // Single-coefficient multiply shapes and their prepared forms.
+    let mut dst = row.clone();
+    ops::mul_add::<F>(&mut dst, a, &other);
+    let scaled_other = unary_oracle::<F>(&other, |x| a.mul(x));
+    assert_eq!(dst, binary_oracle::<F>(&row, &scaled_other, add), "mul_add");
+    let mut dst = row.clone();
+    ops::mul_add::<F>(&mut dst, zero, &other);
+    assert_eq!(dst, row, "mul_add with a zero coefficient");
+    let mut dst = row.clone();
+    ops::mul_add::<F>(&mut dst, one, &other);
+    assert_eq!(
+        dst,
+        binary_oracle::<F>(&row, &other, add),
+        "mul_add with the unit coefficient"
+    );
+    let mut dst = row.clone();
+    ops::mul_assign::<F>(&mut dst, a);
+    assert_eq!(dst, unary_oracle::<F>(&row, |x| x.mul(a)), "mul_assign");
+    let mut dst = row.clone();
+    ops::mul_assign::<F>(&mut dst, one);
+    assert_eq!(dst, row, "mul_assign with the unit coefficient");
+    let mut dst = vec![0xFFu8; row.len()];
+    ops::mul_into::<F>(&mut dst, a, &other);
+    assert_eq!(dst, scaled_other, "mul_into");
+    let mut dst = vec![0xFFu8; row.len()];
+    ops::mul_into::<F>(&mut dst, zero, &other);
+    assert_eq!(
+        dst,
+        vec![0u8; row.len()],
+        "mul_into with a zero coefficient"
+    );
+
+    let mut dst = row.clone();
+    ops::mul_elementwise_into::<F>(&mut dst, &row, &other);
+    assert_eq!(
+        dst,
+        binary_oracle::<F>(&row, &other, mul),
+        "mul_elementwise"
+    );
+    let mut dst = row.clone();
+    ops::mul_elementwise_assign::<F>(&mut dst, &other);
+    assert_eq!(
+        dst,
+        binary_oracle::<F>(&row, &other, mul),
+        "mul_elementwise_assign"
+    );
+
+    // Scatter: one source into several contiguous rows.
+    let row_len = 2 * width;
+    let scatter_coeffs = [a, b, one];
+    let scatter_base = lane_bytes::<F>(&[a, b, a, b, a, b]);
+    let scatter_src = lane_bytes::<F>(&[a, b]);
+    let mut rows = scatter_base.clone();
+    ops::mul_add_scatter::<F>(&mut rows, row_len, &scatter_coeffs, &scatter_src);
+    let mut want = scatter_base.clone();
+    for (index, &coeff) in scatter_coeffs.iter().enumerate() {
+        let start = index * row_len;
+        let scaled = unary_oracle::<F>(&scatter_src, |x| coeff.mul(x));
+        let updated = binary_oracle::<F>(&want[start..start + row_len], &scaled, add);
+        want[start..start + row_len].copy_from_slice(&updated);
+    }
+    assert_eq!(rows, want, "mul_add_scatter");
+    let mut rows = scatter_base.clone();
+    ops::mul_into_scatter::<F>(&mut rows, row_len, &scatter_coeffs, &scatter_src);
+    let mut want = scatter_base.clone();
+    for (index, &coeff) in scatter_coeffs.iter().enumerate() {
+        let start = index * row_len;
+        want[start..start + row_len]
+            .copy_from_slice(&unary_oracle::<F>(&scatter_src, |x| coeff.mul(x)));
+    }
+    assert_eq!(rows, want, "mul_into_scatter");
+
+    // Gather: several sources into one destination.
+    let gather_coeffs = [a, b];
+    let gather_srcs: [&[u8]; 2] = [&row, &other];
+    let mut dst = row.clone();
+    ops::mul_add_gather::<F>(&mut dst, &gather_coeffs, &gather_srcs);
+    let mut want = row.clone();
+    for (&coeff, source) in gather_coeffs.iter().zip(&gather_srcs) {
+        let scaled = unary_oracle::<F>(source, |x| coeff.mul(x));
+        want = binary_oracle::<F>(&want, &scaled, add);
+    }
+    assert_eq!(dst, want, "mul_add_gather");
+    let mut dst = vec![0xFFu8; row.len()];
+    ops::mul_into_gather::<F>(&mut dst, &gather_coeffs, &gather_srcs);
+    let mut want = vec![0u8; row.len()];
+    for (&coeff, source) in gather_coeffs.iter().zip(&gather_srcs) {
+        let scaled = unary_oracle::<F>(source, |x| coeff.mul(x));
+        want = binary_oracle::<F>(&want, &scaled, add);
+    }
+    assert_eq!(dst, want, "mul_into_gather");
+
+    // Matrix: several terms into several contiguous rows.
+    let nrows = 2;
+    let matrix_row_len = 2 * width;
+    let coeffs0 = [a, b];
+    let coeffs1 = [one, a];
+    let src0 = lane_bytes::<F>(&[a, b]);
+    let src1 = lane_bytes::<F>(&[b, one]);
+    let terms: [(&[Elem<F>], &[u8]); 2] =
+        [(&coeffs0, src0.as_slice()), (&coeffs1, src1.as_slice())];
+    let matrix_base = lane_bytes::<F>(&[a, b, a, b]);
+    let mut rows = matrix_base.clone();
+    ops::mul_add_matrix::<F>(&mut rows, matrix_row_len, nrows, &terms);
+    assert_eq!(
+        rows,
+        matrix_oracle::<F>(&matrix_base, matrix_row_len, nrows, &terms, false),
+        "mul_add_matrix"
+    );
+    let mut rows = matrix_base.clone();
+    ops::mul_into_matrix::<F>(&mut rows, matrix_row_len, nrows, &terms);
+    assert_eq!(
+        rows,
+        matrix_oracle::<F>(&matrix_base, matrix_row_len, nrows, &terms, true),
+        "mul_into_matrix"
+    );
+
+    // Scattered matrix: the same arithmetic into offset-addressed rows,
+    // leaving the rest of the destination untouched.
+    let row_starts = [0usize, 3 * width, 6 * width];
+    let scattered_row_len = 2 * width;
+    let scattered_coeffs: [&[Elem<F>]; 2] = [&[a, b, one], &[one, a, b]];
+    let scattered_terms: [(&[Elem<F>], &[u8]); 2] = [
+        (scattered_coeffs[0], src0.as_slice()),
+        (scattered_coeffs[1], src1.as_slice()),
+    ];
+    let scattered_base = lane_bytes::<F>(&[a, b, one, a, b, one, a, b, one, a]);
+    let mut dst = scattered_base.clone();
+    ops::mul_add_matrix_at::<F>(&mut dst, scattered_row_len, &row_starts, &scattered_terms);
+    assert_eq!(
+        dst,
+        scattered_oracle::<F>(
+            &scattered_base,
+            scattered_row_len,
+            &row_starts,
+            &scattered_terms,
+            false
+        ),
+        "mul_add_matrix_at"
+    );
+    let mut dst = scattered_base.clone();
+    ops::mul_into_matrix_at::<F>(&mut dst, scattered_row_len, &row_starts, &scattered_terms);
+    assert_eq!(
+        dst,
+        scattered_oracle::<F>(
+            &scattered_base,
+            scattered_row_len,
+            &row_starts,
+            &scattered_terms,
+            true
+        ),
+        "mul_into_matrix_at"
+    );
+
+    // Reciprocals and elementwise division.
+    let mut dst = vec![0u8; row.len()];
+    ops::inv_into::<F>(&mut dst, &row);
+    assert_eq!(dst, unary_oracle::<F>(&row, |x| x.inv()), "inv_into");
+    let mut dst = row.clone();
+    ops::inv_assign::<F>(&mut dst);
+    assert_eq!(dst, unary_oracle::<F>(&row, |x| x.inv()), "inv_assign");
+    let mut dst = vec![0u8; row.len()];
+    ops::div_elementwise_into::<F>(&mut dst, &row, &other);
+    assert_eq!(
+        dst,
+        binary_oracle::<F>(&row, &other, div),
+        "div_elementwise"
+    );
+    let mut dst = row.clone();
+    ops::div_elementwise_assign::<F>(&mut dst, &other);
+    assert_eq!(
+        dst,
+        binary_oracle::<F>(&row, &other, div),
+        "div_elementwise_assign"
+    );
+
+    // Dot product folds the same elementwise products.
+    let expected_dot = lane_values::<F>(&row)
+        .into_iter()
+        .zip(lane_values::<F>(&other))
+        .fold(zero, |acc, (x, y)| acc.add(x.mul(y)));
+    assert_eq!(
+        ops::dot_product::<F>(&row, &other),
+        expected_dot,
+        "dot_product"
+    );
+
+    // Packing round-trips the encoded lanes.
+    let packed = lane_bytes::<F>(&base);
+    let mut got = vec![0u8; packed.len()];
+    ops::pack::<F>(&mut got, &base);
+    assert_eq!(got, packed, "pack");
+    let mut back = vec![zero; base.len()];
+    ops::unpack::<F>(&mut back, &packed);
+    assert_eq!(back, base, "unpack");
+
+    // Prepared single-coefficient forms need no library allocation feature.
+    let prepared = ops::Coeff::<F>::new(a);
+    assert_eq!(prepared.value(), a);
+    let mut dst = row.clone();
+    ops::mul_add_with::<F>(&mut dst, &prepared, &other);
+    assert_eq!(
+        dst,
+        binary_oracle::<F>(&row, &scaled_other, add),
+        "mul_add_with"
+    );
+    let mut dst = row.clone();
+    ops::mul_assign_with::<F>(&mut dst, &prepared);
+    assert_eq!(
+        dst,
+        unary_oracle::<F>(&row, |x| a.mul(x)),
+        "mul_assign_with"
+    );
+    let mut dst = vec![0u8; row.len()];
+    ops::mul_into_with::<F>(&mut dst, &prepared, &other);
+    assert_eq!(dst, scaled_other, "mul_into_with");
+
+    // Prepared collections require the library allocation feature.
+    #[cfg(feature = "alloc")]
+    {
+        let prepared_vec = ops::CoeffVec::<F>::new(&scatter_coeffs);
+        assert_eq!(prepared_vec.len(), scatter_coeffs.len());
+        assert!(!prepared_vec.is_empty());
+        assert_eq!(prepared_vec.get(1).expect("in range").value(), b);
+        assert_eq!(
+            prepared_vec.values().collect::<Vec<_>>(),
+            scatter_coeffs.to_vec()
+        );
+        let view = prepared_vec.as_ref();
+        assert_eq!(view.len(), scatter_coeffs.len());
+        assert!(!view.is_empty());
+        assert_eq!(view.get(0).expect("in range").value(), a);
+        let mut rows = scatter_base.clone();
+        ops::mul_add_scatter_with::<F>(&mut rows, row_len, view, &scatter_src);
+        let mut want = scatter_base.clone();
+        for (index, &coeff) in scatter_coeffs.iter().enumerate() {
+            let start = index * row_len;
+            let scaled = unary_oracle::<F>(&scatter_src, |x| coeff.mul(x));
+            let updated = binary_oracle::<F>(&want[start..start + row_len], &scaled, add);
+            want[start..start + row_len].copy_from_slice(&updated);
+        }
+        assert_eq!(rows, want, "mul_add_scatter_with");
+
+        let gather_view = ops::CoeffVec::<F>::new(&gather_coeffs);
+        let mut dst = row.clone();
+        ops::mul_add_gather_with::<F>(&mut dst, gather_view.as_ref(), &gather_srcs);
+        let mut want = row.clone();
+        for (&coeff, source) in gather_coeffs.iter().zip(&gather_srcs) {
+            let scaled = unary_oracle::<F>(source, |x| coeff.mul(x));
+            want = binary_oracle::<F>(&want, &scaled, add);
+        }
+        assert_eq!(dst, want, "mul_add_gather_with");
+        let mut dst = vec![0xFFu8; row.len()];
+        ops::mul_into_gather_with::<F>(&mut dst, gather_view.as_ref(), &gather_srcs);
+        let mut want = vec![0u8; row.len()];
+        for (&coeff, source) in gather_coeffs.iter().zip(&gather_srcs) {
+            let scaled = unary_oracle::<F>(source, |x| coeff.mul(x));
+            want = binary_oracle::<F>(&want, &scaled, add);
+        }
+        assert_eq!(dst, want, "mul_into_gather_with");
+
+        // Prepared matrix over the flat source-major coefficients.
+        let terms_sources: [&[u8]; 2] = [src0.as_slice(), src1.as_slice()];
+        let matrix = ops::CoeffMatrix::<F>::from_source_major(2, nrows, &[a, b, one, a]);
+        assert_eq!(matrix.source_count(), 2);
+        assert_eq!(matrix.output_count(), nrows);
+        assert_eq!(matrix.len(), 4);
+        assert!(!matrix.is_empty());
+        assert_eq!(matrix.get_at(1, 0).expect("in range").value(), one);
+        assert_eq!(
+            matrix
+                .source(1)
+                .expect("in range")
+                .values()
+                .collect::<Vec<_>>(),
+            vec![one, a]
+        );
+        assert_eq!(matrix.to_source_major(), vec![a, b, one, a]);
+        let mut rows = matrix_base.clone();
+        ops::mul_add_matrix_with::<F>(&mut rows, matrix_row_len, &matrix, &terms_sources);
+        assert_eq!(
+            rows,
+            matrix_oracle::<F>(&matrix_base, matrix_row_len, nrows, &terms, false),
+            "mul_add_matrix_with"
+        );
+        let mut rows = matrix_base.clone();
+        ops::mul_into_matrix_with::<F>(&mut rows, matrix_row_len, &matrix, &terms_sources);
+        assert_eq!(
+            rows,
+            matrix_oracle::<F>(&matrix_base, matrix_row_len, nrows, &terms, true),
+            "mul_into_matrix_with"
+        );
+
+        let scattered_matrix =
+            ops::CoeffMatrix::<F>::from_source_major(2, 3, &[a, b, one, one, a, b]);
+        let mut dst = scattered_base.clone();
+        ops::mul_add_matrix_at_with::<F>(
+            &mut dst,
+            scattered_row_len,
+            &row_starts,
+            &scattered_matrix,
+            &terms_sources,
+        );
+        assert_eq!(
+            dst,
+            scattered_oracle::<F>(
+                &scattered_base,
+                scattered_row_len,
+                &row_starts,
+                &scattered_terms,
+                false
+            ),
+            "mul_add_matrix_at_with"
+        );
+        let mut dst = scattered_base.clone();
+        ops::mul_into_matrix_at_with::<F>(
+            &mut dst,
+            scattered_row_len,
+            &row_starts,
+            &scattered_matrix,
+            &terms_sources,
+        );
+        assert_eq!(
+            dst,
+            scattered_oracle::<F>(
+                &scattered_base,
+                scattered_row_len,
+                &row_starts,
+                &scattered_terms,
+                true
+            ),
+            "mul_into_matrix_at_with"
+        );
+
+        // The allocating packing forms.
+        assert_eq!(ops::pack_to_vec::<F>(&base), packed, "pack_to_vec");
+        assert_eq!(ops::unpack_to_vec::<F>(&packed), base, "unpack_to_vec");
+    }
+
+    // Empty and zero-work shapes preserve their documented conventions.
+    ops::add_assign::<F>(&mut [], &[]);
+    ops::add_assign_rows::<F>(&mut [], width, &[]);
+    ops::sub_assign::<F>(&mut [], &[]);
+    ops::sub_assign_rows::<F>(&mut [], width, &[]);
+    ops::add_assign_scalar::<F>(&mut [], a);
+    ops::sub_assign_scalar::<F>(&mut [], a);
+    ops::add_gather_offsets::<F>(&mut [], &[], &[]);
+    ops::mul_add::<F>(&mut [], a, &[]);
+    ops::mul_assign::<F>(&mut [], a);
+    ops::mul_into::<F>(&mut [], a, &[]);
+    ops::mul_elementwise_into::<F>(&mut [], &[], &[]);
+    ops::mul_elementwise_assign::<F>(&mut [], &[]);
+    ops::mul_add_scatter::<F>(&mut [], 0, &[], &[]);
+    ops::mul_into_scatter::<F>(&mut [], 0, &[], &[]);
+    ops::mul_add_gather::<F>(&mut [], &[], &[]);
+    ops::mul_into_gather::<F>(&mut [], &[], &[]);
+    ops::mul_add_matrix::<F>(&mut [], width, 0, &[]);
+    ops::mul_into_matrix::<F>(&mut [], width, 0, &[]);
+    ops::mul_add_matrix_at::<F>(&mut [], width, &[], &[]);
+    ops::mul_into_matrix_at::<F>(&mut [], width, &[], &[]);
+    ops::inv_into::<F>(&mut [], &[]);
+    ops::inv_assign::<F>(&mut []);
+    ops::div_elementwise_into::<F>(&mut [], &[], &[]);
+    ops::div_elementwise_assign::<F>(&mut [], &[]);
+    assert_eq!(ops::dot_product::<F>(&[], &[]), zero, "empty dot product");
+    ops::pack::<F>(&mut [], &[]);
+    ops::unpack::<F>(&mut [], &[]);
+    #[cfg(feature = "alloc")]
+    {
+        assert!(ops::pack_to_vec::<F>(&[]).is_empty());
+        assert!(ops::unpack_to_vec::<F>(&[]).is_empty());
+        let empty = ops::CoeffVec::<F>::new(&[]);
+        assert!(empty.is_empty());
+        assert!(empty.as_ref().is_empty());
+        let empty = ops::CoeffMatrix::<F>::from_source_major(0, 0, &[]);
+        assert!(empty.is_empty());
+        assert_eq!(empty.source_count(), 0);
+        assert_eq!(empty.output_count(), 0);
+    }
+}
+
+#[test]
+fn field_buffer_alone_reaches_every_byte_operation() {
+    exercise_byte_operations::<FiniteField<2, 8, Polynomial<AES>>>(
+        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
+        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0xCA),
+    );
+    exercise_byte_operations::<FiniteField<2, 8, Polynomial<RS>>>(
+        Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0x53),
+        Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0xCA),
+    );
+    exercise_byte_operations::<FiniteField<2, 8, Normal<0x11B, 0x20>>>(
+        Elem::<FiniteField<2, 8, Normal<0x11B, 0x20>>>::from_raw(0x53),
+        Elem::<FiniteField<2, 8, Normal<0x11B, 0x20>>>::from_raw(0xCA),
+    );
+    exercise_byte_operations::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>(
+        Elem::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>::from_raw(0x53),
+        Elem::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>::from_raw(0xCA),
+    );
+    exercise_byte_operations::<Mersenne31>(
+        Elem::<Mersenne31>::from_raw(7),
+        Elem::<Mersenne31>::from_raw(11),
+    );
+    exercise_byte_operations::<Goldilocks>(
+        Elem::<Goldilocks>::from_raw(7),
+        Elem::<Goldilocks>::from_raw(11),
+    );
+    exercise_byte_operations::<Residue7>(
+        Elem::<Residue7>::from_residue(3).expect("in range"),
+        Elem::<Residue7>::from_residue(5).expect("in range"),
+    );
+    exercise_byte_operations::<ResidueWide>(
+        Elem::<ResidueWide>::from_raw(u64::MAX),
+        Elem::<ResidueWide>::from_raw(1 << 63),
+    );
+    // Custom component storage over a custom component base.
+    exercise_byte_operations::<Gf49Row>(
+        Elem::<Gf49Row>::from_raw([3, 5]),
+        Elem::<Gf49Row>::from_raw([6, 2]),
+    );
+    exercise_byte_operations::<NestedComponentRow>(
+        Elem::<NestedComponentRow>::from_raw([[1, 2], [3, 4]]),
+        Elem::<NestedComponentRow>::from_raw([[5, 6], [7, 8]]),
+    );
+    // Every supported packed word width.
+    exercise_byte_operations::<FanPaar8Row>(
+        Elem::<FanPaar8Row>::from_raw(0xAB),
+        Elem::<FanPaar8Row>::from_raw(0xCD),
+    );
+    exercise_byte_operations::<CustomGf16>(
+        Elem::<CustomGf16>::from_raw(0x1B70),
+        Elem::<CustomGf16>::from_raw(0x0108),
+    );
+    exercise_byte_operations::<Gf32>(
+        Elem::<Gf32>::from_raw(0x5555_5555),
+        Elem::<Gf32>::from_raw(0x0F0F_0F0F),
+    );
+    exercise_byte_operations::<Gf64>(
+        Elem::<Gf64>::from_raw(0x0123_4567_89AB_CDEF),
+        Elem::<Gf64>::from_raw(0xFFFF_0000_0000_FFFF),
+    );
 }
 
 #[test]
@@ -191,22 +794,38 @@ fn degree_one_rows_are_prime_fields() {
 
 #[test]
 fn binary_rows_keep_fixed_raw_words_under_generic_presentations() {
-    // Generic over the presentation at a fixed binary degree: the raw word
-    // stays the row's primitive, and both characteristic-two degree-one
-    // presentations coexist with their own widths.
-    fn one_raw<R: BinaryRepr<8>>() -> u8 {
-        <FiniteField<2, 8, R> as Field>::ONE_RAW
+    // Generic over the presentation at a fixed binary degree:
+    // `R: BinaryRepr<8>` alone supplies scalar arithmetic, byte encoding,
+    // and the `u8` raw word.
+    fn exercise_byte_row<R: BinaryRepr<8>>(x: u8, y: u8) -> u8 {
+        exercise_field::<FiniteField<2, 8, R>>(x, y);
+        // The complete byte surface, reached from the representation bound
+        // alone: no row type is named as a `FieldBuffer` implementor.
+        exercise_byte_operations::<FiniteField<2, 8, R>>(
+            Elem::<FiniteField<2, 8, R>>::from_raw(x),
+            Elem::<FiniteField<2, 8, R>>::from_raw(y),
+        );
+        let zero: u8 = Elem::<FiniteField<2, 8, R>>::ZERO.to_raw();
+        assert_eq!(zero, 0);
+        let left = Elem::<FiniteField<2, 8, R>>::from_raw(x);
+        let right = Elem::<FiniteField<2, 8, R>>::from_raw(y);
+        if !right.is_zero() {
+            assert_eq!(left.mul(right).mul(right.inv()), left);
+        }
+        exercise_buffer::<FiniteField<2, 8, R>>(left.mul(right));
+        Elem::<FiniteField<2, 8, R>>::ONE.to_raw()
     }
     fn degree_one<R: BinaryRepr<1>>() -> u8 {
-        <FiniteField<2, 1, R> as Field>::ONE_RAW
+        Elem::<FiniteField<2, 1, R>>::ONE.to_raw()
     }
     fn label<const N: u32, R: BinaryRepr<N>>() -> &'static str {
         <R as FiniteFieldRepr<2, N>>::NAME
     }
-    assert_eq!(one_raw::<Polynomial<AES>>(), 1);
-    assert_eq!(one_raw::<Normal<0x11B, 0x20>>(), 0xFF);
+    assert_eq!(exercise_byte_row::<Polynomial<AES>>(0x53, 0xca), 1);
+    assert_eq!(exercise_byte_row::<Normal<0x11B, 0x20>>(0x53, 0xca), 0xFF);
+    assert_eq!(exercise_byte_row::<Cantor<0x11B, 0x20>>(0x53, 0xca), 1);
     assert_eq!(degree_one::<Polynomial<3>>(), 1);
-    assert_eq!(<Residue2 as Field>::ONE_RAW, 1u64);
+    assert_eq!(Elem::<Residue2>::ONE.to_raw(), 1u64);
     assert_eq!(label::<8, Polynomial<AES>>(), "GF(2^8)/0x11B");
     assert_eq!(label::<4, Cantor<0x13, 0xE>>(), "cantor");
 }
@@ -233,6 +852,43 @@ fn dispatchable_rows_drive_packed_operations() {
     exercise_kernels::<Residue7>(Elem::<Residue7>::from_residue(3).expect("in range"));
     exercise_kernels::<ResiduePrime>(Elem::<ResiduePrime>::from_raw(123_456_789));
     exercise_kernels::<ResidueWide>(Elem::<ResidueWide>::from_raw(u64::MAX));
+}
+
+// ---------------------------------------------------------------------------
+// Map constructors from generic and concrete consumers
+// ---------------------------------------------------------------------------
+
+/// Generic construction through the public `Field` bound alone: both
+/// constructors return their map by value, and every method works
+/// without naming a private proof.
+fn exercise_map_constructors<S, T>(value: Elem<S>) -> (Elem<S>, bool)
+where
+    S: Field,
+    T: Field<Characteristic = S::Characteristic>,
+{
+    let embedding = Embedding::<S, T>::new();
+    let lifted = embedding.embed(value);
+    let isomorphism = Isomorphism::<S, S>::new();
+    let cycled = isomorphism.unapply(isomorphism.apply(value));
+    (cycled, embedding.contains(lifted))
+}
+
+#[test]
+fn map_constructors_return_self_from_generic_and_concrete_code() {
+    type Aes = FiniteField<2, 8, Polynomial<AES>>;
+    let (cycled, member) = exercise_map_constructors::<Aes, Gf16>(Elem::<Aes>::from_raw(0x53));
+    assert_eq!(cycled, Elem::<Aes>::from_raw(0x53));
+    assert!(member);
+    // Concrete consumers spell the constructed types directly.
+    let map: Embedding<Aes, Gf16> = Embedding::new();
+    assert_eq!(map.relative_degree(), 2);
+    let iso: Isomorphism<Gf16, Gf16> = Isomorphism::new();
+    assert_eq!(iso.inverse().inverse().to_images(), iso.to_images());
+    // The image constructor's error type arrives from real data.
+    assert!(matches!(
+        Embedding::<Aes, Gf16>::from_images(&[]),
+        Err(ImageError { .. })
+    ));
 }
 
 // Const evaluation of the constructors, arithmetic, and conversions: these
@@ -414,6 +1070,86 @@ fn shipped_instance_const_surface_matches_the_trait_surface() {
     check!(QUAD_CONST, QuadMersenne31, [3, 5], [0x7FFF_FFFE, 12]);
 }
 
+/// A raw word is shared with and returned from a worker using only the
+/// public `Field` bound, proving both `Sync` and `Send`.
+fn raw_word_is_thread_safe<F: Field>(value: F::Raw) -> F::Raw {
+    std::thread::scope(|scope| scope.spawn(|| value).join().expect("thread"))
+}
+
+/// A storage raw word is shared with and returned from a worker using only
+/// the public `ExtensionStorage` bound.
+fn storage_word_is_thread_safe<B: Field, const D: usize, St: ExtensionStorage<B, D>>(
+    value: <St as ExtensionStorage<B, D>>::Raw,
+) -> <St as ExtensionStorage<B, D>>::Raw {
+    std::thread::scope(|scope| scope.spawn(|| value).join().expect("thread"))
+}
+
+/// Prepared values carry the same `Send + Sync` guarantee the dispatch
+/// contract states for the backend representation.
+fn prepared_is_thread_safe<F: FieldBuffer>(coeff: Elem<F>) {
+    let prepared = ops::Coeff::<F>::new(coeff);
+    let shared =
+        std::thread::scope(|scope| scope.spawn(|| prepared.value()).join().expect("thread"));
+    assert_eq!(shared, coeff);
+    let moved = std::thread::spawn(move || prepared.value())
+        .join()
+        .expect("thread");
+    assert_eq!(moved, coeff);
+}
+
+#[test]
+fn raw_and_prepared_words_are_thread_safe() {
+    assert_eq!(
+        raw_word_is_thread_safe::<FiniteField<2, 8, Polynomial<AES>>>(0x53),
+        0x53
+    );
+    assert_eq!(raw_word_is_thread_safe::<Mersenne31>(7), 7);
+    assert_eq!(
+        raw_word_is_thread_safe::<Gf64>(0x0123_4567_89AB_CDEF),
+        0x0123_4567_89AB_CDEF
+    );
+    assert_eq!(
+        storage_word_is_thread_safe::<Mersenne31, 2, Components>([3, 5]),
+        [3, 5]
+    );
+    assert_eq!(
+        storage_word_is_thread_safe::<FiniteField<2, 8, Polynomial<AES>>, 2, Packed<u16>>(0x1B70),
+        0x1B70
+    );
+    prepared_is_thread_safe::<Mersenne31>(Elem::<Mersenne31>::from_raw(7));
+    prepared_is_thread_safe::<Gf64>(Elem::<Gf64>::from_raw(0x0123_4567_89AB_CDEF));
+}
+
+/// A specification marker that is neither `Send` nor `Sync`: the extension
+/// contract never requires either of a marker, and the row keeps working.
+#[derive(Clone, Copy)]
+struct ThreadBoundSpec {
+    _marker: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+
+impl ExtensionSpec<2> for ThreadBoundSpec {
+    type Base = Residue7;
+    type Storage = Components;
+    const NAME: &'static str = "GF(49) with a thread-bound marker";
+    const RELATION: Relation = Relation::from_coordinates(&[4, 0]);
+}
+
+type ThreadBoundRow = FiniteField<7, 2, Extension<ThreadBoundSpec, 2>>;
+
+#[test]
+fn a_non_send_marker_keeps_its_extension_row_usable() {
+    let value = Elem::<ThreadBoundRow>::from_raw([3, 5]);
+    assert_eq!(value.mul(value.inv()), Elem::<ThreadBoundRow>::ONE);
+    let mut bytes = vec![0u8; <ThreadBoundRow as FieldBuffer>::BYTES];
+    FieldBuffer::encode(&mut bytes, value);
+    assert_eq!(FieldBuffer::decode(&bytes), value);
+    ops::mul_assign::<ThreadBoundRow>(&mut bytes, value);
+    assert_eq!(
+        lane_values::<ThreadBoundRow>(&bytes),
+        vec![value.mul(value)]
+    );
+}
+
 #[test]
 fn raw_words_are_primitives_of_fixed_width() {
     // Generic code driving raw words as primitives instantiates for every
@@ -509,6 +1245,35 @@ impl ExtensionSpec<2> for Gf49Spec {
     const RELATION: Relation = Relation::from_coordinates(&[4, 0]);
 }
 type Gf49Row = FiniteField<7, 2, Extension<Gf49Spec, 2>>;
+
+/// GF(7^4) as `t^2 - (1 + t)` over the component row at 7^2: a custom
+/// component spec over a custom component base. `1 + t` is a nonsquare of
+/// GF(49), so the relation is irreducible.
+#[derive(Clone, Copy)]
+struct NestedComponentSpec;
+impl ExtensionSpec<2> for NestedComponentSpec {
+    type Base = Gf49Row;
+    type Storage = Components;
+    const NAME: &'static str = "GF(7^4) over GF(7^2)";
+    const RELATION: Relation = Relation::from_coordinates(&[1, 1, 0, 0]);
+}
+type NestedComponentRow = FiniteField<7, 4, Extension<NestedComponentSpec, 2>>;
+
+/// A generic custom component-storage spec: the base's [`FieldBuffer`]
+/// bound alone reaches every byte operation and prepared coefficient type,
+/// with no row bound of its own.
+fn exercise_generic_component_spec<const P: u64, const N: u32, S, const D: usize>(
+    base: Elem<S::Base>,
+) where
+    S: ExtensionSpec<D, Storage = Components>,
+    S::Base: FieldBuffer,
+{
+    let components = [base; D];
+    let value =
+        <FiniteField<P, N, Extension<S, D>> as ExtensionField<D>>::from_components(components);
+    let other = value.add(Elem::<FiniteField<P, N, Extension<S, D>>>::ONE);
+    exercise_byte_operations::<FiniteField<P, N, Extension<S, D>>>(value, other);
+}
 
 /// Goldilocks squared as `t^2 - 7`.
 #[derive(Clone, Copy)]
@@ -856,7 +1621,7 @@ fn extension_rows_exercise_arithmetic_and_relations() {
         Elem::<OverNormal>::from_raw(0x0108),
     );
     assert_eq!(
-        <OverNormal as Field>::ONE_RAW,
+        Elem::<OverNormal>::ONE.to_raw(),
         <OverNormal as ExtensionField<2>>::from_components([
             Elem::<FiniteField<2, 8, Normal<0x11B, 0x20>>>::ONE,
             Elem::<FiniteField<2, 8, Normal<0x11B, 0x20>>>::ZERO,
@@ -874,7 +1639,7 @@ fn extension_rows_exercise_arithmetic_and_relations() {
         Elem::<OverCantor>::from_raw(0x0108),
     );
     assert_eq!(
-        <OverCantor as Field>::ONE_RAW,
+        Elem::<OverCantor>::ONE.to_raw(),
         <OverCantor as ExtensionField<2>>::from_components([
             Elem::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>::ONE,
             Elem::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>::ZERO,
@@ -911,8 +1676,23 @@ fn extension_rows_exercise_arithmetic_and_relations() {
 }
 
 #[test]
+fn generic_component_specs_reach_every_byte_operation() {
+    // Base and storage bounds alone: the row type is never named as a
+    // `FieldBuffer` implementor, so the capability has to follow from
+    // `S::Base: FieldBuffer` and `Storage = Components`.
+    exercise_generic_component_spec::<7, 2, Gf49Spec, 2>(Elem::<Residue7>::from_raw(3));
+    exercise_generic_component_spec::<7, 4, NestedComponentSpec, 2>(Elem::<Gf49Row>::from_raw([
+        3, 5,
+    ]));
+    let base = Elem::<Mersenne31>::from_raw(7);
+    exercise_generic_component_spec::<0x7FFF_FFFF, 2, CustomComplexMersenneSpec, 2>(base);
+    let base = Elem::<CustomComplexMersenne>::from_raw([3, 5]);
+    exercise_generic_component_spec::<0x7FFF_FFFF, 4, OverCustomMersenneSpec, 2>(base);
+}
+
+#[test]
 fn characteristic_two_extension_rows_join_the_binary_capability() {
-    use fgf::BinaryDegree;
+    use fgf::binary::BinaryDegree;
 
     // The padded GF(8) and GF(64) rows convert through their coordinate
     // words: component `i` at the bits `[i*B, (i+1)*B)`.
@@ -961,164 +1741,6 @@ fn characteristic_two_extension_rows_join_the_binary_capability() {
         degree::<OverNormal, 16>(Elem::<OverNormal>::from_raw(0x1B70)),
         16
     );
-}
-
-struct ComponentStorage<S>(core::marker::PhantomData<S>);
-
-impl<S: ExtensionSpec<D>, const D: usize> ExtensionSpec<D> for ComponentStorage<S>
-where
-    S::Base: FieldBuffer,
-{
-    type Base = S::Base;
-    type Storage = Components;
-    const NAME: &'static str = S::NAME;
-    const RELATION: Relation = S::RELATION;
-}
-
-fn exercise_component_buffer<const P: u64, const N: u32, S>(components: [Elem<S::Base>; 2])
-where
-    S: ExtensionSpec<2, Storage = Components>,
-    S::Base: FieldBuffer,
-{
-    let value =
-        <FiniteField<P, N, Extension<S, 2>> as ExtensionField<2>>::from_components(components);
-    exercise_buffer::<FiniteField<P, N, Extension<S, 2>>>(value);
-}
-
-#[test]
-fn component_byte_consumers_require_only_field_buffer_bases() {
-    exercise_component_buffer::<0x7fff_ffff, 2, CustomComplexMersenneSpec>([
-        Elem::<Mersenne31>::from_raw(7),
-        Elem::<Mersenne31>::from_raw(11),
-    ]);
-    exercise_component_buffer::<0x7fff_ffff, 4, OverQuadMersenneSpec>([
-        Elem::<QuadMersenne31>::from_raw([3, 5]),
-        Elem::<QuadMersenne31>::from_raw([7, 11]),
-    ]);
-    exercise_component_buffer::<2, 16, ComponentStorage<OverNormalSpec>>([
-        Elem::<FiniteField<2, 8, Normal<0x11b, 0x20>>>::from_raw(0x53),
-        Elem::<FiniteField<2, 8, Normal<0x11b, 0x20>>>::from_raw(0xa7),
-    ]);
-}
-
-fn component_add_reference<F: FieldBuffer>(dst: &mut [u8], src: &[u8], subtract: bool) {
-    for (dst, src) in dst
-        .chunks_exact_mut(F::BYTES)
-        .zip(src.chunks_exact(F::BYTES))
-    {
-        let value = if subtract {
-            F::decode(dst).sub(F::decode(src))
-        } else {
-            F::decode(dst).add(F::decode(src))
-        };
-        F::encode(dst, value);
-    }
-}
-
-fn exercise_component_additive_routes<F: FieldKernels>() {
-    let len = 64 * F::BYTES;
-    let initial = vec![0xff; len];
-    let source = vec![0x55; len];
-    for subtract in [false, true] {
-        let mut expected = initial.clone();
-        component_add_reference::<F>(&mut expected, &source, subtract);
-        let mut actual = initial.clone();
-        if subtract {
-            ops::sub_assign::<F>(&mut actual, &source);
-        } else {
-            ops::add_assign::<F>(&mut actual, &source);
-        }
-        assert_eq!(actual, expected, "{}: add/sub raw aliases", F::NAME);
-        actual.copy_from_slice(&initial);
-        if subtract {
-            ops::sub_assign_rows::<F>(&mut actual, len / 2, &source);
-        } else {
-            ops::add_assign_rows::<F>(&mut actual, len / 2, &source);
-        }
-        assert_eq!(actual, expected, "{}: row add/sub raw aliases", F::NAME);
-    }
-
-    let other = vec![0xa7; len];
-    let mut region = source.clone();
-    region.extend_from_slice(&other);
-    let mut expected = initial.clone();
-    component_add_reference::<F>(&mut expected, &source, false);
-    component_add_reference::<F>(&mut expected, &other, false);
-    let mut actual = initial.clone();
-    ops::add_gather_offsets::<F>(&mut actual, &region, &[0, u32::try_from(len).unwrap()]);
-    assert_eq!(actual, expected, "{}: offset source addition", F::NAME);
-
-    let mut unit_expected = initial.clone();
-    component_add_reference::<F>(&mut unit_expected, &source, false);
-    let coefficient = ops::Coeff::<F>::new(Elem::<F>::ONE);
-    actual.copy_from_slice(&initial);
-    ops::mul_add_with::<F>(&mut actual, &coefficient, &source);
-    assert_eq!(actual, unit_expected, "{}: prepared unit row", F::NAME);
-
-    let coefficients = [Elem::<F>::ZERO, Elem::<F>::ONE];
-    let mut rows = initial.repeat(2);
-    let mut expected_rows = initial.clone();
-    expected_rows.extend_from_slice(&unit_expected);
-    ops::mul_add_scatter::<F>(&mut rows, len, &coefficients, &source);
-    assert_eq!(rows, expected_rows, "{}: zero/unit scatter", F::NAME);
-    actual.copy_from_slice(&initial);
-    ops::mul_add_gather::<F>(&mut actual, &coefficients, &[&source, &source]);
-    assert_eq!(actual, unit_expected, "{}: zero/unit gather", F::NAME);
-
-    let terms = [(coefficients.as_slice(), source.as_slice())];
-    rows.copy_from_slice(&initial.repeat(2));
-    ops::mul_add_matrix::<F>(&mut rows, len, 2, &terms);
-    assert_eq!(rows, expected_rows, "{}: zero/unit matrix", F::NAME);
-    let mut scattered = initial.repeat(3);
-    let mut scattered_expected = initial.repeat(2);
-    scattered_expected.extend_from_slice(&unit_expected);
-    ops::mul_add_matrix_at::<F>(&mut scattered, len, &[0, 2 * len], &terms);
-    assert_eq!(
-        scattered,
-        scattered_expected,
-        "{}: zero/unit matrix offsets",
-        F::NAME
-    );
-
-    #[cfg(feature = "alloc")]
-    {
-        let vector = ops::CoeffVec::<F>::new(&coefficients);
-        rows.copy_from_slice(&initial.repeat(2));
-        ops::mul_add_scatter_with::<F>(&mut rows, len, vector.as_ref(), &source);
-        assert_eq!(
-            rows,
-            expected_rows,
-            "{}: prepared zero/unit scatter",
-            F::NAME
-        );
-        actual.copy_from_slice(&initial);
-        ops::mul_add_gather_with::<F>(&mut actual, vector.as_ref(), &[&source, &source]);
-        assert_eq!(
-            actual,
-            unit_expected,
-            "{}: prepared zero/unit gather",
-            F::NAME
-        );
-    }
-}
-
-#[test]
-fn component_additive_routes_preserve_alias_and_unit_semantics() {
-    exercise_component_additive_routes::<MersenneCube>();
-    exercise_component_additive_routes::<GoldilocksSquare>();
-    exercise_component_additive_routes::<OverQuadMersenne>();
-    exercise_component_additive_routes::<OverCustomMersenne>();
-    exercise_component_additive_routes::<WidePrimeSquare>();
-    exercise_component_additive_routes::<ResidueTwoSquare>();
-    exercise_component_additive_routes::<
-        FiniteField<2, 16, Extension<ComponentStorage<CustomSpec>, 2>>,
-    >();
-    exercise_component_additive_routes::<
-        FiniteField<2, 16, Extension<ComponentStorage<OverNormalSpec>, 2>>,
-    >();
-    exercise_component_additive_routes::<
-        FiniteField<2, 32, Extension<ComponentStorage<Rijndael32>, 2>>,
-    >();
 }
 
 #[path = "compile_pass/binary_degree64.rs"]

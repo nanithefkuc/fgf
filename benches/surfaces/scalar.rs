@@ -13,7 +13,7 @@
 use std::hint::black_box;
 
 use fgf::Elem;
-use fgf::field::{Field, FieldElem};
+use fgf::{Field, FieldElem};
 
 use crate::fields::{for_each_field, for_each_field_small};
 use crate::fixture;
@@ -49,14 +49,14 @@ fn case_id(label: &str, op: &str) -> String {
     format!("scalar/{op}/{label}")
 }
 
-const API_ADD: &[&str] = &["fgf::field::FieldElem::add", "fgf::field::Field::add_raw"];
-const API_SUB: &[&str] = &["fgf::field::FieldElem::sub", "fgf::field::Field::sub_raw"];
-const API_NEG: &[&str] = &["fgf::field::FieldElem::neg", "fgf::field::Field::neg_raw"];
-const API_MUL: &[&str] = &["fgf::field::FieldElem::mul", "fgf::field::Field::mul_raw"];
-const API_SQUARE: &[&str] = &["fgf::field::FieldElem::square"];
-const API_INV: &[&str] = &["fgf::field::FieldElem::inv", "fgf::field::Field::inv_raw"];
-const API_DIV: &[&str] = &["fgf::field::FieldElem::div"];
-const API_POW: &[&str] = &["fgf::field::FieldElem::pow"];
+const API_ADD: &[&str] = &["fgf::FieldElem::add"];
+const API_SUB: &[&str] = &["fgf::FieldElem::sub"];
+const API_NEG: &[&str] = &["fgf::FieldElem::neg"];
+const API_MUL: &[&str] = &["fgf::FieldElem::mul"];
+const API_SQUARE: &[&str] = &["fgf::FieldElem::square"];
+const API_INV: &[&str] = &["fgf::FieldElem::inv"];
+const API_DIV: &[&str] = &["fgf::FieldElem::div"];
+const API_POW: &[&str] = &["fgf::FieldElem::pow"];
 const API_OPERATORS: &[&str] = &[
     "core::ops::Add for fgf::Elem",
     "core::ops::Sub for fgf::Elem",
@@ -71,9 +71,9 @@ const API_OPERATORS: &[&str] = &[
     "core::iter::Product for fgf::Elem",
 ];
 const API_QUERIES: &[&str] = &[
-    "fgf::field::FieldElem::from_raw",
-    "fgf::field::FieldElem::is_zero",
-    "fgf::field::FieldElem::is_one",
+    "fgf::FieldElem::from_raw",
+    "fgf::FieldElem::is_zero",
+    "fgf::FieldElem::is_one",
     "fgf::Elem::to_raw",
 ];
 

@@ -2,7 +2,9 @@
 //! Relation words `[3, 3]` over the degree-two normal basis, whose
 //! identity word is `3`, so the relation is `t^2 + t + 1` and splits over
 //! GF(4).
-use fgf::{Elem, Extension, ExtensionSpec, FiniteField, Normal, PackedPadded, Relation};
+use fgf::{Elem, FiniteField};
+use fgf::binary::Normal;
+use fgf::extension::{Extension, ExtensionSpec, PackedPadded, Relation};
 
 type Normal4 = FiniteField<2, 2, Normal<7, 2>>;
 

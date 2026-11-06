@@ -1,56 +1,21 @@
-//! The prime field GF(2^64 − 2^32 + 1), the Goldilocks field.
+//! The Goldilocks row and its scalar body.
 //!
-//! Elements are 64-bit lanes reduced modulo `p = 2^64 − 2^32 + 1 =
-//! 0xFFFF_FFFF_0000_0001`. Reduction of a 128-bit product uses the identity
-//! `2^64 ≡ 2^32 − 1 (mod p)` (the split-fold that makes Goldilocks fast on
-//! 32-bit-half integer SIMD).
-//!
-//! # Totality and canonicalization
-//!
-//! Every raw 64-bit lane is a legal input: [`Elem::from_raw`](crate::field::Elem)
-//! and [`FieldBuffer::decode`](crate::field::FieldBuffer) reduce it into the
-//! canonical range `0..p` on the way in. Every arithmetic output is canonical
-//! with no branch and no panic on out-of-range operands, the prime-field
-//! analogue of the crate-wide `inv(0) == 0` convention. Storage is always
-//! canonical, so equality, hashing, and ordering compare raw words directly.
-//! Inspect the stored bits with [`Elem::to_raw`](crate::field::Elem::to_raw).
-//!
-//! Arithmetic is variable-time and not intended for secret data.
-//!
-//! ```
-//! use fgf::{Elem, Goldilocks};
-//!
-//! const X: Elem<Goldilocks> = Elem::<Goldilocks>::from_raw(0xFFFF_FFFF_0000_0000);
-//! const _: () = assert!(X.mul(X).to_raw() == 0x0000_0000_0000_0001);
-//!
-//! // `inv` is `const`, so a reciprocal table can be a `const` item.
-//! const HALF: Elem<Goldilocks> = Elem::<Goldilocks>::from_raw(2).inv();
-//! const _: () = assert!(HALF.to_raw() == 0x7FFF_FFFF_8000_0001);
-//! const _: () = assert!(Elem::<Goldilocks>::from_raw(2).mul(HALF).to_raw() == 1);
-//!
-//! // Division is total: `x / 0` is zero, in `const` context too.
-//! const _: () = assert!(X.div(Elem::<Goldilocks>::ZERO).to_raw() == 0);
-//!
-//! // The generator has full multiplicative order p − 1 = 2^64 − 2^32.
-//! assert_eq!(
-//!     Elem::<Goldilocks>::GENERATOR.pow(0xFFFF_FFFF_0000_0000),
-//!     Elem::<Goldilocks>::ONE
-//! );
-//! ```
+//! Reduction uses `2^64 ≡ 2^32 − 1 (mod p)`, the split-fold that makes
+//! Goldilocks fast on 32-bit-half integer SIMD. The public contract for this
+//! field lives on the [`prime`](crate::prime) facade.
 
 use super::extension::Descriptor;
 use super::extension::descriptor::PrimePresentation;
 use super::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
-use super::private;
 use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, RangeError, Validate};
 
 /// The field modulus, `2^64 − 2^32 + 1`.
-pub const MODULUS: u64 = 0xFFFF_FFFF_0000_0001;
+pub(crate) const MODULUS: u64 = 0xFFFF_FFFF_0000_0001;
 
 /// `2^32 − 1`, the residue of `2^64` modulo `p` and the fold constant.
 const EPSILON: u64 = 0xFFFF_FFFF;
 
-/// Reduce a value already in `0..2^64` to the canonical range `0..p`.
+/// Reduces a value already in `0..2^64` to the canonical range `0..p`.
 ///
 /// A single conditional subtract suffices: any `u64` exceeds `p` by less than
 /// `2^32`.
@@ -63,7 +28,7 @@ pub const fn reduce(x: u64) -> u64 {
     if x >= MODULUS { x - MODULUS } else { x }
 }
 
-/// Reduce a full 128-bit product modulo `p`, returning a canonical lane.
+/// Reduces a full 128-bit product modulo `p`, returning a canonical lane.
 ///
 /// Splits the high 64 bits at the 32-bit boundary and folds each part with
 /// `2^64 ≡ 2^32 − 1` and `2^96 ≡ −1`, the Plonky2 Goldilocks reduction. The
@@ -91,7 +56,7 @@ pub const fn reduce_wide(x: u128) -> u64 {
 ///
 /// One canonical `u64` per element, with 128-bit products reduced by
 /// `2^64 ≡ 2^32 − 1`. Field [`NAME`](Field::NAME): `GF(2^64 - 2^32 + 1)`;
-/// this label: `goldilocks-fold`. The [`Residue`](super::Residue) row at the
+/// this label: `goldilocks-fold`. The [`Residue`](crate::prime::Residue) row at the
 /// same modulus is a distinct presentation; values move between the two by
 /// residue, never by buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
@@ -101,6 +66,9 @@ impl super::private::Sealed for GoldilocksFold {}
 
 impl FiniteFieldRepr<0xFFFF_FFFF_0000_0001, 1> for GoldilocksFold {
     const NAME: &'static str = "goldilocks-fold";
+}
+
+impl super::private::FiniteFieldReprValidation<0xFFFF_FFFF_0000_0001, 1> for GoldilocksFold {
     const VALID: () = {
         checked_order::<0xFFFF_FFFF_0000_0001, 1>();
     };
@@ -134,9 +102,15 @@ impl Field for Goldilocks {
     const NAME: &'static str = "GF(2^64 - 2^32 + 1)";
     const DEGREE: u32 = 1;
     const ORDER: u128 = MODULUS as u128;
+}
+
+impl super::private::RawArithmetic<u64> for Goldilocks {
     const ZERO_RAW: u64 = 0;
     const ONE_RAW: u64 = 1;
-    const VALID: () = <GoldilocksFold as FiniteFieldRepr<0xFFFF_FFFF_0000_0001, 1>>::VALID;
+    const VALID: () = <GoldilocksFold as super::private::FiniteFieldReprValidation<
+        0xFFFF_FFFF_0000_0001,
+        1,
+    >>::VALID;
 
     #[inline]
     fn canonical_raw(raw: u64) -> u64 {
@@ -237,7 +211,7 @@ impl super::private::RowAccess for Goldilocks {
     }
 }
 
-impl HasGenerator for Goldilocks {
+impl super::private::GeneratorRaw for Goldilocks {
     const GENERATOR_RAW: u64 = {
         assert!(
             is_primitive(7),
@@ -247,57 +221,50 @@ impl HasGenerator for Goldilocks {
     };
 }
 
+impl HasGenerator for Goldilocks {}
+
 impl FieldBuffer for Goldilocks {
     const BYTES: usize = 8;
     const STORAGE_BITS: u32 = 64;
 
     #[inline]
     fn decode(bytes: &[u8]) -> Elem<Self> {
-        let bytes: [u8; 8] = bytes
-            .try_into()
-            .expect("GF(2^64 - 2^32 + 1) element has the wrong byte width");
+        let () = Validate::<Self>::OK;
+        let bytes: [u8; 8] = bytes.try_into().expect(
+            "FieldBuffer::decode: bytes has the wrong byte width for a GF(2^64 - 2^32 + 1) element",
+        );
         Elem::<Self>::from_raw(u64::from_le_bytes(bytes))
     }
 
     #[inline]
     fn encode(bytes: &mut [u8], value: Elem<Self>) {
+        let () = Validate::<Self>::OK;
         assert_eq!(
             bytes.len(),
             8,
-            "GF(2^64 - 2^32 + 1) element has the wrong byte width"
+            "FieldBuffer::encode: bytes has the wrong byte width for a GF(2^64 - 2^32 + 1) element"
         );
         bytes.copy_from_slice(&value.to_raw().to_le_bytes());
     }
 }
 
-impl private::BufferDispatch for Goldilocks {
-    #[inline]
-    fn add_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
-        <Self as crate::kernel::KernelDispatch>::add_assign(proof, dst, src);
-    }
-
-    #[inline]
-    fn sub_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
-        <Self as crate::kernel::KernelDispatch>::sub_assign(proof, dst, src);
-    }
-}
-
 impl Elem<Goldilocks> {
-    /// Decode from the stable little-endian representation.
+    /// Decodes a little-endian lane: every `u64` is accepted and reduced
+    /// modulo the characteristic.
     #[inline]
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 8]) -> Self {
         Self::from_raw(u64::from_le_bytes(bytes))
     }
 
-    /// Encode to the stable little-endian representation.
+    /// Encodes to the stable little-endian representation.
     #[inline]
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 8] {
         self.raw.to_le_bytes()
     }
 
-    /// Wrap a raw lane, reducing it into canonical storage.
+    /// Wraps a raw lane, reducing it into canonical storage.
     #[inline]
     #[must_use]
     pub const fn from_raw(value: u64) -> Self {
@@ -377,7 +344,7 @@ impl Elem<Goldilocks> {
         }
     }
 
-    /// Square.
+    /// Squares the element.
     #[inline]
     #[must_use]
     pub const fn square(self) -> Self {
@@ -407,7 +374,7 @@ impl Elem<Goldilocks> {
         self.mul(rhs.inv())
     }
 
-    /// Raise to an unsigned integer power. `pow(_, 0) == ONE`.
+    /// Raises to an unsigned integer power. `pow(_, 0) == ONE`.
     #[inline]
     #[must_use]
     pub const fn pow(self, mut exponent: u128) -> Self {
@@ -440,7 +407,17 @@ impl core::fmt::Display for Elem<Goldilocks> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Elem, Goldilocks, HasGenerator, MODULUS, is_primitive};
+    use super::{Elem, Goldilocks, MODULUS, is_primitive, reduce, reduce_wide};
+
+    /// The Goldilocks split reduction chain lands on its published
+    /// constants.
+    #[test]
+    fn fold_reductions_match_known_answers() {
+        assert_eq!(reduce(0xFFFF_FFFF_0000_0001), 0);
+        assert_eq!(reduce(u64::MAX), 0xFFFF_FFFE);
+        assert_eq!(reduce_wide(1u128 << 64), 0xFFFF_FFFF); // 2^64 = 2^32 − 1
+        assert_eq!(reduce_wide(1u128 << 96), 0xFFFF_FFFF_0000_0000); // 2^96 = −1
+    }
 
     const fn gcd(mut a: u64, mut b: u64) -> u64 {
         while b != 0 {
@@ -453,8 +430,9 @@ mod tests {
     /// check must accept and reject powers of the generator by that rule.
     #[test]
     fn primitivity_follows_generator_power_coprimality() {
-        let generator =
-            Elem::<Goldilocks>::from_raw(core::hint::black_box(Goldilocks::GENERATOR_RAW));
+        let generator = Elem::<Goldilocks>::from_raw(core::hint::black_box(
+            Elem::<Goldilocks>::GENERATOR.to_raw(),
+        ));
         for k in 1..=96u64 {
             let candidate = generator.pow(u128::from(k)).to_raw();
             assert_eq!(

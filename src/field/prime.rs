@@ -47,13 +47,15 @@ impl<R: BinaryRepr<1>> PrimeField for FiniteField<2, 1, R> {}
 ///
 /// # Panics
 /// Panics when `P` is not prime.
+// Re-exported through `internals`; production arithmetic reduces inline.
+#[allow(dead_code)]
 #[must_use]
 pub const fn reduce<const P: u64>(value: u64) -> u64 {
     assert!(is_prime(P), "characteristic is not prime");
     value % P
 }
 
-/// Reduce a `u128` to its ordinary residue modulo the prime `P`.
+/// Reduces a `u128` to its ordinary residue modulo the prime `P`.
 ///
 /// `value % P` over the widened modulus, guarded by the same primality
 /// proof as [`reduce`]. The residue is below every valid `P`, so it fits
@@ -61,9 +63,56 @@ pub const fn reduce<const P: u64>(value: u64) -> u64 {
 ///
 /// # Panics
 /// Panics when `P` is not prime.
+#[allow(dead_code)]
 #[must_use]
 #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
 pub const fn reduce_wide<const P: u64>(value: u128) -> u64 {
     assert!(is_prime(P), "characteristic is not prime");
     (value % P as u128) as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{reduce, reduce_wide};
+
+    /// The validated integer reductions agree with the plain remainder over
+    /// the sampled characteristics.
+    #[test]
+    fn reductions_match_remainder() {
+        const WIDE: u64 = 0xFFFF_FFFF_FFFF_FFC5;
+        const WIDE2: u64 = 0xFFFF_FFFF_FFFF_FFAD;
+        const WIDE3: u64 = 0x7FFF_FFFF_FFFF_FFE7;
+
+        fn check<const P: u64>() {
+            for value in [0, 1, 2, 7, P - 1, P, P + 1, 1 << 63, u64::MAX, u64::MAX - 1] {
+                assert_eq!(reduce::<P>(value), value % P, "reduce {value} at {P}");
+            }
+            for wide in [
+                0,
+                1,
+                7,
+                u128::from(P) * u128::from(P),
+                1 << 64,
+                (1 << 64) + 5,
+                1 << 127,
+                u128::MAX,
+                u128::MAX - 1,
+            ] {
+                assert_eq!(
+                    u128::from(reduce_wide::<P>(wide)),
+                    wide % u128::from(P),
+                    "reduce_wide {wide} at {P}"
+                );
+            }
+        }
+
+        check::<2>();
+        check::<3>();
+        check::<251>();
+        check::<0x7FFF_FFFF>();
+        check::<0xFFFF_FFFF_0000_0001>();
+        check::<WIDE>();
+        check::<WIDE2>();
+        check::<WIDE3>();
+    }
 }

@@ -4,23 +4,27 @@
 //! under `simd512`) or AVX2 (`V3`) the multiply uses 32-bit-half `vpmuludq`
 //! splitting and the Goldilocks split-fold (`2^64 ≡ 2^32 − 1`); SSE4.1
 //! (`V2`) runs the same construction at half width. Every other target runs
-//! the portable [`crate::kernel::prime`] path, so [`FieldKernels::backend`]
+//! the portable [`crate::kernel::prime`] path, so the backend query
 //! reports `Scalar` there. The prepared form is the canonical lane word,
 //! broadcast by the kernels on entry.
 
-use crate::field::goldilocks::Goldilocks;
-use crate::field::{Elem, FieldElem};
+use crate::field::Elem;
 #[allow(unused_imports)]
-use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, prime, scalar};
+use crate::field::dispatch::{KernelDispatch, RawDispatch};
+use crate::field::goldilocks::Goldilocks;
+use crate::kernel::{Backend, backend, prime, scalar};
 
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::kernel::x86;
 #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 use crate::kernel::x86_v4_token as v4;
 
-impl FieldKernels for Goldilocks {
+impl KernelDispatch for Goldilocks {
+    /// The canonical lane word, broadcast by the kernels on entry.
+    type Prepared = Elem<Goldilocks>;
+
     #[inline]
-    fn backend() -> Backend {
+    fn backend(_proof: RawDispatch) -> Backend {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             match backend() {
@@ -38,7 +42,7 @@ impl FieldKernels for Goldilocks {
     }
 
     #[inline]
-    fn has_vector_elementwise() -> bool {
+    fn has_vector_elementwise(_proof: RawDispatch) -> bool {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             matches!(
@@ -51,11 +55,16 @@ impl FieldKernels for Goldilocks {
             false
         }
     }
-}
 
-impl KernelDispatch for Goldilocks {
-    /// The canonical lane word, broadcast by the kernels on entry.
-    type Prepared = Elem<Goldilocks>;
+    fallback_entries!(
+        row: vector_elementwise_min_bytes, add_gather_offsets, add_assign_rows,
+        sub_assign_rows, mul_into_scatter, mul_add_scatter_with,
+        mul_add_scatter_plan, mul_add_gather_with, mul_add_gather_plan,
+        mul_into_gather, mul_into_gather_with, mul_into_gather_plan,
+        mul_add_matrix_with, mul_add_matrix_plan, mul_into_matrix,
+        mul_into_matrix_plan, mul_add_matrix_at, mul_add_matrix_at_rows,
+        mul_add_matrix_at_plan, mul_into_matrix_at, mul_into_matrix_at_plan,
+    );
 
     #[inline]
     fn prepare(_proof: RawDispatch, coeff: Elem<Goldilocks>) -> Elem<Goldilocks> {
@@ -100,15 +109,6 @@ impl KernelDispatch for Goldilocks {
     }
 
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<Goldilocks>, src: &[u8]) {
-        if coeff.is_zero() {
-            return;
-        }
-        if coeff.is_one() {
-            return Self::add_assign(RawDispatch, dst, src);
-        }
-        // Canonical zero and unit comparisons exclude both trivial coefficients.
-        #[cfg(test)]
-        let _general_trace = crate::kernel::trace::term(crate::kernel::trace::Term::General);
         match backend() {
             #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => x86::goldilocks::mul_add_avx512(v4(), dst, coeff.to_raw(), src),
@@ -193,7 +193,7 @@ impl KernelDispatch for Goldilocks {
         coeffs: &[Elem<Goldilocks>],
         src: &[u8],
     ) {
-        crate::kernel::fallback::mul_add_scatter::<Goldilocks>(rows, row_len, coeffs, src);
+        prime::mul_add_scatter::<Goldilocks>(rows, row_len, coeffs, src);
     }
 
     fn mul_add_gather(
@@ -202,7 +202,7 @@ impl KernelDispatch for Goldilocks {
         coeffs: &[Elem<Goldilocks>],
         srcs: &[&[u8]],
     ) {
-        crate::kernel::fallback::mul_add_gather::<Goldilocks>(dst, coeffs, srcs);
+        prime::mul_add_gather::<Goldilocks>(dst, coeffs, srcs);
     }
 
     fn mul_add_matrix(
@@ -212,7 +212,7 @@ impl KernelDispatch for Goldilocks {
         nrows: usize,
         terms: &[(&[Elem<Goldilocks>], &[u8])],
     ) {
-        crate::kernel::fallback::mul_add_matrix::<Goldilocks>(rows, row_len, nrows, terms);
+        prime::mul_add_matrix::<Goldilocks>(rows, row_len, nrows, terms);
     }
 
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {

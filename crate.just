@@ -6,6 +6,23 @@ CRATE := 'fgf'
 MSRV := '1.93'
 API_NIGHTLY := 'nightly-2026-09-30'
 
+# Stable public-surface gate. The inventory tools are external development
+# tools pinned here and in the CI installer; both read the rustdoc JSON format
+# `API_NIGHTLY` emits. `API_PATHS_MODE` is `enforce`: every stable item has
+# exactly one path. `API_MAJOR` is the major version whose published releases
+# form the semver baseline.
+API_PUBLIC_API := '0.52.0'
+API_SEMVER_CHECKS := '0.51.0'
+API_FORMAT := '61'
+API_TARGETS := 'x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu wasm32-unknown-unknown'
+API_PATHS_MODE := 'enforce'
+API_MAJOR := '4'
+
+# Every Cargo feature except `default` and `internals`; `_api-generate` fails
+# when it disagrees with the manifest, so a new feature cannot drop out of the
+# `all` inventory cell and the `stable-max` semver set.
+API_STABLE_FEATURES := 'alloc,std,simd,simd512'
+
 # Backend tiers this crate dispatches over, strongest first. `just test-tiers`
 # and `just cover` re-run once per tier, because dispatch resolves one backend
 # per process. Empty means the crate owns no dispatch surface.
@@ -16,12 +33,13 @@ MIRI := ''
 
 # Coverage excludes the full x86 binary-field kernel subtrees and the complete
 # gf8/tower dispatch files, including their portable and narrower-ISA branches.
-# AVX-512 QuadMersenne31, residue, and GF(2) interop bodies and the GF(2)
-# interop dispatch are also excluded. AVX2 residue kernels and mixed-ISA prime
-# dispatch modules remain included.
-COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512(/|\.rs$)|kernel/x86/gf1/avx512\.rs$|kernel/gf1/dispatch\.rs$|kernel/(gf8|tower)\.rs$"'
+# AVX-512 QuadMersenne31 and residue bodies are also excluded. AVX2 residue
+# kernels and mixed-ISA prime dispatch modules remain included.
+COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512(/|\.rs$)|kernel/(gf8|tower)\.rs$"'
 
 # Export the existing merged profiles, including after a failed coverage gate.
+# CI uploads the export; run `just cover` first.
+[private]
 [group('cover')]
 cover-lcov:
     cargo llvm-cov report --lcov --output-path coverage.lcov --ignore-filename-regex {{COV_IGNORE}}
@@ -32,24 +50,24 @@ cover-lcov:
 example NAME *ARGS:
     cargo run --example {{NAME}} {{ARGS}}
 
-# Run all educational examples; the timing probe is a separate diagnostic.
+# Every example runs under the default features and under `alloc` without
+# `std`; the allocation-free subset also runs with every library feature
+# disabled. Timing probes are separate diagnostics.
+# Run every educational example in each feature configuration.
 [group('examples')]
-examples *ARGS:
+examples:
     #!/usr/bin/env bash
     set -euo pipefail
-    for name in field_arithmetic shard_recovery streaming_encode binary_syndrome extension_fields embeddings prime_vectors generic_prime custom_extensions basis_maps packed_no_alloc; do
-        cargo run --example "${name}" {{ARGS}}
+    all=(field_arithmetic shard_recovery streaming_encode binary_syndrome extension_fields embeddings prime_vectors generic_prime custom_extensions basis_maps packed_no_alloc)
+    portable=(field_arithmetic binary_syndrome extension_fields embeddings custom_extensions basis_maps packed_no_alloc)
+    for name in "${all[@]}"; do
+        cargo run --example "${name}"
     done
-
-# The library-noalloc examples: they run with every feature off, the
-# strongest portability claim an example can make. The prepared-collection
-# and timing-probe examples stay out because they need `alloc` or `std`.
-[group('examples')]
-examples-portable *ARGS:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for name in field_arithmetic binary_syndrome extension_fields embeddings custom_extensions basis_maps packed_no_alloc; do
-        cargo run --example "${name}" --no-default-features {{ARGS}}
+    for name in "${all[@]}"; do
+        cargo run --example "${name}" --no-default-features --features alloc
+    done
+    for name in "${portable[@]}"; do
+        cargo run --example "${name}" --no-default-features
     done
 
 # The shared `features` recipe walks `--no-default-features`, default, and
@@ -117,15 +135,6 @@ external-check:
         cargo check --manifest-path "${manifest}" --all-targets
     done
 
-# Print process and representative-field backends without inferring execution
-# coverage from a downgrade request.
-[group('test')]
-backend-report:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    bin=$(cargo build --all-features --example backend_report --message-format=json-render-diagnostics | jq -rs '[.[] | select(.executable != null) | .executable] | last')
-    "${bin}"
-
 # Require an actual tier and positive direct-kernel execution evidence before
 # sweeping downgrade requests. Dedicated acceptance hosts supply their real tier.
 [group('gate')]
@@ -142,14 +151,6 @@ isa-accept EXPECTED:
             exit 1
         }
     done
-    # Route acceptance records a primary-host identity, so it runs only when
-    # the caller supplied the microarchitecture. A hosted runner sweeps the
-    # backend floor in survey mode through the full test below.
-    if [[ -n ${FGF_HOST_ARCH:-} ]]; then
-        for features in default all; do
-            just route-accept "{{EXPECTED}}" "$features"
-        done
-    fi
     log=$(mktemp)
     trap 'rm -f "$log"' EXIT
     cargo test --all-features -- --nocapture 2>&1 | tee "$log"
@@ -187,26 +188,61 @@ isa-accept EXPECTED:
 
 # Negative consumer snippets under `tests/compile_fail/`: each must fail to
 # compile on the crate MSRV. The first line names the expectation: a
-# crate-owned panic fragment (`expect:`) that must appear in the error, or
-# `expect-rejection` for trait-bound and privacy rejections, where only the
-# failure itself is the contract. A rejection case fails when stderr holds
-# an unresolved-name error (`E0412`, `E0425`, `E0432`, `E0433`): such a
-# snippet was rejected for a missing import, not the bound under test.
+# panic fragment or rustc diagnostic code/text (`expect:`) that must appear
+# in the error, or `expect-rejection` when only rejection is the contract.
+# Comment lines two and three carry optional directives by prefix:
+# `// expect-code: E0080` adds a required diagnostic code, so
+# const-validation regressions pin both the named fragment and the
+# evaluation error, and `// reject: <fragment>` forbids an actual
+# diagnostic fragment, in either order. A reject assertion names the
+# forbidden panic text of a condition that must not fire (a degree
+# assertion reached before a field-validity failure, say), never text the
+# snippet's own source quotes. A rejection-only case fails when stderr
+# holds an unresolved-name error (`E0405`, `E0412`, `E0422`, `E0423`,
+# `E0425`, `E0432`, `E0433`): such a snippet was rejected for a
+# missing import, not the bound under test. Every case also fails when it
+# trips on a private module path (`E0603`), because a privatized module is
+# not the contract the snippet names.
+# Every snippet runs against the all-features rlib; the sealed/row-hook
+# raw-arithmetic probes, the raw/proof/prepared/query/removal privacy
+# probes, and the map/error-boundary negatives additionally run against
+# the stable-maximal rlib (every stable feature, `internals` off), each
+# built separately with its exact artifact path retained, so one
+# configuration's rlib can never serve the other's run. Diagnostics are
+# labeled by configuration.
 # Cargo does not treat that directory as test targets, so these run only
 # through this recipe.
 [group('test')]
 compile-fail:
     #!/usr/bin/env bash
     set -euo pipefail
-    rlib=$(cargo +{{MSRV}} build --lib --all-features --message-format=json | jq -rs '[.[] | select(.reason == "compiler-artifact" and .target.name == "fgf") | .filenames[]? | select(endswith(".rlib"))] | first // empty')
-    if [[ -z "${rlib}" ]]; then
-        echo "compile-fail: fgf rlib not found in the build output" >&2
-        exit 1
-    fi
+    rlib_of() {
+        cargo +{{MSRV}} build --lib "${@}" --message-format=json |
+            jq -rs '[.[] | select(.reason == "compiler-artifact" and .target.name == "fgf") | .filenames[]? | select(endswith(".rlib"))] | first // empty'
+    }
     scratch=$(mktemp -d)
     trap 'rm -rf "${scratch}"' EXIT
+    # The root package's rlib lives at one canonical path, so the second
+    # build overwrites the first: each configuration's artifact is copied
+    # to its own file before the next build runs.
+    rlib_all_src=$(rlib_of --all-features)
+    if [[ -z "${rlib_all_src}" ]]; then
+        echo "compile-fail: all-features fgf rlib not found in the build output" >&2
+        exit 1
+    fi
+    rlib_all="${scratch}/libfgf-all.rlib"
+    cp "${rlib_all_src}" "${rlib_all}"
+    rlib_stable_src=$(rlib_of --no-default-features --features {{API_STABLE_FEATURES}})
+    if [[ -z "${rlib_stable_src}" ]]; then
+        echo "compile-fail: stable-maximal fgf rlib not found in the build output" >&2
+        exit 1
+    fi
+    rlib_stable="${scratch}/libfgf-stable.rlib"
+    cp "${rlib_stable_src}" "${rlib_stable}"
     failures=0
-    for snippet in tests/compile_fail/*.rs; do
+    run_case() {
+        local config="${1}" rlib="${2}" snippet="${3}"
+        local header fragment code reject err directive
         header=$(head -n 1 "${snippet}")
         case "${header}" in
             "// expect-rejection") fragment="" ;;
@@ -216,49 +252,63 @@ compile-fail:
                 exit 1
                 ;;
         esac
+        # Lines two and three carry optional directives by prefix, in
+        # either order.
+        code=""
+        reject=""
+        for directive in "$(sed -n '2p' "${snippet}")" "$(sed -n '3p' "${snippet}")"; do
+            case "${directive}" in
+                "// expect-code: "*) code="${directive##*expect-code: }" ;;
+                "// reject: "*) reject="${directive##*reject: }" ;;
+                *) : ;;
+            esac
+        done
+
         if err=$(rustc +{{MSRV}} --edition 2024 --crate-type lib --extern fgf="${rlib}" -L dependency=target/debug/deps --out-dir "${scratch}" "${snippet}" 2>&1); then
-            echo "compile-fail: FAIL ${snippet} compiled successfully" >&2
+            echo "compile-fail: FAIL [${config}] ${snippet} compiled successfully" >&2
+            failures=$((failures + 1))
+        elif grep -qE -- 'error\[E0603\]: module `[^`]+` is private' <<< "${err}"; then
+            echo "compile-fail: FAIL [${config}] ${snippet}: rejected for a private module path" >&2
             failures=$((failures + 1))
         elif [[ -n "${fragment}" ]] && ! grep -qF -- "${fragment}" <<< "${err}"; then
-            echo "compile-fail: FAIL ${snippet} expected fragment: ${fragment}" >&2
+            echo "compile-fail: FAIL [${config}] ${snippet} expected fragment: ${fragment}" >&2
             failures=$((failures + 1))
-        elif [[ -z "${fragment}" ]] && grep -qE -- 'error\[E(0412|0425|0432|0433)\]' <<< "${err}"; then
-            echo "compile-fail: FAIL ${snippet}: rejected for an unresolved name" >&2
+        elif [[ -n "${code}" ]] && ! grep -qF -- "error[${code}]" <<< "${err}"; then
+            echo "compile-fail: FAIL [${config}] ${snippet} expected code: ${code}" >&2
+            failures=$((failures + 1))
+        elif [[ -n "${reject}" ]] && grep -qF -- "${reject}" <<< "${err}"; then
+            echo "compile-fail: FAIL [${config}] ${snippet} forbidden fragment present: ${reject}" >&2
+            failures=$((failures + 1))
+        elif [[ -z "${fragment}" ]] && grep -qE -- 'error\[E(0405|0412|0422|0423|0425|0432|0433)\]' <<< "${err}"; then
+            echo "compile-fail: FAIL [${config}] ${snippet}: rejected for an unresolved name" >&2
             failures=$((failures + 1))
         else
-            echo "compile-fail: ok $(basename "${snippet}")"
+            echo "compile-fail: ok [${config}] $(basename "${snippet}")"
         fi
+    }
+    for snippet in tests/compile_fail/*.rs; do
+        run_case all-features "${rlib_all}" "${snippet}"
+    done
+    for snippet in \
+        tests/compile_fail/sealed_*.rs \
+        tests/compile_fail/row_hook_*.rs \
+        tests/compile_fail/raw_*_without_proof.rs \
+        tests/compile_fail/field_buffer_*.rs \
+        tests/compile_fail/field_kernels_*.rs \
+        tests/compile_fail/embedding_*.rs \
+        tests/compile_fail/isomorphism_*.rs \
+        tests/compile_fail/map_*.rs \
+        tests/compile_fail/maps_*.rs \
+        tests/compile_fail/image_error_*.rs \
+        tests/compile_fail/range_error_*.rs
+    do
+        [[ -e "${snippet}" ]] || continue
+        run_case stable-maximal "${rlib_stable}" "${snippet}"
     done
     if [[ "${failures}" -ne 0 ]]; then
         echo "compile-fail: ${failures} case(s) failed" >&2
         exit 1
     fi
-
-# Compile and execute a standalone degree-64 binary consumer under default
-# lints. Library construction is outside the reported consumer compile times.
-[group('test')]
-binary-relation-accept TOOLCHAIN=MSRV FEATURES="portable" ROUNDS="5":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{FEATURES}}" in
-        portable) flags=(--no-default-features) ;;
-        default) flags=() ;;
-        all) flags=(--all-features) ;;
-        *) printf 'unsupported features: %s\n' "{{FEATURES}}" >&2; exit 2 ;;
-    esac
-    scratch=$(mktemp -d)
-    trap 'rm -rf "$scratch"' EXIT
-    rustc +"{{TOOLCHAIN}}" --version
-    rlib=$(cargo +"{{TOOLCHAIN}}" build --lib "${flags[@]}" --target-dir "$scratch/library" --message-format=json | jq -ers '[.[] | select(.reason == "compiler-artifact" and .target.name == "fgf") | .filenames[]? | select(endswith(".rlib"))] | first')
-    TIMEFORMAT='consumer_compile wall_s=%3R user_s=%3U system_s=%3S'
-    for ((round = 1; round <= {{ROUNDS}}; round++)); do
-        mkdir -p "$scratch/$round"
-        printf 'consumer_compile features=%s round=%s\n' "{{FEATURES}}" "$round"
-        time rustc +"{{TOOLCHAIN}}" --edition 2024 \
-            --extern "fgf=$rlib" -L "dependency=$scratch/library/debug/deps" \
-            --out-dir "$scratch/$round" tests/compile_pass/binary_degree64.rs
-        "$scratch/$round/binary_degree64"
-    done
 
 # MSRV acceptance: every negative consumer snippet rejects and the positive
 # consumer matrix runs on the crate MSRV toolchain.
@@ -298,6 +348,35 @@ package-check:
         done
     )
 
+# Regenerate the stable API inventory from the exact `cargo package` archive
+# and compare it with the committed `api/`. The archive excludes `api/`, so
+# the committed inventory, its generators, and the recipe files are copied
+# beside the extracted source; the inventory is then derived from the
+# packaged source alone.
+[group('release')]
+package-api:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    scratch=$(mktemp -d /tmp/fgf-package-api.XXXXXXXX)
+    trap 'rm -rf "$scratch"' EXIT
+    mkdir "$scratch/source" "$scratch/package"
+    tar --exclude=.git --exclude=target --exclude=bench-records --exclude=__pycache__ --exclude=.lucid -cf - . \
+        | tar -xf - -C "$scratch/source"
+    (
+        cd "$scratch/source"
+        cargo package --allow-dirty --no-verify
+    )
+    archives=("$scratch/source/target/package/"*.crate)
+    [[ "${#archives[@]}" -eq 1 ]] || { printf 'package_archive_count count=%s\n' "${#archives[@]}" >&2; exit 1; }
+    tar -xf "${archives[0]}" -C "$scratch/package"
+    packaged=("$scratch/package"/*)
+    cp -r api justfile crate.just "${packaged[0]}/"
+    (
+        cd "${packaged[0]}"
+        just api
+    )
+    printf 'package-api: %s exposes the committed inventory\n' "$(basename "${archives[0]}")"
+
 # Build a portable benchmark artifact for interleaved remote comparisons.
 [group('bench')]
 bench-build NAME:
@@ -308,36 +387,6 @@ bench-build NAME:
         jq -ers --arg name "{{NAME}}" \
             '[.[] | select(.reason == "compiler-artifact" and .target.name == $name and .target.kind == ["bench"] and .executable != null)] | if length == 1 then .[0].executable else error("expected one benchmark executable") end' \
             >"target/fgf-bench/{{NAME}}.path"
-
-# Run public row-composition measurements from a prebuilt artifact.
-# ARTIFACT defaults to the all-features compositions build. Explicit artifacts
-# preserve the original binary in paired campaigns. Requires FEC_GOLDEN_CORE.
-[group('bench')]
-bench-compositions ARTIFACT="" *ARGS:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    : "${FEC_GOLDEN_CORE:?FEC_GOLDEN_CORE must be set}"
-    if [[ -z "{{ARTIFACT}}" ]]; then
-        artifact="$(cat target/fgf-bench/compositions-all.path)"
-    else
-        artifact="{{ARTIFACT}}"
-    fi
-    taskset -c "${FEC_GOLDEN_CORE}" "${artifact}" --compositions {{ARGS}}
-
-# Build the same compositions panel at either SIMD feature configuration.
-[group('bench')]
-bench-compositions-build FEATURES="all":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{FEATURES}}" in
-        all) features=(--all-features) ;;
-        default) features=(--features internals) ;;
-        *) echo "expected all or default features" >&2; exit 2 ;;
-    esac
-    mkdir -p target/fgf-bench
-    cargo bench "${features[@]}" --bench kernels --no-run --message-format=json-render-diagnostics |
-        jq -ers '[.[] | select(.reason == "compiler-artifact" and .target.name == "kernels" and .target.kind == ["bench"] and .executable != null)] | if length == 1 then .[0].executable else error("expected one benchmark executable") end' \
-            >"target/fgf-bench/compositions-{{FEATURES}}.path"
 
 # Miri over the dispatched GFNI paths: the owned-unsafe residue that the
 # scalar configuration does not compile. Runtime detection reports nothing
@@ -372,169 +421,80 @@ MIRI_GFNI := '''--test ops gf8_matrix_scattered_matches_contiguous -- --exact
 --features internals --test internals proven_gf16_kernels_match_scalar -- --exact
 --features internals --test internals proven_gf16_degenerate_boundaries -- --exact'''
 
-# Field-family benchmark suites. `bench-<field>` runs that family's self
-# benchmarks in one pass. `bench-<field>-comp` runs five complete rounds
-# interleaving the family's self suite with every wired competitor harness,
-# shuffling the unit order within each round and printing the realized
-# order; the benchmark record aggregates across rounds. `gf` is the binary
-# tower fields, `gdl` Goldilocks, `m31` Mersenne31 and QuadMersenne31,
-# `gf2` bit-packed GF(2). The competitor harnesses live in `external/` as
-# separate, unpublished packages — the link to the system ISA-L and the Go
-# c-archive needs a build script, and `fgf` itself carries none.
+# Each round shuffles the family's units and prints the realized order, so no
+# unit owns the warm or cold position. `gf` interleaves the binary-field self
+# suite, the ISA-L and klauspost trio, and the native GF16 harness; `gdl`
+# (Goldilocks) and `m31` (Mersenne31 and QuadMersenne31) interleave the self
+# suite with the Plonky3 harness; `gf16` repeats the native GF16 harness alone
+# and passes ARGS to it. The harnesses live in `external/` as separate
+# unpublished packages: linking a competitor needs a build script, and `fgf`
+# itself carries none. Every unit runs pinned to `FEC_GOLDEN_CORE`.
+# Five-round competitor campaign for one family: gf, gdl, m31, or gf16.
 [group('bench')]
-bench-gf:
-    just bench kernels --gf
-    just bench compare
+bench-comp FAMILY *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
+    pin=(taskset -c "${FEC_GOLDEN_CORE}")
+    case "{{FAMILY}}" in
+        gf)
+            pkg-config --modversion libisal >/dev/null || {
+                echo "libisal not found through pkg-config; install Intel ISA-L" >&2
+                exit 1
+            }
+            command -v go >/dev/null || {
+                echo "go not found in PATH; install the Go toolchain" >&2
+                exit 1
+            }
+            just _trio-build
+            just gf16-build
+            units=(self trio gf16)
+            ;;
+        gdl|m31)
+            RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
+            units=(self prime)
+            ;;
+        gf16)
+            just gf16-build
+            units=(gf16)
+            pin=(chrt --idle 0 taskset -c "${FEC_GOLDEN_CORE}")
+            ;;
+        *)
+            printf 'unsupported_family family=%s\n' "{{FAMILY}}" >&2
+            exit 2
+            ;;
+    esac
+    echo "pinned to core ${FEC_GOLDEN_CORE}"
+    for run in 1 2 3 4 5; do
+        echo "== round ${run}"
+        printf '%s\n' "${units[@]}" | shuf | while read -r unit; do
+            echo "-- round ${run} unit ${unit}"
+            case "${unit}" in
+                self)
+                    just bench kernels --{{FAMILY}}
+                    if [[ "{{FAMILY}}" == gf ]]; then
+                        just bench compare
+                    fi
+                    ;;
+                trio) "${pin[@]}" external/bench-trio/target/release/fgf-bench-trio ;;
+                gf16) "${pin[@]}" external/gf16-bench/target/release/fgf-gf16-bench {{ARGS}} ;;
+                prime) "${pin[@]}" external/prime-bench/target/release/fgf-bench-prime {{FAMILY}} ;;
+            esac
+        done
+    done
 
 # Build the byte-field competitor harness without running a timing campaign.
 [private]
 _trio-build:
     cargo build --release --manifest-path external/bench-trio/Cargo.toml
 
-# The binary-field competitor trio. `external/bench-trio/` links the system
-# Intel ISA-L (pkg-config `libisal`) and klauspost/reedsolomon as a Go C
-# archive (Go toolchain in PATH) into one binary that interleaves `fgf`,
-# ISA-L, and klauspost over one fixture set, rotating through all six arm
-# orders. The build fails loudly when a toolchain is absent rather than
-# dropping the arm. Each round shuffles the self suite, the byte-field trio,
-# and the native GF16 harness so no unit owns the warm or cold position.
-[group('bench')]
-bench-gf-comp:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    pkg-config --modversion libisal >/dev/null || {
-        echo "libisal not found through pkg-config; install Intel ISA-L" >&2
-        exit 1
-    }
-    command -v go >/dev/null || {
-        echo "go not found in PATH; install the Go toolchain" >&2
-        exit 1
-    }
-    just _trio-build
-    just gf16-build
-    pin=()
-    if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
-        pin=(taskset -c "${FEC_GOLDEN_CORE}")
-        echo "pinned to core ${FEC_GOLDEN_CORE}"
-    else
-        echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
-    fi
-    for run in 1 2 3 4 5; do
-        echo "== round ${run}"
-        printf '%s\n' self trio gf16 | shuf | while read -r unit; do
-            echo "-- round ${run} unit ${unit}"
-            case "${unit}" in
-                self)
-                    just bench kernels --gf
-                    just bench compare
-                    ;;
-                trio)
-                    "${pin[@]}" external/bench-trio/target/release/fgf-bench-trio
-                    ;;
-                gf16)
-                    "${pin[@]}" external/gf16-bench/target/release/fgf-gf16-bench
-                    ;;
-            esac
-        done
-    done
-
-[group('bench')]
-bench-gdl:
-    just bench kernels --gdl
-
-# Field-map operations across every measured pair geometry: scalar chains,
-# region rows over the compact-map control loop, and construction
-# amortization, with machine records for the `maps` publisher suite.
-[group('bench')]
-bench-field-maps:
-    just bench field_maps
-
-# The prime-field competitor: `external/prime-bench/` compares `fgf`
-# against Plonky3 on each library's native layout, built with
-# `-C target-cpu=native` because Plonky3 selects its packed kernels at
-# compile time. Each round shuffles its units — the self suite and the
-# harness — so no unit systematically owns the warm or cold position.
-[group('bench')]
-bench-gdl-comp:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
-    echo "bench-gdl-comp: five rounds, units self p3"
-    pin=()
-    if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
-        pin=(taskset -c "${FEC_GOLDEN_CORE}")
-        echo "pinned to core ${FEC_GOLDEN_CORE}"
-    else
-        echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
-    fi
-    for run in 1 2 3 4 5; do
-        echo "== round ${run}"
-        printf '%s\n' self p3 | shuf | while read -r unit; do
-            echo "-- round ${run} unit ${unit}"
-            case "${unit}" in
-                self)
-                    just bench kernels --gdl
-                    ;;
-                p3)
-                    "${pin[@]}" external/prime-bench/target/release/fgf-bench-prime gdl
-                    ;;
-            esac
-        done
-    done
-
-[group('bench')]
-bench-m31:
-    just bench kernels --m31
-    just bench-save prime_ntt
-    just bench prime_ntt
-
-[group('bench')]
-bench-m31-comp:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
-    echo "bench-m31-comp: five rounds, units self p3"
-    pin=()
-    if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
-        pin=(taskset -c "${FEC_GOLDEN_CORE}")
-        echo "pinned to core ${FEC_GOLDEN_CORE}"
-    else
-        echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
-    fi
-    for run in 1 2 3 4 5; do
-        echo "== round ${run}"
-        printf '%s\n' self p3 | shuf | while read -r unit; do
-            echo "-- round ${run} unit ${unit}"
-            case "${unit}" in
-                self)
-                    just bench kernels --m31
-                    ;;
-                p3)
-                    "${pin[@]}" external/prime-bench/target/release/fgf-bench-prime m31
-                    ;;
-            esac
-        done
-    done
-
-[group('bench')]
-bench-gf2:
-    just bench kernels --gf2
-
-[group('bench')]
-bench-gf2-comp:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "bench-gf2-comp: no competitor harness is wired for bit-packed GF(2) yet"
-    for run in 1 2 3 4 5; do
-        echo "== round ${run} order self"
-        just bench kernels --gf2
-    done
-
 # Native GF16 field comparison; every arm is required and validated before timing.
+[private]
 [group('bench')]
 gf16-build:
     cargo build --release --manifest-path external/gf16-bench/Cargo.toml
 
+[private]
 [group('bench')]
 gf16-check *ARGS: gf16-build
     external/gf16-bench/target/release/fgf-gf16-bench --check {{ARGS}}
@@ -554,6 +514,7 @@ benchmark-check:
     python3 benches/check_surfaces.py --rustdoc target/doc/fgf.json --check-log "$scratch/check.log"
 
 # Compiler-derived stable callable set: no hand-maintained source-text manifest.
+[private]
 [group('bench')]
 benchmark-api-json:
     cargo +{{API_NIGHTLY}} rustdoc --all-features --lib -- -Z unstable-options --output-format json
@@ -565,647 +526,11 @@ benchmark-check-native: gf16-build
     external/gf16-bench/target/release/fgf-gf16-bench --presentations --check
     just gf16-check
 
-[group('bench')]
-gf16-smoke *ARGS: gf16-build
-    external/gf16-bench/target/release/fgf-gf16-bench --smoke {{ARGS}}
-
-[group('bench')]
-gf16-fmt:
-    cargo fmt --manifest-path external/gf16-bench/Cargo.toml
-
-[group('bench')]
-gf16-lint:
-    cargo fmt --manifest-path external/gf16-bench/Cargo.toml --check
-    cargo clippy --release --manifest-path external/gf16-bench/Cargo.toml --all-targets -- -D warnings
-
-[group('bench')]
-bench-gf16-comp *ARGS: gf16-build
-    #!/usr/bin/env bash
-    set -euo pipefail
-    : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
-    for run in 1 2 3 4 5; do
-        echo "== GF16 round ${run}"
-        chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" external/gf16-bench/target/release/fgf-gf16-bench {{ARGS}}
-    done
-
-# Build all artifacts before the paired version campaign begins.
-[group('bench')]
-bench-refresh-build SURFACES="yes":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just bench-build kernels
-    just bench-build compare
-    # The frozen v2 tree predates the maps suite and carries no field_maps bench.
-    if [[ -f benches/field_maps.rs ]]; then
-        just bench-build field_maps
-    fi
-    case "{{SURFACES}}" in yes) just bench-build surfaces ;; no) ;; *) exit 2 ;; esac
-    just _trio-build
-    just gf16-build
-    RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
-
-# Run one prebuilt family round; the paired runner owns repetition and version order.
-[group('bench')]
-bench-refresh-round FAMILY:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
-    run_self() {
-        local name="$1" bin
-        shift
-        if [[ -n "${FGF_SELF_ARTIFACTS:-}" ]]; then
-            bin="$FGF_SELF_ARTIFACTS/$name"
-        else
-            IFS= read -r bin <"target/fgf-bench/$name.path"
-        fi
-        taskset -c "$FEC_GOLDEN_CORE" "$bin" "$@"
-    }
-    case "{{FAMILY}}" in
-        gf) units=(self trio gf16) ;;
-        gdl|m31) units=(self prime) ;;
-        gf2|prime|maps) units=(self) ;;
-        surfaces) units=(surfaces presentations) ;;
-        *) printf 'invalid_family family=%s\n' "{{FAMILY}}" >&2; exit 2 ;;
-    esac
-    printf '%s\n' "${units[@]}" | shuf | while read -r unit; do
-        printf 'UNIT\t%s\n' "$unit"
-        case "$unit" in
-            self)
-                if [[ "{{FAMILY}}" == maps ]]; then
-                    run_self field_maps
-                else
-                    run_self kernels --{{FAMILY}}
-                    if [[ "{{FAMILY}}" == gf ]]; then
-                        run_self compare
-                    fi
-                fi
-                ;;
-            trio) taskset -c "$FEC_GOLDEN_CORE" external/bench-trio/target/release/fgf-bench-trio ;;
-            gf16) taskset -c "$FEC_GOLDEN_CORE" external/gf16-bench/target/release/fgf-gf16-bench ;;
-            prime) taskset -c "$FEC_GOLDEN_CORE" external/prime-bench/target/release/fgf-bench-prime {{FAMILY}} ;;
-            surfaces) run_self surfaces ;;
-            presentations)
-                taskset -c "$FEC_GOLDEN_CORE" external/gf16-bench/target/release/fgf-gf16-bench --presentations ;;
-        esac
-    done
-
-# Compare two source roots on one host without reusing previous timings.
-[group('bench')]
-bench-paired V2_ROOT OUTPUT:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
-    : "${SIMD_BACKEND:?set SIMD_BACKEND to the intended host tier}"
-    export RAYON_NUM_THREADS=1 GOMAXPROCS=1
-    v2=$(realpath "{{V2_ROOT}}")
-    v3="$PWD"
-    out=$(realpath -m "{{OUTPUT}}")
-    mkdir -p "$out"
-    [[ ! -e "$out/complete.txt" && ! -e "$out/order.tsv" ]] || {
-        printf 'output_already_used path=%s\n' "$out" >&2
-        exit 2
-    }
-    exec 9>"$HOME/.fgf-benchmark-campaign.lock"
-    flock -n 9 || { printf 'campaign_host_busy\n' >&2; exit 2; }
-    just --justfile "$v2/justfile" --working-directory "$v2" bench-refresh-build no
-    just --justfile "$v3/justfile" --working-directory "$v3" bench-refresh-build yes
-    for source in "$v2" "$v3"; do
-        chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" just --justfile "$source/justfile" --working-directory "$source" test
-        chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" just --justfile "$source/justfile" --working-directory "$source" gf16-check
-    done
-    for round in 1 2 3 4 5; do
-        for family in gf gdl m31 gf2 maps; do
-            # Field maps have no released-v2 counterpart: the v3 tree alone runs them.
-            if [[ "$family" == maps ]]; then
-                versions=(v3)
-            else
-                mapfile -t versions < <(printf '%s\n' v2 v3 | shuf)
-            fi
-            for version in "${versions[@]}"; do
-                source="$v3"
-                [[ "$version" == v2 ]] && source="$v2"
-                if [[ -n "${FGF_PORTABLE_ARTIFACTS:-}" ]]; then
-                    export FGF_SELF_ARTIFACTS="$FGF_PORTABLE_ARTIFACTS/$version"
-                fi
-                printf '%s\t%s\t%s\n' "$round" "$family" "$version" | tee -a "$out/order.tsv"
-                chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" \
-                    just --justfile "$source/justfile" --working-directory "$source" bench-refresh-round "$family" \
-                    >"$out/round-$round-$version-$family.log" 2>&1
-            done
-        done
-        case "$((round % 3))" in
-            1) variants=(v3 avx2 scalar) ;;
-            2) variants=(avx2 scalar v3) ;;
-            0) variants=(scalar v3 avx2) ;;
-        esac
-        for variant in "${variants[@]}"; do
-            case "$variant" in
-                v3) tier="$SIMD_BACKEND" ;;
-                avx2) tier=v3 ;;
-                scalar) tier=scalar ;;
-            esac
-            if [[ -n "${FGF_PORTABLE_ARTIFACTS:-}" ]]; then
-                export FGF_SELF_ARTIFACTS="$FGF_PORTABLE_ARTIFACTS/v3"
-            fi
-            printf '%s\tprime\t%s\n' "$round" "$variant" | tee -a "$out/order.tsv"
-            SIMD_BACKEND="$tier" chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" \
-                just --justfile "$v3/justfile" --working-directory "$v3" bench-refresh-round prime \
-                >"$out/round-$round-$variant-prime.log" 2>&1
-        done
-        # The public-API surface family is current-v3-only: it has no v2
-        # counterpart, so it never enters the version shuffle and each of
-        # its rounds completes after the legacy families.
-        printf '%s\tsurfaces\tv3\n' "$round" | tee -a "$out/order.tsv"
-        chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" \
-            just --justfile "$v3/justfile" --working-directory "$v3" bench-refresh-round surfaces \
-            >"$out/round-$round-v3-surfaces.log" 2>&1
-    done
-    printf 'CAMPAIGN_COMPLETE\n' >"$out/complete.txt"
-
-# Materialize the frozen release with benchmark-only public API adapters.
-[group('bench')]
-bench-prepare-v2 DESTINATION:
-    python3 benches/prepare_v2.py --output "{{DESTINATION}}"
-
-# Generate or verify version snapshots and paired comparisons from raw runs.
-[group('bench')]
-bench-publish RECORDS OUTPUT *ARGS:
-    python3 benches/publish.py --records "{{RECORDS}}" --output "{{OUTPUT}}" {{ARGS}}
-
-# Publisher regression: feed real `field_maps` producer output through the
-# maps grammar (per-record checks plus the completeness inventory), so a
-# grammar change that wrongly requires lane-region or pow-control rows for
-# scalar-only or bits-only pairs fails here instead of in a campaign.
-# Builds the bench, captures its `--list-labels` inventory (label grammar
-# only, no timing), and validates the full producer inventory.
-[group('bench')]
-bench-maps-publisher:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cargo build --release --bench field_maps
-    bin=$(ls -t target/release/deps/field_maps-* | grep -v '\.d$' | head -n 1)
-    "$bin" --list-labels > "$bin-maps-inventory.txt"
-    python3 benches/test_maps_publisher.py "$bin-maps-inventory.txt"
-
-# ── Public-route acceptance ───────────────────────────────────────────────
-#
-# `src/kernel/tests/routes.rs` runs every generated ledger case through the
-# public operation surface, judges the output against an element-wise
-# reference, and judges the test-only trace against the cell's work budget.
-# The recipes below drive that runner, audit its receipts with
-# `benches/simd_ledger.py accept`, and prove the audit can fail.
-
-# The rustdoc callable set, the test list, the runner's case list, and the
-# public benchmark surface stream, all produced from one source tree.
-# Inventories every ledger check resolves against.
-[private]
-_route-inventories FEATURES DIR:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mkdir -p "{{DIR}}"
-    case "{{FEATURES}}" in
-        default) flags=() ;;
-        all) flags=(--all-features) ;;
-        *) printf 'route_inventory: unsupported features %s\n' "{{FEATURES}}" >&2; exit 2 ;;
-    esac
-    cargo +{{API_NIGHTLY}} rustdoc --all-features --lib -- -Z unstable-options --output-format json
-    cp target/doc/fgf.json "{{DIR}}/fgf.json"
-    cargo test --lib "${flags[@]}" -- --list >"{{DIR}}/tests.txt"
-    FGF_ROUTE_LIST=1 FGF_ROUTE_SURVEY=1 cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture >"{{DIR}}/cases.txt"
-    FGF_ROUTE_LIST=1 FGF_ROUTE_SURVEY=1 cargo test --lib --all-features kernel::tests::routes::accept -- --nocapture >"{{DIR}}/cases-all.txt"
-    bin=$(cargo build --profile test --all-features --bench surfaces --message-format=json-render-diagnostics | jq -rs '[.[] | select(.executable != null) | .executable] | last')
-    "${bin}" --check >"{{DIR}}/surfaces.txt"
-
-# Run every case and print receipts with the observed served tier and work.
-# Routing mismatches never fail the run; a wrong output still does. An
-# ambient `SIMD_BACKEND` selects the request cell.
-# Survey one feature configuration.
-[group('gate')]
-route-survey FEATURES LOG:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{FEATURES}}" in
-        default) flags=() ;;
-        all) flags=(--all-features) ;;
-        *) printf 'route_survey: unsupported features %s\n' "{{FEATURES}}" >&2; exit 2 ;;
-    esac
-    export FGF_ROUTE_SURVEY=1
-    if [[ -n ${FGF_HOST_ARCH:-} ]]; then
-        cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')
-        export FGF_HOST_ID="${FGF_HOST_ARCH}|${cpu}"
-    fi
-    mkdir -p "$(dirname "{{LOG}}")"
-    cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture 2>&1 | tee "{{LOG}}"
-
-# Validate every ledger reference, run the required cases, then audit the
-# log with the expectations passed as arguments rather than read from it.
-# Fail-closed acceptance for one request and feature configuration.
-[group('gate')]
-route-accept REQUEST FEATURES:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{FEATURES}}" in
-        default) flags=() ;;
-        all) flags=(--all-features) ;;
-        *) printf 'route_accept: unsupported features %s\n' "{{FEATURES}}" >&2; exit 2 ;;
-    esac
-    case "{{REQUEST}}" in
-        v4x|v3_gfni_crypto|v3|v2|scalar) ;;
-        *) printf 'route_accept: unsupported request %s\n' "{{REQUEST}}" >&2; exit 2 ;;
-    esac
-    scratch=$(mktemp -d)
-    trap 'rm -rf "$scratch"' EXIT
-    just _route-inventories {{FEATURES}} "$scratch"
-    # Fresh acceptance audits the ledger's own shape and the run it is about
-    # to make; the historical record replay belongs to `route-gate`.
-    python3 benches/simd_ledger.py check --full \
-        --rustdoc "$scratch/fgf.json" \
-        --test-list "$scratch/tests.txt" \
-        --case-list "$scratch/cases.txt" \
-        --surface-inventory "$scratch/surfaces.txt"
-    source_id=$(
-        {
-            git rev-parse HEAD
-            git diff HEAD
-            git ls-files --others --exclude-standard -z | xargs -0 -r sha256sum
-        } | sha256sum | cut -d' ' -f1
-    )
-    : "${FGF_HOST_ARCH:?route_accept requires FGF_HOST_ARCH (CPU microarchitecture)}"
-    cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')
-    host_id="${FGF_HOST_ARCH}|${cpu}"
-    log="$scratch/route.log"
-    SIMD_BACKEND="{{REQUEST}}" FGF_ROUTE_ACCEPT=1 \
-        FGF_SOURCE_ID="$source_id" FGF_HOST_ID="$host_id" \
-        FGF_FEATURES="{{FEATURES}}" \
-        cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture | tee "$log"
-    python3 benches/simd_ledger.py accept --log "$log" \
-        --features "{{FEATURES}}" --request "{{REQUEST}}" \
-        --source-id "$source_id" --host-id "$host_id"
-
-# Compile against a temporary ledger copy with one required cell, run each
-# injected fault and a downgraded request, and assert the audit rejects
-# every one with its reason code. The canonical ledger and generated case
-# table are restored on exit.
-# Prove the acceptance pipeline can fail.
-[group('gate')]
-route-accept-negative REQUEST:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{REQUEST}}" in
-        v4x)
-            obligation='ops::mul_add@residue-u32'
-            features=all
-            flags=(--all-features)
-            serving=v4x
-            field=v4x
-            ;;
-        v3_gfni_crypto|v3)
-            obligation='ops::mul_add@residue-u32'
-            features=default
-            flags=()
-            serving=v3
-            field=v3
-            ;;
-        v2)
-            obligation='ops::mul_add@gf8-poly-aes'
-            features=default
-            flags=()
-            serving=v2
-            field=v2
-            ;;
-        *) printf 'route_accept_negative: no vector budget for request %s\n' "{{REQUEST}}" >&2; exit 2 ;;
-    esac
-    scratch=$(mktemp -d)
-    cases=src/kernel/tests/routes/cases.rs
-    cp "$cases" "$scratch/cases.rs"
-    trap 'cp "$scratch/cases.rs" "$cases"; rm -rf "$scratch"' EXIT
-    ledger="$scratch/ledger.json"
-    python3 - "$ledger" "{{REQUEST}}" "$obligation" "$serving" "$features" <<'PY'
-    import json
-    import sys
-
-    out, request, obligation, serving, features = sys.argv[1:6]
-    ledger = json.load(open("benches/simd_ledger.json"))
-    ledger["routes"] = {obligation: f"{features}/{request}=direct@{serving}"}
-    ledger["route_notes"] = {}
-    ledger["obligations"] = {obligation: {"cells": {
-        f"{features}/{request}": {"work": ["row-mul-add"]}}}}
-    json.dump(ledger, open(out, "w"), indent=1, sort_keys=False)
-    PY
-    python3 benches/simd_ledger.py --ledger "$ledger" generate --out "$cases"
-    run_negative() {
-        local backend="$1" fault="$2" log="$3" source="$4" rc=0
-        FGF_ROUTE_FAULT="$fault" SIMD_BACKEND="$backend" FGF_ROUTE_ACCEPT=1 \
-            FGF_SOURCE_ID="$source" FGF_HOST_ID=negative FGF_FEATURES="$features" \
-            cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture \
-            >"$log" 2>&1 || rc=$?
-        printf '%s' "$rc"
-    }
-    expect_reject() {
-        local code="$1" log="$2" err="$3" rc=0
-        python3 benches/simd_ledger.py --ledger "$ledger" accept --log "$log" \
-            --features "$features" --request "{{REQUEST}}" \
-            --source-id negative --host-id negative 2>"$err" || rc=$?
-        if [[ "$rc" -eq 0 ]]; then
-            printf 'route_accept_negative: audit accepted %s\n' "$code" >&2
-            return 1
-        fi
-        grep -Fq "simd_ledger: reject $code" "$err" || {
-            printf 'route_accept_negative: expected reject %s, got:\n' "$code" >&2
-            cat "$err" >&2
-            return 1
-        }
-        printf 'ROUTE_NEGATIVE\tcode=%s\n' "$code"
-    }
-    base="$scratch/base.log"
-    rc=$(run_negative "{{REQUEST}}" "" "$base" negative)
-    [[ "$rc" -eq 0 ]] || {
-        printf 'route_accept_negative: baseline run failed rc=%s\n' "$rc" >&2
-        tail -40 "$base" >&2
-        exit 1
-    }
-    python3 benches/simd_ledger.py --ledger "$ledger" accept --log "$base" \
-        --features "$features" --request "{{REQUEST}}" \
-        --source-id negative --host-id negative
-    # The audit applies the same budget checks as check --full. Mutations that
-    # leave the runner's verdict alone must still be rejected.
-    mutate_receipt() {
-        local mode="$1" out="$2"
-        python3 - "$base" "$out" "$mode" <<'PY'
-    import json
-    import sys
-
-    source, target, mode = sys.argv[1:4]
-    lines = []
-    changed = False
-    for line in open(source).read().splitlines():
-        if line.startswith("ROUTE_RECEIPT\t") and not changed:
-            rec = json.loads(line.split("\t", 1)[1])
-            if rec.get("required"):
-                stages = rec.setdefault("stages", [])
-                if mode == "strip-stages":
-                    rec["stages"] = []
-                elif stages and mode == "negative-budget":
-                    stages[0]["budget"] = -1
-                elif stages and mode == "unmet-stage":
-                    stages[0]["met"] = False
-                changed = True
-                line = "ROUTE_RECEIPT\t" + json.dumps(rec)
-        lines.append(line)
-    open(target, "w").write("\n".join(lines) + "\n")
-    PY
-    }
-    for mode in strip-stages negative-budget; do
-        log="$scratch/accept-$mode.log"
-        mutate_receipt "$mode" "$log"
-        expect_reject budget_parity "$log" "$scratch/accept-$mode.err"
-    done
-    mutate_receipt unmet-stage "$scratch/accept-unmet.log"
-    expect_reject unmet_stage "$scratch/accept-unmet.log" \
-        "$scratch/accept-unmet.err"
-    for fault in corrupt-output suppress-trace halve-work lower-tier; do
-        log="$scratch/fault-$fault.log"
-        rc=$(run_negative "{{REQUEST}}" "$fault" "$log" negative)
-        [[ "$rc" -ne 0 ]] || {
-            printf 'route_accept_negative: fault %s was not rejected\n' "$fault" >&2
-            exit 1
-        }
-        expect_reject fail_receipt "$log" "$scratch/fault-$fault.err"
-    done
-    # Omitting a receipt leaves the runner's verdict untouched; the audit
-    # must reject the shortened log.
-    drop="$scratch/fault-drop-receipt.log"
-    run_negative "{{REQUEST}}" drop-receipt "$drop" negative >/dev/null
-    expect_reject count_mismatch "$drop" "$scratch/fault-drop-receipt.err"
-    case "{{REQUEST}}" in
-        v4x) lower=v3_gfni_crypto ;;
-        v3_gfni_crypto) lower=v3 ;;
-        v3) lower=v2 ;;
-        v2) lower=scalar ;;
-        *) lower='' ;;
-    esac
-    if [[ -n "$lower" ]]; then
-        forced="$scratch/forced-$lower.log"
-        rc=$(run_negative "$lower" "" "$forced" negative)
-        [[ "$rc" -eq 0 ]] || {
-            printf 'route_accept_negative: downgraded run failed rc=%s\n' "$rc" >&2
-            exit 1
-        }
-        expect_reject request_mismatch "$forced" "$scratch/forced-$lower.err"
-    fi
-    # A canonical GF16 mixed overwrite matrix must pass with its real work
-    # and fail when halved: exempt terms cannot fund general coverage.
-    gf16_ledger="$scratch/gf16-ledger.json"
-    python3 - "$gf16_ledger" "{{REQUEST}}" "$features" "$serving" <<'PY'
-    import json
-    import sys
-
-    out, request, features, serving = sys.argv[1:5]
-    ledger = json.load(open("benches/simd_ledger.json"))
-    obligation = "ops::mul_into_matrix@packed-u16-shipped"
-    ledger["routes"] = {obligation: f"{features}/{request}=direct@{serving}"}
-    ledger["route_notes"] = {}
-    ledger["obligations"] = {obligation: {"cells": {
-        f"{features}/{request}": {
-            "work": ["matrix-mul-add", "unit-adds"]}}}}
-    json.dump(ledger, open(out, "w"), indent=1, sort_keys=False)
-    PY
-    python3 benches/simd_ledger.py --ledger "$gf16_ledger" generate --out "$cases"
-    saved_ledger="$ledger"
-    ledger="$gf16_ledger"
-    gf16_base="$scratch/gf16-base.log"
-    rc=$(run_negative "{{REQUEST}}" "" "$gf16_base" negative)
-    [[ "$rc" -eq 0 ]] || {
-        printf 'route_accept_negative: gf16 baseline failed rc=%s\n' "$rc" >&2
-        tail -40 "$gf16_base" >&2
-        exit 1
-    }
-    python3 benches/simd_ledger.py --ledger "$ledger" accept --log "$gf16_base" \
-        --features "$features" --request "{{REQUEST}}" \
-        --source-id negative --host-id negative
-    gf16_halve="$scratch/gf16-halve.log"
-    rc=$(run_negative "{{REQUEST}}" halve-work "$gf16_halve" negative)
-    [[ "$rc" -ne 0 ]] || {
-        printf 'route_accept_negative: gf16 halve-work was not rejected\n' >&2
-        exit 1
-    }
-    expect_reject fail_receipt "$gf16_halve" "$scratch/gf16-halve.err"
-    ledger="$saved_ledger"
-
-    # A fused gather must pass with its real work and fail when the work is
-    # halved: zero-term work cannot cover the unit additions.
-    fused_ledger="$scratch/fused-ledger.json"
-    python3 - "$fused_ledger" "{{REQUEST}}" "$features" <<'PY'
-    import json
-    import sys
-
-    out, request, features = sys.argv[1:4]
-    ledger = json.load(open("benches/simd_ledger.json"))
-    obligation = "ops::mul_add_gather@gf8-poly-aes"
-    ledger["routes"] = {obligation: f"{features}/{request}=direct@{request}"}
-    ledger["route_notes"] = {}
-    ledger["obligations"] = {obligation: {"cells": {
-        f"{features}/{request}": {
-            "work": ["gather-mul-add", "unit-accumulate"]}}}}
-    json.dump(ledger, open(out, "w"), indent=1, sort_keys=False)
-    PY
-    python3 benches/simd_ledger.py --ledger "$fused_ledger" generate --out "$cases"
-    saved_ledger="$ledger"
-    ledger="$fused_ledger"
-    fused_base="$scratch/fused-base.log"
-    rc=$(run_negative "{{REQUEST}}" "" "$fused_base" negative)
-    [[ "$rc" -eq 0 ]] || {
-        printf 'route_accept_negative: fused baseline failed rc=%s\n' "$rc" >&2
-        tail -40 "$fused_base" >&2
-        exit 1
-    }
-    python3 benches/simd_ledger.py --ledger "$ledger" accept --log "$fused_base" \
-        --features "$features" --request "{{REQUEST}}" \
-        --source-id negative --host-id negative
-    fused_halve="$scratch/fused-halve.log"
-    rc=$(run_negative "{{REQUEST}}" halve-work "$fused_halve" negative)
-    [[ "$rc" -ne 0 ]] || {
-        printf 'route_accept_negative: fused halve-work was not rejected\n' >&2
-        exit 1
-    }
-    expect_reject fail_receipt "$fused_halve" "$scratch/fused-halve.err"
-    ledger="$saved_ledger"
-    # Qualified general work must be necessary and bounded independently of
-    # the fused unit credit in a loop with no general coefficients.
-    qualified_ledger="$scratch/qualified-ledger.json"
-    python3 - "$qualified_ledger" "{{REQUEST}}" "$features" "$serving" <<'PY'
-    import json
-    import sys
-
-    out, request, features, serving = sys.argv[1:5]
-    ledger = json.load(open("benches/simd_ledger.json"))
-    prime = "ops::mul_add_matrix@mersenne31"
-    fused = "ops::mul_add_matrix@gf8-poly-aes"
-    key = f"{features}/{request}"
-    fused_route = next(token for token in ledger["routes"][fused].split()
-                       if token.startswith(key + "="))
-    ledger["routes"] = {prime: f"{key}=composition@{serving}", fused: fused_route}
-    ledger["route_notes"] = {}
-    ledger["obligations"] = {obligation: {"cells": {key: {
-        "work": ["matrix-mul-add", "unit-accumulate"]}}}
-        for obligation in (prime, fused)}
-    json.dump(ledger, open(out, "w"), indent=1)
-    PY
-    python3 benches/simd_ledger.py --ledger "$qualified_ledger" generate --out "$cases"
-    ledger="$qualified_ledger"
-    qualified_base="$scratch/qualified-base.log"
-    rc=$(run_negative "{{REQUEST}}" "" "$qualified_base" negative)
-    [[ "$rc" -eq 0 ]] || {
-        printf 'route_accept_negative: qualified baseline failed rc=%s\n' "$rc" >&2
-        cat "$qualified_base" >&2
-        exit 1
-    }
-    python3 benches/simd_ledger.py --ledger "$ledger" accept --log "$qualified_base" \
-        --features "$features" --request "{{REQUEST}}" \
-        --source-id negative --host-id negative
-    for fault in suppress-general tag-all-muladd; do
-        poisoned="$scratch/$fault.log"
-        rc=$(run_negative "{{REQUEST}}" "$fault" "$poisoned" negative)
-        [[ "$rc" -ne 0 ]] || {
-            printf 'route_accept_negative: %s was not rejected\n' "$fault" >&2
-            exit 1
-        }
-        expect_reject fail_receipt "$poisoned" "$scratch/$fault.err"
-    done
-    python3 - "$scratch/suppress-general.log" "$scratch/tag-all-muladd.log" <<'PY'
-    import json
-    import sys
-
-    for path, obligation, pattern in (
-            (sys.argv[1], "ops::mul_add_matrix@mersenne31", "mixed-3x4"),
-            (sys.argv[2], "ops::mul_add_matrix@gf8-poly-aes", "gf2-matrix-3x4")):
-        receipts = [json.loads(line.split("\t", 1)[1]) for line in open(path)
-                    if line.startswith("ROUTE_RECEIPT\t")]
-        assert any(rec["obligation"] == obligation and rec["id"].endswith("/" + pattern)
-                   and rec["result"] == "fail" for rec in receipts), path
-    PY
-    forged="$scratch/forged-general.log"
-    python3 - "$qualified_base" "$forged" <<'PY'
-    import json
-    import sys
-
-    changed = False
-    with open(sys.argv[2], "w") as output:
-        for line in open(sys.argv[1]):
-            if line.startswith("ROUTE_RECEIPT\t"):
-                rec = json.loads(line.split("\t", 1)[1])
-                if (rec["obligation"] == "ops::mul_add_matrix@gf8-poly-aes"
-                        and rec["id"].endswith("/gf2-matrix-3x4")):
-                    for stage in rec["stages"]:
-                        if stage["substage"] == "MulAdd":
-                            stage["general_tiers"] = dict(stage["tiers"])
-                            changed = changed or any(stage["tiers"].values())
-                    line = "ROUTE_RECEIPT\t" + json.dumps(rec) + "\n"
-            output.write(line)
-    assert changed
-    PY
-    expect_reject general_attribution "$forged" "$scratch/forged-general.err"
-    ledger="$saved_ledger"
-    python3 benches/simd_ledger.py generate --out "$cases"
-    python3 benches/simd_ledger.py generate --check --out "$cases"
-    ledger=benches/simd_ledger.json
-
-    # The canonical table and ledger must reject a run that drops trace
-    # entries: work budgets are what make suppression visible.
-    canonical="$scratch/canonical-suppress.log"
-    rc=0
-    FGF_ROUTE_FAULT=suppress-trace SIMD_BACKEND="{{REQUEST}}" FGF_ROUTE_ACCEPT=1 \
-        FGF_SOURCE_ID=negative FGF_HOST_ID=negative FGF_FEATURES="$features" \
-        cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture \
-        >"$canonical" 2>&1 || rc=$?
-    [[ "$rc" -ne 0 ]] || {
-        printf 'route_accept_negative: canonical suppress-trace run passed\n' >&2
-        exit 1
-    }
-    expect_reject fail_receipt "$canonical" "$scratch/canonical-suppress.err"
-    printf 'ROUTE_NEGATIVE\tcode=canonical-suppress-trace\n'
-    printf 'ROUTE_NEGATIVE_DONE\trequest=%s\n' "{{REQUEST}}"
-
-# Full ledger cross-inventory checks without evidence records, plus
-# byte-identical generation and the ledger unit tests. Portable: runs
-# anywhere the inventories build.
-[group('gate')]
-route-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    scratch=$(mktemp -d)
-    trap 'rm -rf "$scratch"' EXIT
-    just _route-inventories default "$scratch"
-    python3 benches/simd_ledger.py check --full \
-        --rustdoc "$scratch/fgf.json" \
-        --test-list "$scratch/tests.txt" \
-        --case-list "$scratch/cases.txt" \
-        --case-list-all "$scratch/cases-all.txt" \
-        --surface-inventory "$scratch/surfaces.txt"
-    python3 benches/simd_ledger.py generate --check --out src/kernel/tests/routes/cases.rs
-    python3 -m unittest discover -s benches -p 'test_simd_ledger.py'
-
-
-# Full ledger resolution, byte-identical case generation, and the ledger
-# unit tests. Run on the machine that holds the collected evidence records.
-# The rerunnable route gate.
-[group('gate')]
-route-gate:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mkdir -p bench-records/routes
-    scratch=$(mktemp -d)
-    trap 'rm -rf "$scratch"' EXIT
-    just _route-inventories default "$scratch"
-    python3 benches/simd_ledger.py check --full \
-        --rustdoc "$scratch/fgf.json" \
-        --test-list "$scratch/tests.txt" \
-        --case-list "$scratch/cases.txt" \
-        --case-list-all "$scratch/cases-all.txt" \
-        --surface-inventory "$scratch/surfaces.txt" \
-        --records bench-records/routes
-    python3 benches/simd_ledger.py generate --check --out src/kernel/tests/routes/cases.rs
-    python3 -m unittest discover -s benches -p 'test_simd_ledger.py'
+# Documentation in the published default-feature configuration, the one
+# docs.rs builds.
+[group('doc')]
+doc-stable:
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 
 # The full release gate: the shared pull-request gate, the promoted GFNI
 # Miri residue that CI runs as a separate job, and every crate-specific
@@ -1224,23 +549,225 @@ release-accept:
     just msrv-locked
     just msrv-accept
     just cross-check
+    just doc-stable
     just external-check
     just test-gather-validation-32
     just examples
-    just examples --no-default-features --features alloc
-    just examples-portable
     just benchmark-check
     just benchmark-check-native
-    just simd-ledger
-    just route-check
     just package-check
+    just api
+    just package-api
+    just api-semver-release
 
-# Route ledger and tooling: schema-only validation plus the Python unit tests.
-# The recipe builds the rustdoc JSON it consumes.
-[group('bench')]
-simd-ledger:
-    just benchmark-api-json
-    python3 benches/simd_ledger.py inventory --rustdoc target/doc/fgf.json
-    python3 benches/simd_ledger.py check --schema-only
-    python3 -m unittest discover -s benches -p 'test_simd_ledger.py'
-    python3 benches/simd_ledger.py fixtures --out target/simd-ledger-fixtures
+# Generate the stable inventories, their metadata, and the one-path report
+# into `target/api/generated`. Every configuration builds unchanged and no
+# inventory line is filtered: the `all` cell builds every feature except
+# `internals`, and a separate `--all-features` rustdoc document must have the
+# same stable export path set. The rustdoc JSON is deleted before
+# each run and copied to `$out/json` after it, so a skipped rustdoc pass
+# fails instead of reusing a stale document. Each inventory closes with the
+# external re-export section, and the metadata records the resolved version
+# of every re-exported dependency. Tool versions are checked before anything
+# is generated. It runs as a dependency so variable overrides on the command
+# line reach it.
+[private]
+_api-generate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    have=$(cargo public-api --version 2>/dev/null || true)
+    [[ "$have" == "cargo-public-api {{API_PUBLIC_API}}" ]] || {
+        printf 'api: need cargo-public-api %s, found "%s"; run: cargo binstall cargo-public-api@%s\n' "{{API_PUBLIC_API}}" "$have" "{{API_PUBLIC_API}}" >&2
+        exit 2
+    }
+    have=$(cargo semver-checks --version 2>/dev/null || true)
+    [[ "$have" == "cargo-semver-checks {{API_SEMVER_CHECKS}}" ]] || {
+        printf 'api: need cargo-semver-checks %s, found "%s"; run: cargo binstall cargo-semver-checks@%s\n' "{{API_SEMVER_CHECKS}}" "$have" "{{API_SEMVER_CHECKS}}" >&2
+        exit 2
+    }
+    API_NIGHTLY="{{API_NIGHTLY}}" API_FORMAT="{{API_FORMAT}}" python3 -m unittest -q api/test_surface.py
+    declared=$(cargo metadata --no-deps --format-version 1 \
+        | jq -r '.packages[0].features | keys - ["default", "internals"] | sort | join(",")')
+    pinned=$(tr ',' '\n' <<<"{{API_STABLE_FEATURES}}" | sort | paste -sd,)
+    [[ "$declared" == "$pinned" ]] || {
+        printf 'api: API_STABLE_FEATURES is %s but the manifest declares %s\n' "$pinned" "$declared" >&2
+        exit 2
+    }
+    out=target/api/generated
+    rm -rf "$out"
+    mkdir -p "$out/inventory" "$out/json"
+    export RUSTDOCFLAGS="-Z unstable-options --document-hidden-items"
+    configs=("portable|--no-default-features" "alloc|--no-default-features --features alloc" "default|" "all|--no-default-features --features {{API_STABLE_FEATURES}}")
+    {
+        printf 'nightly %s\n' "{{API_NIGHTLY}}"
+        printf 'rustdoc-json-format %s\n' "{{API_FORMAT}}"
+        printf 'cargo-public-api %s (-s: blanket impls omitted)\n' "{{API_PUBLIC_API}}"
+        printf 'cargo-semver-checks %s\n' "{{API_SEMVER_CHECKS}}"
+        printf 'rustdocflags %s\n' "$RUSTDOCFLAGS"
+        printf 'targets %s\n' "{{API_TARGETS}}"
+        for entry in "${configs[@]}"; do flags="${entry#*|}"; printf 'config %s%s\n' "${entry%%|*}" "${flags:+ $flags}"; done
+    } >"$out/metadata.txt"
+    failed=0
+    for target in {{API_TARGETS}}; do
+        for entry in "${configs[@]}"; do
+            config="${entry%%|*}"
+            # shellcheck disable=SC2206
+            flags=(${entry#*|})
+            doc="target/api/$target/doc/fgf.json"
+            rm -f "$doc"
+            cargo +{{API_NIGHTLY}} public-api -s --color never --target "$target" \
+                --target-dir target/api "${flags[@]}" >"$out/inventory/$config-$target.txt" \
+                2>"$out/$config-$target.log" || {
+                cat "$out/$config-$target.log" >&2
+                exit 1
+            }
+            [[ -f "$doc" ]] || {
+                printf 'api: %s %s: rustdoc JSON missing after the run\n' "$config" "$target" >&2
+                exit 1
+            }
+            cp "$doc" "$out/json/$config-$target.json"
+            printf '# external re-exports\n' >>"$out/inventory/$config-$target.txt"
+            python3 api/surface.py reexports --format {{API_FORMAT}} \
+                "$out/json/$config-$target.json" >>"$out/inventory/$config-$target.txt"
+            if ! report=$(python3 api/surface.py paths --format {{API_FORMAT}} \
+                "$out/json/$config-$target.json" --mode {{API_PATHS_MODE}}); then
+                printf '%s\n' "$report"
+                failed=1
+            fi
+            printf 'api: %-8s %-26s %s\n' "$config" "$target" "$(head -n 1 <<<"$report" | sed 's/^surface: //')"
+            [[ "$config-$target" == all-x86_64-unknown-linux-gnu ]] && printf '%s\n' "$report" >"$out/paths.txt"
+        done
+        doc="target/api/$target/doc/fgf.json"
+        rm -f "$doc"
+        cargo +{{API_NIGHTLY}} rustdoc --lib --all-features --target "$target" \
+            --target-dir target/api -- -Z unstable-options --output-format json --document-hidden-items \
+            2>"$out/all-features-$target.log" || {
+            cat "$out/all-features-$target.log" >&2
+            exit 1
+        }
+        [[ -f "$doc" ]] || {
+            printf 'api: all-features %s: rustdoc JSON missing after the run\n' "$target" >&2
+            exit 1
+        }
+        cp "$doc" "$out/json/all-features-$target.json"
+        python3 api/surface.py stable-paths-equal --format {{API_FORMAT}} \
+            "$out/json/all-features-$target.json" "$out/json/all-$target.json" || failed=1
+    done
+    metadata=$(cargo metadata --format-version 1)
+    while IFS= read -r dep; do
+        # Versions come from fgf's own normal dependency edges, matched on the
+        # rustdoc crate name, so another copy elsewhere in the graph is ignored.
+        versions=$(jq -r --arg name "$dep" '
+            .resolve.root as $root
+            | (.resolve.nodes[] | select(.id == $root) | .deps[]
+               | select(any(.dep_kinds[]; .kind == null)) | select(.name == $name) | .pkg) as $pkg
+            | .packages[] | select(.id == $pkg) | .version' <<<"$metadata" | sort -u)
+        [[ -n "$versions" && $(wc -l <<<"$versions") -eq 1 ]] || {
+            printf 'api: re-exported crate %s does not resolve to exactly one normal dependency of fgf (found: %s)\n' "$dep" "${versions:-none}" >&2
+            exit 1
+        }
+        printf 'dependency %s %s\n' "$dep" "$versions"
+    done < <(grep -h '^reexport ' "$out"/inventory/*.txt | sed 's/^reexport [^=]*= //' | cut -d: -f1 | sort -u) >>"$out/metadata.txt"
+    if [[ "{{API_PATHS_MODE}}" == report ]]; then cat "$out/paths.txt"; else tail -n 1 "$out/paths.txt"; fi
+    for entry in "${configs[@]}"; do
+        config="${entry%%|*}"
+        files=()
+        for target in {{API_TARGETS}}; do files+=("$out/inventory/$config-$target.txt"); done
+        python3 api/surface.py same "$config" "${files[@]}" || failed=1
+    done
+    exit "$failed"
+
+# Check the committed stable API inventory: regenerate every inventory and
+# fail on any difference from `api/`. Read-only.
+[group('gate')]
+api: _api-generate
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=target/api/generated
+    if ! diff -u api/metadata.txt "$out/metadata.txt" || ! diff -ru api/inventory "$out/inventory"; then
+        printf 'api: the public surface differs from the committed inventory; an authorized API change runs `just api-update`\n' >&2
+        exit 1
+    fi
+    echo "api: stable surface matches the committed inventory"
+
+# Rewrite the committed inventory. Run only inside an explicitly authorized
+# API change; review the resulting diff.
+[group('gate')]
+api-update: _api-generate
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf api/inventory
+    cp -r target/api/generated/inventory api/inventory
+    cp target/api/generated/metadata.txt api/metadata.txt
+    echo "api: inventory rewritten; review git diff -- api/"
+
+# Semver check of the stable feature sets against the highest published
+# non-yanked, non-prerelease `API_MAJOR`.x release, sorted numerically
+# whatever order crates.io returns, or against BASELINE when given for
+# development verification. `internals` is never enabled.
+[group('gate')]
+api-semver BASELINE="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    have=$(cargo semver-checks --version 2>/dev/null || true)
+    [[ "$have" == "cargo-semver-checks {{API_SEMVER_CHECKS}}" ]] || {
+        printf 'api-semver: need cargo-semver-checks %s, found "%s"\n' "{{API_SEMVER_CHECKS}}" "$have" >&2
+        exit 2
+    }
+    baseline="{{BASELINE}}"
+    if [[ -z "$baseline" ]]; then
+        listing=$(mktemp)
+        trap 'rm -f "$listing"' EXIT
+        page="?per_page=100"
+        while [[ -n "$page" ]]; do
+            body=$(curl -fsS -A "fgf-api-semver" "https://crates.io/api/v1/crates/{{CRATE}}/versions$page") || {
+                printf 'api-semver: could not query crates.io for the published baseline\n' >&2
+                exit 1
+            }
+            jq -r '.versions[] | select(.yanked | not) | .num' <<<"$body" >>"$listing"
+            page=$(jq -r '.meta.next_page // empty' <<<"$body")
+        done
+        baseline=$(grep -E "^{{API_MAJOR}}\.[0-9]+\.[0-9]+$" "$listing" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 || true)
+        [[ -n "$baseline" ]] || {
+            printf 'api-semver: no published non-prerelease %s.x release to compare against\n' "{{API_MAJOR}}" >&2
+            exit 1
+        }
+    fi
+    current=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+    printf 'api-semver: candidate %s against published %s\n' "$current" "$baseline"
+    configs=("portable|--only-explicit-features" "alloc|--only-explicit-features --features alloc" "default|--default-features" "stable-max|--only-explicit-features --features {{API_STABLE_FEATURES}}")
+    for entry in "${configs[@]}"; do
+        # shellcheck disable=SC2206
+        flags=(${entry#*|})
+        printf 'api-semver: %s\n' "${entry%%|*}"
+        cargo +{{API_NIGHTLY}} semver-checks check-release --baseline-version "$baseline" "${flags[@]}"
+    done
+
+# Release gate for `api-semver`, decided by the version's major number: a
+# major below `API_MAJOR` is skipped, `API_MAJOR.0.0` and its prereleases are
+# skipped because the first release of a major has no baseline of its own,
+# every other `API_MAJOR` version including prereleases runs the check, and a
+# major above `API_MAJOR` fails until the constant is raised.
+[private]
+api-semver-release VERSION="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="{{VERSION}}"
+    [[ -n "$version" ]] || version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+    if [[ ! "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+        printf 'api-semver: cannot parse version %s\n' "$version" >&2
+        exit 2
+    fi
+    major="${BASH_REMATCH[1]}"
+    minor="${BASH_REMATCH[2]}"
+    patch="${BASH_REMATCH[3]}"
+    if (( major > {{API_MAJOR}} )); then
+        printf 'api-semver: %s is above API_MAJOR %s; raise API_MAJOR in crate.just\n' "$version" "{{API_MAJOR}}" >&2
+        exit 1
+    fi
+    if (( major < {{API_MAJOR}} || (minor == 0 && patch == 0) )); then
+        printf 'api-semver: skipped for %s; releases before %s and the first %s.0.0 of the major have no published %s.x baseline\n' \
+            "$version" "{{API_MAJOR}}" "{{API_MAJOR}}" "{{API_MAJOR}}"
+    else
+        just api-semver
+    fi

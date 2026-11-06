@@ -6,11 +6,10 @@
 //! exactly two at the root, with the base sub-descriptor structurally the
 //! source descriptor, and the coefficient class computed with
 //! [`word_one`](super::super::extension::arithmetic::word_one), never a
-//! raw-word comparison against one. The applicators run the same
-//! interpreter arithmetic the prepared [`Frobenius`](super::frobenius::Frobenius)
-//! conjugation arm uses, over the target row's coordinate hooks, so the
-//! compact [`Embedding`](super::Embedding) methods and the prepared arms
-//! share one implementation with no per-call allocation.
+//! raw-word comparison against one. The applicators run the embedding
+//! interpreter arithmetic over the target row's coordinate hooks, so the
+//! compact [`Embedding`](super::Embedding) methods run them with no
+//! per-call allocation.
 //!
 //! Ungated: no `alloc` is needed anywhere on this path.
 

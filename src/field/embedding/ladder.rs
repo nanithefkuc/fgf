@@ -115,7 +115,7 @@ pub(super) fn canonical_images(
     Some(images)
 }
 
-/// Apply the GF(2)-linear map given by `columns` to `word`.
+/// Applies the GF(2)-linear map given by `columns` to `word`.
 fn fold(columns: &[u64; 64], word: u64) -> u64 {
     let mut acc = 0;
     let mut rest = word;
@@ -126,7 +126,7 @@ fn fold(columns: &[u64; 64], word: u64) -> u64 {
     acc
 }
 
-/// Evaluate the full polynomial `poly` at `x` inside `field`.
+/// Evaluates the full polynomial `poly` at `x` inside `field`.
 ///
 /// Horner descent from bit `top`, so leading zero coefficients are free.
 fn evaluate(field: &BinaryDescription, top: u32, poly: u128, x: u64) -> u64 {
@@ -266,7 +266,7 @@ fn identity_phi(degree: u32) -> PhiMap {
     }
 }
 
-/// Build the canonical map of the flat polynomial presentation `full`.
+/// Builds the canonical map of the flat polynomial presentation `full`.
 fn build_polynomial_phi(degree: u32, full: u128) -> PhiMap {
     let field = reference(degree);
     if let NodeData::Polynomial {
@@ -305,7 +305,7 @@ fn build_polynomial_phi(degree: u32, full: u128) -> PhiMap {
     }
 }
 
-/// Build the canonical map of the root presentation of `description`.
+/// Builds the canonical map of the root presentation of `description`.
 fn build_phi(description: &BinaryDescription) -> PhiMap {
     match description.root_data() {
         NodeData::Polynomial { degree, full } => build_polynomial_phi(u32::from(degree), full),
@@ -549,14 +549,18 @@ mod tests {
 
     #[test]
     fn shipped_tower_reference_maps_satisfy_their_relations() {
-        use super::super::super::binary::BinaryField;
-
         check_tower_phi(tower::RIJNDAEL16_DESC);
         check_tower_phi(tower::RIJNDAEL32_DESC);
         check_tower_phi(tower::RIJNDAEL64_DESC);
-        check_tower_phi(<tower::FanPaar16Field as BinaryField>::DESCRIPTION);
-        check_tower_phi(<tower::FanPaar32Field as BinaryField>::DESCRIPTION);
-        check_tower_phi(<tower::FanPaar64Field as BinaryField>::DESCRIPTION);
+        check_tower_phi(
+            <tower::FanPaar16Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION,
+        );
+        check_tower_phi(
+            <tower::FanPaar32Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION,
+        );
+        check_tower_phi(
+            <tower::FanPaar64Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION,
+        );
     }
 
     #[test]

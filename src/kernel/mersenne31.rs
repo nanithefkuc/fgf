@@ -4,14 +4,15 @@
 //! under `simd512`), AVX2 (`V3`), or SSE4.1 (`V2`) the add/sub/multiply loops
 //! run over packed integer lanes with a Mersenne fold (`2^31 ≡ 1`); every
 //! other target runs the portable [`crate::kernel::prime`] path, so
-//! [`FieldKernels::backend`] reports `Scalar` there. The coefficient's
+//! the backend query reports `Scalar` there. The coefficient's
 //! prepared form is simply its canonical lane word, which the kernels
 //! broadcast on entry.
 
-use crate::field::mersenne31::Mersenne31;
-use crate::field::{Elem, FieldElem};
+use crate::field::Elem;
 #[allow(unused_imports)]
-use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, prime, scalar};
+use crate::field::dispatch::{KernelDispatch, RawDispatch};
+use crate::field::mersenne31::Mersenne31;
+use crate::kernel::{Backend, backend, prime, scalar};
 
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::kernel::x86;
@@ -28,9 +29,12 @@ fn vectorized() -> bool {
     )
 }
 
-impl FieldKernels for Mersenne31 {
+impl KernelDispatch for Mersenne31 {
+    /// The canonical lane word, broadcast by the kernels on entry.
+    type Prepared = Elem<Mersenne31>;
+
     #[inline]
-    fn backend() -> Backend {
+    fn backend(_proof: RawDispatch) -> Backend {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             match backend() {
@@ -48,7 +52,7 @@ impl FieldKernels for Mersenne31 {
     }
 
     #[inline]
-    fn has_vector_elementwise() -> bool {
+    fn has_vector_elementwise(_proof: RawDispatch) -> bool {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             vectorized()
@@ -58,11 +62,16 @@ impl FieldKernels for Mersenne31 {
             false
         }
     }
-}
 
-impl KernelDispatch for Mersenne31 {
-    /// The canonical lane word, broadcast by the kernels on entry.
-    type Prepared = Elem<Mersenne31>;
+    fallback_entries!(
+        row: vector_elementwise_min_bytes, add_gather_offsets, add_assign_rows,
+        sub_assign_rows, mul_into_scatter, mul_add_scatter_with,
+        mul_add_scatter_plan, mul_add_gather_with, mul_add_gather_plan,
+        mul_into_gather, mul_into_gather_with, mul_into_gather_plan,
+        mul_add_matrix_with, mul_add_matrix_plan, mul_into_matrix,
+        mul_into_matrix_plan, mul_add_matrix_at, mul_add_matrix_at_rows,
+        mul_add_matrix_at_plan, mul_into_matrix_at, mul_into_matrix_at_plan,
+    );
 
     #[inline]
     fn prepare(_proof: RawDispatch, coeff: Elem<Mersenne31>) -> Elem<Mersenne31> {
@@ -107,15 +116,6 @@ impl KernelDispatch for Mersenne31 {
     }
 
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<Mersenne31>, src: &[u8]) {
-        if coeff.is_zero() {
-            return;
-        }
-        if coeff.is_one() {
-            return Self::add_assign(RawDispatch, dst, src);
-        }
-        // Canonical zero and unit comparisons exclude both trivial coefficients.
-        #[cfg(test)]
-        let _general_trace = crate::kernel::trace::term(crate::kernel::trace::Term::General);
         match backend() {
             #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => x86::mersenne31::mul_add_avx512(v4(), dst, coeff.to_raw(), src),
@@ -200,7 +200,7 @@ impl KernelDispatch for Mersenne31 {
         coeffs: &[Elem<Mersenne31>],
         src: &[u8],
     ) {
-        crate::kernel::fallback::mul_add_scatter::<Mersenne31>(rows, row_len, coeffs, src);
+        prime::mul_add_scatter::<Mersenne31>(rows, row_len, coeffs, src);
     }
 
     fn mul_add_gather(
@@ -209,7 +209,7 @@ impl KernelDispatch for Mersenne31 {
         coeffs: &[Elem<Mersenne31>],
         srcs: &[&[u8]],
     ) {
-        crate::kernel::fallback::mul_add_gather::<Mersenne31>(dst, coeffs, srcs);
+        prime::mul_add_gather::<Mersenne31>(dst, coeffs, srcs);
     }
 
     fn mul_add_matrix(
@@ -219,7 +219,7 @@ impl KernelDispatch for Mersenne31 {
         nrows: usize,
         terms: &[(&[Elem<Mersenne31>], &[u8])],
     ) {
-        crate::kernel::fallback::mul_add_matrix::<Mersenne31>(rows, row_len, nrows, terms);
+        prime::mul_add_matrix::<Mersenne31>(rows, row_len, nrows, terms);
     }
 
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {

@@ -5,7 +5,7 @@ use reed_solomon_simd::engine::{CANTOR_BASIS, tables};
 
 use crate::native::Native;
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
 
 pub(crate) fn polynomial_mul(mut a: u32, mut b: u32, polynomial: u32, bits: u32) -> u16 {
     let mut result = 0;

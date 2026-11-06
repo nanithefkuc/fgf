@@ -12,12 +12,16 @@
 //! defining polynomial is irreducible — `t²+t+c` over a binary base needs
 //! trace one on `c`, which the row validation re-proves at first use.
 
-use fgf::{
-    AES, Cantor, Components, Extension, ExtensionSpec, FanPaar2, FanPaar4, FanPaar8, FanPaar16,
-    FanPaar32, FanPaar64, FiniteField, Goldilocks, KernelBackend, Mersenne31, Normal, Packed,
-    PackedPadded, Polynomial, QuadMersenne31, RS, Relation, Residue, Rijndael16, Rijndael32,
-    Rijndael64, backend_for,
+use fgf::binary::{
+    AES, Cantor, FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Normal, Polynomial,
+    RS, Rijndael16, Rijndael32, Rijndael64,
 };
+use fgf::extension::{
+    Components, Extension, ExtensionSpec, Packed, PackedPadded, QuadMersenne31, Relation,
+};
+use fgf::internals::kernel::KernelBackend as _;
+use fgf::prime::{Goldilocks, Mersenne31, Residue};
+use fgf::{FiniteField, backend_for};
 
 // --- shipped rows -----------------------------------------------------------
 
@@ -204,7 +208,7 @@ pub type Qm31 = QuadMersenne31;
 
 /// The backend name this field's bulk operations resolve to in the running
 /// process: each field's own routing, not the process backend.
-pub fn backend_name<F: fgf::FieldKernels>() -> String {
+pub fn backend_name<F: fgf::FieldBuffer>() -> String {
     backend_for::<F>().name().to_string()
 }
 
@@ -263,8 +267,8 @@ pub(crate) use for_each_field;
 /// Iterate the seven presentation-only binary rows at degrees one, two, and
 /// four: polynomial, normal-basis, and Cantor-basis presentations with no
 /// kernel route. These rows carry the full scalar, conversion, and
-/// presentation surface but no `FieldKernels` implementation, so their
-/// records report the `scalar` backend.
+/// presentation surface but no byte form, so their records report the
+/// `scalar` backend.
 #[allow(unused_macros)]
 macro_rules! for_each_field_small {
     ($callback:ident) => {

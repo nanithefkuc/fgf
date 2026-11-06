@@ -1,5 +1,6 @@
 // expect-rejection
-use fgf::{FieldBuffer, FiniteField, Polynomial};
+use fgf::{FieldBuffer, FiniteField};
+use fgf::binary::Polynomial;
 
 // Binary rows below degree eight have no byte-buffer layout.
 fn requires_buffer<F: FieldBuffer>() {}

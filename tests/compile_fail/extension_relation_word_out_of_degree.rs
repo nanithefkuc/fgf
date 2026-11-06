@@ -1,6 +1,8 @@
 // expect: relation word has bits at or above the base degree
 //! Word `0x100` holds bit eight of a degree-eight base.
-use fgf::{AES, FiniteField, Polynomial, Relation};
+use fgf::FiniteField;
+use fgf::binary::{AES, Polynomial};
+use fgf::extension::Relation;
 
 type Aes8 = FiniteField<2, 8, Polynomial<AES>>;
 

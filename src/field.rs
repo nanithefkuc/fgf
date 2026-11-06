@@ -1,67 +1,17 @@
-//! Field definitions and the scalar algebra contract.
+//! Field implementation: the type model, row hooks, and central validation.
 //!
-//! A [`Field`] is a zero-sized marker type carrying compile-time facts about a
-//! finite field: its raw scalar word, its characteristic identity, and its
-//! order. [`Elem<F>`] is the one scalar element wrapper for every field in
-//! the crate. [`FieldBuffer`] adds the fixed-width byte encoding that bulk
-//! operations pack into buffers, and [`HasGenerator`] selects a verified
-//! multiplicative generator. Kernels in [`crate::ops`] are generic over
-//! [`crate::kernel::FieldKernels`], so callers write one algorithm and get a
-//! monomorphized, SIMD-dispatched implementation per field.
+//! The public type model lives at the crate root and presentations ship
+//! through the `prime`, `binary`, `extension`, and `maps` facades. This
+//! module and its subtrees hold the sealed row hooks, the central validation
+//! block, descriptor access, and each row's arithmetic body. `Field` is
+//! sealed, so a presentation's defining facts are always crate-owned, and
+//! the central validation block checks the characteristic identity, a
+//! positive degree, `ORDER == CHARACTERISTIC^DEGREE`, and the total degree cap
+//! of 64 before evaluating `VALID` from every generic constructor.
 //!
-//! The canonical generic family [`FiniteField`] names a field by its prime
-//! characteristic, its degree, and a presentation, with [`Residue`] as the
-//! ordinary-residue presentation at degree one over every `u64` prime; see
-//! [`finite_field`] and [`prime`].
-//!
-//! # Scalar storage
-//!
-//! Every safely constructed element holds canonical raw coordinates, so
-//! [`PartialEq`], [`Eq`], [`Hash`], and [`Ord`] compare raw words directly.
-//! Ordering is deterministic coordinate order, not an order compatible with
-//! field algebra. [`FieldElem::from_raw`] canonicalizes its input.
-//!
-//! By library-wide convention `inv(0) == 0` and `x / 0 == 0`, in every build
-//! profile and under `const` evaluation alike. This is a total-function
-//! convention chosen so hot loops never branch on an impossible case; it is
-//! *not* a claim that zero is invertible.
-//!
-//! # Row vocabulary
-//!
-//! [`Field`] is sealed: the crate implements it for the canonical family
-//! rows and the named rows only, so a presentation's defining facts are
-//! always crate-owned. A custom prime field is the family's degree-one row
-//! [`FiniteField<P, 1>`](FiniteField) over any checked `u64` prime. The
-//! central validation block checks the characteristic identity, a positive
-//! degree, `ORDER == CHARACTERISTIC^DEGREE`, and the total degree cap of 64
-//! before evaluating `VALID`. It runs from every generic constructor, so a
-//! row that misdeclares its metadata fails at value use:
-//!
-//! ```
-//! use fgf::{Elem, Mersenne31};
-//!
-//! // A shipped prime field constructs its identities generically.
-//! const ONE: Elem<Mersenne31> = Elem::<Mersenne31>::ONE;
-//! assert_eq!(ONE.to_raw(), 1);
-//! ```
-//!
-//! A prime identity is available at any checked `u64` prime, and a composite
-//! modulus fails the same way:
-//!
-//! ```
-//! use fgf::{PrimeCharacteristic, PrimeIdentity};
-//!
-//! // Seven is prime, so its identity reads back.
-//! const P: u64 = <PrimeCharacteristic<7> as PrimeIdentity>::CHARACTERISTIC;
-//! const _: () = assert!(P == 7);
-//! ```
-//!
-//! ```compile_fail,E0080
-//! use fgf::{PrimeCharacteristic, PrimeIdentity};
-//!
-//! // Ninety-one is composite, so reading the identity fails.
-//! const Q: u64 = <PrimeCharacteristic<91> as PrimeIdentity>::CHARACTERISTIC;
-//! ```
+//! Field-owned byte-dispatch contracts contain declarations only. The kernel
+//! engine supplies each implementation and the shared default compositions;
+//! the checked operations validate inputs before entering that engine.
 
 pub mod binary;
 pub mod embedding;
@@ -72,31 +22,11 @@ pub mod mersenne31;
 pub mod prime;
 pub mod quad_mersenne31;
 
-pub use binary::cantor;
-pub use binary::description;
-pub use binary::normal;
-pub use binary::poly;
-pub use binary::tower;
-pub use binary::tower::{
-    FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Rijndael16, Rijndael32,
-    Rijndael64,
-};
-pub use binary::{
-    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Normal,
-    Polynomial, RS,
-};
-pub use embedding::{Embedding, EmbeddingError, Isomorphism, Postcompose};
-#[cfg(feature = "alloc")]
-pub use embedding::{Frobenius, PreparedEmbedding, PreparedIsomorphism};
-pub use extension::{
-    Components, Extension, ExtensionField, ExtensionSpec, ExtensionStorage, Packed, PackedPadded,
-    PackedWord, Relation,
-};
-pub use finite_field::{FiniteField, FiniteFieldRepr, Residue};
-pub use goldilocks::{Goldilocks, GoldilocksFold};
-pub use mersenne31::{Mersenne31, MersenneFold};
-pub use prime::PrimeField;
-pub use quad_mersenne31::{ComplexMersenne31, QuadMersenne31};
+pub(crate) mod dispatch;
+
+pub use binary::{BinaryField, Cantor, Normal};
+pub use extension::ExtensionSpec;
+pub use finite_field::{FiniteField, FiniteFieldRepr};
 
 mod private {
     use super::Field;
@@ -108,40 +38,58 @@ mod private {
     /// every implementor is a crate-owned row.
     pub trait FieldSeal {}
 
-    /// Byte-level add/sub dispatch for buffer composition.
-    ///
-    /// Crate-private seam: every [`super::FieldBuffer`] provides byte add
-    /// and subtract hooks that component storage and recursive extension
-    /// encoding decompose into. The methods take raw byte slices — no
-    /// prepared coefficients, no backend tokens — so they compose without
-    /// allocation or unsafe.
-    pub(crate) trait BufferDispatch {
-        /// `dst += src` on raw field-element bytes.
-        fn add_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]);
-        /// `dst -= src` on raw field-element bytes.
-        fn sub_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]);
-    }
-
     /// Marks the degree-one rows eligible for prime-field membership.
     pub trait PrimeFieldSeal {}
 
-    /// The ordinary-residue row of a prime characteristic.
+    /// The scalar arithmetic every field row provides.
     ///
-    /// The private counterpart of the public characteristic query: each
-    /// prime identity names the degree-one row its compiled odd maps
-    /// accumulate through. `PrimeCharacteristic<P>` is the sole
-    /// implementor.
-    pub trait ResidueRowOf: Sealed {
-        /// The degree-one ordinary-residue row of this characteristic.
-        type Row: crate::kernel::FieldKernels + super::Field<Characteristic = Self>;
+    /// Crate-private: raw words are a row's storage representation, and
+    /// callers work with [`super::Elem`] and [`super::FieldElem`] instead.
+    pub(crate) trait RawArithmetic<Raw>: 'static {
+        /// Raw word of the additive identity, in canonical coordinates.
+        const ZERO_RAW: Raw;
+        /// Raw word of the multiplicative identity, in canonical coordinates.
+        const ONE_RAW: Raw;
+        /// Use-time validity check for the field's defining data.
+        const VALID: ();
+        /// Reduces a raw word to canonical coordinates.
+        fn canonical_raw(raw: Raw) -> Raw;
+        /// Raw field addition, over canonical inputs.
+        fn add_raw(left: Raw, right: Raw) -> Raw;
+        /// Raw field subtraction, over canonical inputs.
+        fn sub_raw(left: Raw, right: Raw) -> Raw;
+        /// Raw additive inverse, over a canonical input.
+        fn neg_raw(value: Raw) -> Raw;
+        /// Raw field multiplication, over canonical inputs.
+        fn mul_raw(left: Raw, right: Raw) -> Raw;
+        /// Raw multiplicative inverse. Maps zero to zero by convention.
+        fn inv_raw(value: Raw) -> Raw;
+    }
+
+    /// The selected multiplicative generator of a field row.
+    pub(crate) trait GeneratorRaw: Field {
+        /// Raw word of the selected generator, of full multiplicative order.
+        const GENERATOR_RAW: <Self as Field>::Raw;
+    }
+
+    /// Use-time primality proof for a characteristic identity.
+    pub(crate) trait PrimeIdentityValidation {
+        /// Use-time primality proof for the characteristic.
+        const VALID: ();
+    }
+
+    /// Use-time validity proof for a representation's defining data.
+    pub(crate) trait FiniteFieldReprValidation<const P: u64, const N: u32> {
+        /// Use-time validity proof for the representation's defining data.
+        const VALID: ();
     }
 
     /// The row hooks behind the `Field` seal: the presentation access the
     /// crate's relation algorithms share.
     ///
     /// Every hook evaluates the row's central validation first, as the raw
-    /// methods do, and canonicalizes `raw` inputs through
-    /// `Field::canonical_raw` before reading them.
+    /// methods do, and canonicalizes `raw` inputs through the row's
+    /// raw-arithmetic canonicalization hook before reading them.
     pub(crate) trait RowAccess: 'static {
         /// Descriptor of the row's presentation.
         const DESCRIPTOR: &'static Descriptor;
@@ -188,12 +136,12 @@ mod private {
         /// the descriptor's coordinate order. Flat rows cast their word;
         /// packed rows read the pinned word; component rows convert
         /// recursively through `RowAccess`, including residue-two leaves.
-        /// The engine behind `Frobenius` is the only production caller;
-        /// builds without it still run these hooks through the tests.
+        /// The closed-form quadratic maps in
+        /// [`embedding::quadratic`](crate::field::embedding::quadratic) are
+        /// the production caller.
         ///
         /// # Panics
         /// Panics on any row of odd characteristic.
-        #[cfg_attr(not(feature = "alloc"), allow(dead_code))]
         fn coordinate_word(raw: <Self as Field>::Raw) -> u64
         where
             Self: Field;
@@ -205,7 +153,6 @@ mod private {
         ///
         /// # Panics
         /// Panics on any row of odd characteristic.
-        #[cfg_attr(not(feature = "alloc"), allow(dead_code))]
         fn from_coordinate_word(word: u64) -> <Self as Field>::Raw
         where
             Self: Field;
@@ -252,8 +199,8 @@ pub(crate) fn index_coordinates(
     index: u128,
     degree: u32,
     characteristic: u64,
-) -> [u64; super::extension::descriptor::COORDINATES] {
-    use super::extension::descriptor::COORDINATES;
+) -> [u64; extension::descriptor::COORDINATES] {
+    use extension::descriptor::COORDINATES;
     let mut coordinates = [0u64; COORDINATES];
     let mut rest = index;
     let mut i = 0;
@@ -350,11 +297,11 @@ pub const fn is_prime(candidate: u64) -> bool {
 /// One identity type per prime, independent of coordinates or a named
 /// modulus. This is not an arithmetic backend.
 #[allow(private_bounds)]
-pub trait PrimeIdentity: private::Sealed + private::ResidueRowOf + Copy + 'static {
+pub trait PrimeIdentity:
+    private::Sealed + private::PrimeIdentityValidation + Copy + 'static
+{
     /// The prime characteristic value, checked primality on read.
     const CHARACTERISTIC: u64;
-    /// Use-time primality proof for the characteristic.
-    const VALID: ();
     /// Bit width of the characteristic: `64 - P.leading_zeros()`. Two at
     /// `P = 2`, sixty-four at the widest `u64` primes.
     const BITS: u32;
@@ -367,20 +314,23 @@ pub trait PrimeIdentity: private::Sealed + private::ResidueRowOf + Copy + 'stati
 
 /// The checked identity of the prime characteristic `P`.
 ///
-/// Both [`PrimeIdentity::CHARACTERISTIC`] and [`PrimeIdentity::VALID`] assert
-/// the const deterministic Miller-Rabin check, so prime queries validate
-/// themselves even if an implementation is incorrect.
+/// Reading [`PrimeIdentity::CHARACTERISTIC`] runs the const deterministic
+/// Miller-Rabin check, so prime queries validate themselves even if an
+/// implementation is incorrect.
 #[derive(Clone, Copy, Debug)]
 pub struct PrimeCharacteristic<const P: u64>;
 
 impl<const P: u64> private::Sealed for PrimeCharacteristic<P> {}
+
+impl<const P: u64> private::PrimeIdentityValidation for PrimeCharacteristic<P> {
+    const VALID: () = assert!(is_prime(P), "characteristic is not prime");
+}
 
 impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
     const CHARACTERISTIC: u64 = {
         assert!(is_prime(P), "characteristic is not prime");
         P
     };
-    const VALID: () = assert!(is_prime(P), "characteristic is not prime");
     #[allow(clippy::cast_possible_truncation)]
     const BITS: u32 = {
         assert!(is_prime(P), "characteristic is not prime");
@@ -397,28 +347,36 @@ impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
     };
 }
 
-impl<const P: u64> private::ResidueRowOf for PrimeCharacteristic<P> {
-    type Row = FiniteField<P, 1, Residue>;
-}
-
-/// The ordinary-residue row of a field's characteristic.
-///
-/// The degree-one row the compiled odd maps of `F` accumulate through.
-#[cfg(feature = "alloc")]
-pub(crate) type ResidueRow<F> = <<F as Field>::Characteristic as private::ResidueRowOf>::Row;
-
 /// A finite field supported by this crate.
 ///
 /// The marker carries only compile-time facts. `Raw` describes a single
 /// scalar's representation, not buffer pitch, alignment, byte order, or
-/// vector packing. The trait is sealed to the crate's own rows: the raw
-/// arithmetic methods are a row's scalar body, and ordinary callers work
-/// with [`Elem<F>`] and its operations. Generic code reads the characteristic
-/// as `<F::Characteristic as PrimeIdentity>::CHARACTERISTIC`.
+/// vector packing. The trait is sealed to the crate's own rows, and raw
+/// arithmetic stays crate-private: ordinary callers work with [`Elem<F>`],
+/// [`FieldElem`], and [`Elem::from_raw`] / [`Elem::to_raw`]. Identity and
+/// generator words read through [`Elem::ZERO`], [`Elem::ONE`], and
+/// [`Elem::GENERATOR`]. Generic code reads the characteristic as
+/// `<F::Characteristic as PrimeIdentity>::CHARACTERISTIC`.
+///
+/// Every safely constructed element holds canonical raw coordinates, so
+/// [`PartialEq`], [`Eq`], [`Hash`], and [`Ord`] compare raw words directly.
+/// Ordering is deterministic coordinate order, not an order compatible with
+/// field algebra; [`FieldElem::from_raw`] canonicalizes its input.
+///
+/// By library-wide convention `inv(0) == 0` and `x / 0 == 0`, in every build
+/// profile and under `const` evaluation alike. This is a total-function
+/// convention chosen so hot loops never branch on an impossible case; it is
+/// not a claim that zero is invertible.
 #[allow(private_bounds)]
-pub trait Field: private::RowAccess + Copy + core::fmt::Debug + 'static {
+pub trait Field:
+    private::RowAccess
+    + private::RawArithmetic<<Self as Field>::Raw>
+    + Copy
+    + core::fmt::Debug
+    + 'static
+{
     /// The raw word of one scalar element.
-    type Raw: Copy + Eq + Ord + core::hash::Hash + core::fmt::Debug + 'static;
+    type Raw: Copy + Eq + Ord + core::hash::Hash + core::fmt::Debug + Send + Sync + 'static;
     /// The prime characteristic identity of the field.
     type Characteristic: PrimeIdentity;
     /// Human-readable field name, e.g. `"GF(2^8)"`.
@@ -429,24 +387,6 @@ pub trait Field: private::RowAccess + Copy + core::fmt::Debug + 'static {
     /// Number of elements in the field: the characteristic raised to
     /// [`Field::DEGREE`].
     const ORDER: u128;
-    /// Raw word of the additive identity, in canonical coordinates.
-    const ZERO_RAW: Self::Raw;
-    /// Raw word of the multiplicative identity, in canonical coordinates.
-    const ONE_RAW: Self::Raw;
-    /// Use-time validity check for the field's defining data.
-    const VALID: ();
-    /// Reduce a raw word to canonical coordinates.
-    fn canonical_raw(raw: Self::Raw) -> Self::Raw;
-    /// Raw field addition, over canonical inputs.
-    fn add_raw(left: Self::Raw, right: Self::Raw) -> Self::Raw;
-    /// Raw field subtraction, over canonical inputs.
-    fn sub_raw(left: Self::Raw, right: Self::Raw) -> Self::Raw;
-    /// Raw additive inverse, over a canonical input.
-    fn neg_raw(value: Self::Raw) -> Self::Raw;
-    /// Raw field multiplication, over canonical inputs.
-    fn mul_raw(left: Self::Raw, right: Self::Raw) -> Self::Raw;
-    /// Raw multiplicative inverse. Maps zero to zero by convention.
-    fn inv_raw(value: Self::Raw) -> Self::Raw;
 }
 
 /// Central metadata validation for a field.
@@ -462,7 +402,7 @@ impl<F: Field> Validate<F> {
         let characteristic = <F::Characteristic as PrimeIdentity>::CHARACTERISTIC;
         let order = finite_field::metadata_order(characteristic, F::DEGREE);
         assert!(order == F::ORDER, "ORDER is not CHARACTERISTIC^DEGREE");
-        let () = F::VALID;
+        let () = <F as private::RawArithmetic<<F as Field>::Raw>>::VALID;
     };
 }
 
@@ -542,7 +482,7 @@ impl<F: Field> Elem<F> {
         Elem { raw: F::ONE_RAW }
     };
 
-    /// Unwrap to the canonical raw storage word.
+    /// Unwraps to the canonical raw storage word.
     #[inline]
     #[must_use]
     pub const fn to_raw(self) -> F::Raw {
@@ -554,12 +494,10 @@ impl<F: Field> Elem<F> {
 ///
 /// The trait is sealed: only the crate's shipped rows implement it, each
 /// with its frozen generator. Raw canonicality and full multiplicative order
-/// hold inside the constant: each provider verifies the full order against
-/// the factorization of the group order.
-pub trait HasGenerator: Field + private::FieldSeal {
-    /// Raw word of the selected generator, of full multiplicative order.
-    const GENERATOR_RAW: Self::Raw;
-}
+/// hold for [`Elem::GENERATOR`]: each provider verifies the full order
+/// against the factorization of the group order.
+#[allow(private_bounds)]
+pub trait HasGenerator: Field + private::FieldSeal + private::GeneratorRaw {}
 
 impl<F: HasGenerator> Elem<F> {
     /// The selected generator of the multiplicative group.
@@ -597,7 +535,7 @@ impl<F: HasGenerator> Elem<F> {
 /// coordinate word one:
 ///
 /// ```
-/// use fgf::{Elem, FieldElem, FiniteField, Normal};
+/// use fgf::{Elem, FieldElem, FiniteField, binary::Normal};
 ///
 /// type Row = FiniteField<2, 2, Normal<7, 2>>;
 /// let one = Elem::<Row>::ONE;
@@ -610,10 +548,21 @@ pub trait FieldElem:
 {
     /// The field this is an element of.
     type Field: Field;
-    /// Wrap a raw word, canonicalizing it into storage.
+    /// Wraps a raw word, canonicalizing it into storage.
     ///
-    /// Runs the central field validation, then
-    /// [`Field::canonical_raw`].
+    /// Runs the central field validation, then maps every raw word to one
+    /// canonical element:
+    ///
+    /// - prime rows ([`Mersenne31`](crate::prime::Mersenne31),
+    ///   [`Goldilocks`](crate::prime::Goldilocks), and
+    ///   `FiniteField<P, 1, Residue>`) reduce the word modulo the
+    ///   characteristic;
+    /// - flat binary rows (`FiniteField<2, N, R>` over a binary
+    ///   representation `R`) discard the bits at and above the degree;
+    /// - extension rows with [`Components`](crate::extension::Components)
+    ///   storage canonicalize each component through its base row, and packed
+    ///   storage discards the padding bits above the coordinate span and
+    ///   canonicalizes each base-sized component.
     fn from_raw(raw: <Self::Field as Field>::Raw) -> Self;
     /// The additive identity, and the absorbing element for multiplication.
     const ZERO: Self;
@@ -638,10 +587,10 @@ pub trait FieldElem:
     /// Field division. Returns zero when the divisor is zero.
     #[must_use]
     fn div(self, rhs: Self) -> Self;
-    /// Square.
+    /// Squares the element.
     #[must_use]
     fn square(self) -> Self;
-    /// Raise to an unsigned integer power by square-and-multiply.
+    /// Raises to an unsigned integer power by square-and-multiply.
     ///
     /// Present on the trait so generic code can exponentiate without knowing
     /// the field's group order. `pow(0)` is [`FieldElem::ONE`] for every
@@ -791,8 +740,9 @@ impl<F: Field> FieldElem for Elem<F> {
 
     #[inline]
     fn from_residue(value: u64) -> Result<Self, RangeError> {
+        let () = Validate::<F>::OK;
         let characteristic = <F::Characteristic as PrimeIdentity>::CHARACTERISTIC;
-        let () = <F::Characteristic as PrimeIdentity>::VALID;
+        let () = <F::Characteristic as private::PrimeIdentityValidation>::VALID;
         check_residue(value, characteristic)?;
         Ok(Elem {
             raw: F::canonical_raw(F::from_prime(value)),
@@ -806,6 +756,7 @@ impl<F: Field> FieldElem for Elem<F> {
 
     #[inline]
     fn from_index(index: u128) -> Result<Self, RangeError> {
+        let () = Validate::<F>::OK;
         if index >= F::ORDER {
             return Err(RangeError);
         }
@@ -940,17 +891,22 @@ impl<'a, F: Field> core::iter::Product<&'a Elem<F>> for Elem<F> {
 /// Buffers hold fixed-width coordinates, not prepared coefficients or native
 /// scratch. The trait is sealed: the crate's rows define every byte layout.
 #[allow(private_bounds)]
-pub trait FieldBuffer: Field + private::FieldSeal + private::BufferDispatch {
+pub trait FieldBuffer: Field + private::FieldSeal + dispatch::KernelDispatch {
     /// Width of the stable byte representation of one element.
     const BYTES: usize;
     /// Storage bit width of one element: `8 * BYTES`.
     const STORAGE_BITS: u32;
-    /// Decode one element from its stable little-endian byte representation.
+    /// Decodes one element from its stable little-endian byte representation.
+    ///
+    /// Every byte pattern of the right width is accepted: the lane is read as
+    /// the row's little-endian raw word (each component's lane in turn for
+    /// [`Components`](crate::extension::Components) storage) and
+    /// canonicalized as [`FieldElem::from_raw`] specifies.
     ///
     /// # Panics
     /// Panics if `bytes.len() != Self::BYTES`.
     fn decode(bytes: &[u8]) -> Elem<Self>;
-    /// Encode one element into its stable little-endian byte representation.
+    /// Encodes one element into its stable little-endian byte representation.
     ///
     /// # Panics
     /// Panics if `bytes.len() != Self::BYTES`.
@@ -965,8 +921,12 @@ impl<const P: u64, const N: u32, R: FiniteFieldRepr<P, N>> private::FieldSeal
 /// An integer outside the range a conversion accepts.
 ///
 /// Returned when a value does not name an element of the target field: a
-/// residue at or above the characteristic, or an index at or above the field
-/// order. The unit carries no payload; tests compare by value.
+/// residue at or above the characteristic, or an index at or above the
+/// field order. The unit carries no payload; it is obtained from a
+/// rejected conversion and compared by value, and cannot be constructed
+/// outside the crate. Outside the crate a pattern names it as
+/// `RangeError { .. }`.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RangeError;
 
@@ -989,9 +949,16 @@ mod tests {
         FanPaar2Field, FanPaar4Field, FanPaar8Field, FanPaar16Field, FanPaar32Field,
         FanPaar64Field, Rijndael16Field, Rijndael32Field, Rijndael64Field,
     };
+    use super::binary::{AES, Cantor, Normal, Polynomial, RS};
     use super::extension::Descriptor;
     use super::extension::pinned;
+    use super::extension::storage::{Components, PackedPadded};
+    use super::extension::{Extension, Relation};
+    use super::finite_field::Residue;
+    use super::goldilocks::Goldilocks;
+    use super::mersenne31::Mersenne31;
     use super::private::RowAccess as _;
+    use super::quad_mersenne31::QuadMersenne31;
     use super::*;
 
     /// The largest `u64` prime, for full-width residue samples.
@@ -1394,7 +1361,10 @@ mod tests {
             type Row = $row;
             assert_eq!(Row::DESCRIPTOR.degree(), Row::DEGREE);
             assert_eq!(
-                Row::DESCRIPTOR.characteristic(),
+                crate::field::extension::arithmetic::characteristic_of(
+                    &Row::DESCRIPTOR,
+                    Row::DESCRIPTOR.root_index()
+                ),
                 <Row as Field>::Characteristic::CHARACTERISTIC
             );
             $(

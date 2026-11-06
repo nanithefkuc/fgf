@@ -1,5 +1,5 @@
 //! Offset-sweep and overwrite-gather probe for the half-lane peel and
-//! gather-dispatch records in `benchmarks/v3/gf8.md` and `benchmarks/v3/gf16.md`.
+//! the gather-dispatch paths.
 //!
 //! ```sh
 //! taskset -c <core> cargo run --release --all-features --example peel_probe
@@ -15,12 +15,13 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use fgf::{Elem, FieldKernels, FiniteField, Polynomial, backend, ops};
+use fgf::binary::Polynomial;
+use fgf::{Elem, FieldBuffer, FiniteField, backend, ops};
 
-use fgf::poly::{AES, RS};
+use fgf::binary::{AES, RS};
 
 // Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
     let mut state = seed | 1;
@@ -107,7 +108,7 @@ fn gf16_sweep() {
     }
 }
 
-fn gather_probe<F: FieldKernels>(name: &str, coeff: impl Fn(usize) -> Elem<F>) {
+fn gather_probe<F: FieldBuffer>(name: &str, coeff: impl Fn(usize) -> Elem<F>) {
     println!("\n== {name} overwrite gather, 16 sources: raw coefficients vs prepared CoeffVec ==");
     for &len in &[4096usize, 16384] {
         let n = 16usize;

@@ -12,7 +12,7 @@ use fgf::{Elem, FieldBuffer, FiniteField, ops};
 type F = FiniteField<17, 1>;
 let x = Elem::<F>::from_raw(24);
 assert_eq!(x.to_raw(), 7);
-assert_eq!(Elem::<F>::from_residue(17), Err(fgf::RangeError));
+assert!(matches!(Elem::<F>::from_residue(17), Err(fgf::RangeError { .. })));
 
 let source = [24u8];
 let mut destination = [0xa5u8];
@@ -57,9 +57,14 @@ scaling preserves it; unit overwrite scaling copies the source. These shortcuts
 can retain noncanonical byte spellings. Normalize explicitly at a format boundary:
 
 ```rust
-use fgf::{Elem, Mersenne31, mersenne31, ops};
+use fgf::{Elem, Field, ops};
+use fgf::prime::{Mersenne31, PrimeIdentity};
 
-let original = (mersenne31::MODULUS + 7).to_le_bytes();
+let modulus = u32::try_from(
+    <<Mersenne31 as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC,
+)
+.expect("Mersenne31 characteristic fits u32");
+let original = (modulus + 7).to_le_bytes();
 let mut copied = [0u8; 4];
 ops::mul_into::<Mersenne31>(&mut copied, Elem::<Mersenne31>::ONE, &original);
 assert_eq!(copied, original);
@@ -78,7 +83,8 @@ does not validate a proof, codeword, or evaluation vector.
 This computes `out[i] = a[i]*b[i] + challenge*a[i] - a[i]`:
 
 ```rust
-use fgf::{Elem, Mersenne31, ops};
+use fgf::{Elem, ops};
+use fgf::prime::Mersenne31;
 
 let a = [1u32, 2, 3].map(Elem::<Mersenne31>::from_raw);
 let b = [4u32, 5, 6].map(Elem::<Mersenne31>::from_raw);
@@ -88,7 +94,7 @@ ops::pack::<Mersenne31>(&mut packed_a, &a);
 ops::pack::<Mersenne31>(&mut packed_b, &b);
 let challenge = ops::Coeff::<Mersenne31>::new(Elem::<Mersenne31>::from_raw(13));
 let mut output = [0u8; 12];
-ops::mul_elementwise::<Mersenne31>(&mut output, &packed_a, &packed_b);
+ops::mul_elementwise_into::<Mersenne31>(&mut output, &packed_a, &packed_b);
 ops::mul_add_with::<Mersenne31>(&mut output, &challenge, &packed_a);
 ops::sub_assign::<Mersenne31>(&mut output, &packed_a);
 let mut values = [Elem::<Mersenne31>::ZERO; 3];
@@ -105,7 +111,9 @@ field arithmetic, not the transform or evaluation schedule.
 the imaginary component; the norm returns `re² + im²` in `Mersenne31`:
 
 ```rust
-use fgf::{Elem, Mersenne31, QuadMersenne31};
+use fgf::Elem;
+use fgf::prime::Mersenne31;
+use fgf::extension::QuadMersenne31;
 
 let z = Elem::<QuadMersenne31>::from_components([
     Elem::<Mersenne31>::from_raw(7), Elem::<Mersenne31>::from_raw(11),
@@ -124,4 +132,4 @@ spelling here);
 
 For a custom relation or storage choice, continue with
 [custom fields and extensions](Downstream-scalar-fields). Exact contracts live in
-the [field reference](https://docs.rs/fgf/3.0.2/fgf/field/index.html).
+the [field reference](https://docs.rs/fgf/4.0.0/fgf/index.html).

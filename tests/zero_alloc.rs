@@ -1,21 +1,21 @@
 #![cfg(feature = "std")]
 
-use fgf::poly::{AES, RS};
-use fgf::{
-    Components, Elem, Embedding, Extension, ExtensionSpec, FieldBuffer, FieldElem, FieldKernels,
-    FiniteField, Goldilocks, Isomorphism, Mersenne31, Normal, Packed, Polynomial, QuadMersenne31,
-    Relation, Residue, ops,
-};
+use fgf::binary::{AES, RS};
+use fgf::binary::{Normal, Polynomial};
+use fgf::extension::{Components, Extension, ExtensionSpec, Packed, QuadMersenne31, Relation};
+use fgf::maps::{Embedding, Isomorphism};
+use fgf::prime::{Goldilocks, Mersenne31, Residue};
+use fgf::{Elem, FieldBuffer, FieldElem, FiniteField, ops};
 
 #[path = "common/zero_alloc.rs"]
 mod common;
 use common::{TEST_LOCK, count_allocations, noise};
 
-type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
-type FanPaar8Row = fgf::FiniteField<2, 8, fgf::Extension<fgf::FanPaar8, 2>>;
+type Gf1 = fgf::FiniteField<2, 1, fgf::binary::Polynomial<3>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>;
+type FanPaar8Row = fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>;
 type ResiduePrime = FiniteField<1_000_000_007, 1, Residue>;
 type ResidueTwo = FiniteField<2, 1, Residue>;
 
@@ -34,7 +34,7 @@ type Custom32Row = FiniteField<2, 32, Extension<Custom32Spec, 2>>;
 /// Steady-state prepared application over one fallback class: preparation
 /// allocates by contract, application must not.
 #[allow(clippy::too_many_lines)]
-fn assert_fallback_steady_state_zero_alloc<F: FieldKernels>(coeffs: &[Elem<F>]) {
+fn assert_fallback_steady_state_zero_alloc<F: FieldBuffer>(coeffs: &[Elem<F>]) {
     const ROW_LEN: usize = 1024;
     let src = noise(ROW_LEN, 0xF00);
     let sources: Vec<Vec<u8>> = (0..coeffs.len())
@@ -349,7 +349,7 @@ fn coeff_matrix_reed_solomon_steady_state_allocates_nothing() {
 }
 
 /// Steady-state prime-field ops must not allocate on the hot path.
-fn assert_prime_steady_state_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
+fn assert_prime_steady_state_zero_alloc<F: FieldBuffer>(coeff: Elem<F>) {
     let len = 4096;
     let src = noise(len, 0x111);
     let b = noise(len, 0x222);
@@ -358,7 +358,6 @@ fn assert_prime_steady_state_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
     let sources: Vec<Vec<u8>> = (0..4).map(|i| noise(len, 0x400 + i)).collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
     let coeffs = vec![coeff; 4];
-    let terms: Vec<_> = refs.iter().map(|&src| (coeffs.as_slice(), src)).collect();
 
     // Warm dispatch and every code path before counting.
     ops::mul_add::<F>(&mut dst, coeff, &src);
@@ -366,20 +365,17 @@ fn assert_prime_steady_state_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
     ops::add_assign::<F>(&mut dst, &src);
     ops::sub_assign::<F>(&mut dst, &src);
     ops::mul_add_gather::<F>(&mut dst, &coeffs, &refs);
-    ops::mul_elementwise::<F>(&mut ew, &src, &b);
+    ops::mul_elementwise_into::<F>(&mut ew, &src, &b);
     let mut scatter_rows = noise(4 * len, 0x444);
     ops::mul_add_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
     ops::mul_into_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
-    ops::mul_add_matrix::<F>(&mut scatter_rows, len, 4, &terms);
     let allocations = count_allocations(|| {
         ops::mul_add::<F>(&mut dst, coeff, &src);
         ops::mul_assign::<F>(&mut dst, coeff);
         ops::add_assign::<F>(&mut dst, &src);
         ops::sub_assign::<F>(&mut dst, &src);
         ops::mul_add_gather::<F>(&mut dst, &coeffs, &refs);
-        ops::mul_elementwise::<F>(&mut ew, &src, &b);
-        ops::mul_add_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
-        ops::mul_add_matrix::<F>(&mut scatter_rows, len, 4, &terms);
+        ops::mul_elementwise_into::<F>(&mut ew, &src, &b);
         ops::mul_into_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
     });
     assert_eq!(allocations, 0, "prime steady-state op allocated");
@@ -453,7 +449,7 @@ fn residue_prepared_widths_steady_state_allocate_nothing() {
     type Short = FiniteField<65_521, 1, Residue>;
     type Full = FiniteField<4_294_967_291, 1, Residue>;
     type Wide = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>;
-    fn warmed<F: FieldKernels>(coeff: Elem<F>) {
+    fn warmed<F: FieldBuffer>(coeff: Elem<F>) {
         let row_len = 64 * F::BYTES;
         let src = noise(row_len, 0x1600);
         let mut dst = noise(row_len, 0x1601);
@@ -557,7 +553,7 @@ fn bits_steady_state_allocates_nothing() {
         .lock()
         .expect("zero-allocation test lock poisoned");
     let bits = 4096;
-    let len = fgf::bits::bytes_for(bits);
+    let len = fgf::ops::bits::bytes_for(bits);
     let a = noise(len, 0x100);
     let b = noise(len, 0x200);
     let mut dst = noise(len, 0x300);
@@ -565,28 +561,28 @@ fn bits_steady_state_allocates_nothing() {
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
 
     // Warm dispatch before counting.
-    fgf::bits::xor_assign(&mut dst, &a);
-    fgf::bits::xor_range(&mut dst, &a, bits, 100, 4000);
-    fgf::bits::and_into(&mut dst, &a, &b);
-    fgf::bits::and_assign(&mut dst, &a);
-    fgf::bits::andnot_assign(&mut dst, &a);
-    fgf::bits::clear_range(&mut dst, bits, 0, 64);
-    fgf::bits::set_range(&mut dst, bits, 0, 64);
-    let _ = fgf::bits::weight(&dst, bits);
-    let _ = fgf::bits::dot_product(&dst, &a, bits);
-    fgf::bits::xor_gather(&mut dst, bits, 0b0101, &refs);
+    fgf::ops::bits::xor_assign(&mut dst, &a);
+    fgf::ops::bits::xor_range(&mut dst, bits, 100, 4000, &a);
+    fgf::ops::bits::and_into(&mut dst, &a, &b);
+    fgf::ops::bits::and_assign(&mut dst, &a);
+    fgf::ops::bits::andnot_assign(&mut dst, &a);
+    fgf::ops::bits::clear_range(&mut dst, bits, 0, 64);
+    fgf::ops::bits::set_range(&mut dst, bits, 0, 64);
+    let _ = fgf::ops::bits::weight(&dst, bits);
+    let _ = fgf::ops::bits::dot_product(&dst, &a, bits);
+    fgf::ops::bits::xor_gather(&mut dst, bits, 0b0101, &refs);
 
     let allocations = count_allocations(|| {
-        fgf::bits::xor_assign(&mut dst, &a);
-        fgf::bits::xor_range(&mut dst, &a, bits, 100, 4000);
-        fgf::bits::and_into(&mut dst, &a, &b);
-        fgf::bits::and_assign(&mut dst, &a);
-        fgf::bits::andnot_assign(&mut dst, &a);
-        fgf::bits::clear_range(&mut dst, bits, 0, 64);
-        fgf::bits::set_range(&mut dst, bits, 0, 64);
-        let _ = fgf::bits::weight(&dst, bits);
-        let _ = fgf::bits::dot_product(&dst, &a, bits);
-        fgf::bits::xor_gather(&mut dst, bits, 0b0101, &refs);
+        fgf::ops::bits::xor_assign(&mut dst, &a);
+        fgf::ops::bits::xor_range(&mut dst, bits, 100, 4000, &a);
+        fgf::ops::bits::and_into(&mut dst, &a, &b);
+        fgf::ops::bits::and_assign(&mut dst, &a);
+        fgf::ops::bits::andnot_assign(&mut dst, &a);
+        fgf::ops::bits::clear_range(&mut dst, bits, 0, 64);
+        fgf::ops::bits::set_range(&mut dst, bits, 0, 64);
+        let _ = fgf::ops::bits::weight(&dst, bits);
+        let _ = fgf::ops::bits::dot_product(&dst, &a, bits);
+        fgf::ops::bits::xor_gather(&mut dst, bits, 0b0101, &refs);
     });
     assert_eq!(allocations, 0, "bits steady-state op allocated");
 }
@@ -630,9 +626,9 @@ fn embedding_construction_and_application_allocate_nothing() {
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
-    let byte_tower = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::new().unwrap();
-    let fanpaar_tower = Embedding::<FanPaar8Row, Gf64>::new().unwrap();
-    let absolute = Embedding::<Gf1, Gf64>::new().unwrap();
+    let byte_tower = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::new();
+    let fanpaar_tower = Embedding::<FanPaar8Row, Gf64>::new();
+    let absolute = Embedding::<Gf1, Gf64>::new();
     let source = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
     let target = Elem::<Gf64>::from_raw(u64::MAX);
 
@@ -645,17 +641,16 @@ fn embedding_construction_and_application_allocate_nothing() {
     let _ = byte_tower.norm(target);
     let _ = fanpaar_tower.trace(target);
     let _ = absolute.norm(target);
-    let fanpaar_pair = Isomorphism::<FanPaar64Field, Gf64>::new().unwrap();
+    let fanpaar_pair = Isomorphism::<FanPaar64Field, Gf64>::new();
     let source_pair = Elem::<FanPaar64Field>::from_raw(u64::MAX);
     let _ = fanpaar_pair.apply(source_pair);
     let _ = fanpaar_pair.unapply(target);
 
     let constructions = count_allocations(|| {
-        let _ = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::new().unwrap();
-        let _ = Embedding::<FanPaar8Row, Gf64>::new().unwrap();
-        let _ = Embedding::<Gf1, Gf64>::new().unwrap();
-        let _ = Embedding::<Gf64, FiniteField<2, 8, Polynomial<AES>>>::new();
-        let _ = Isomorphism::<FanPaar64Field, Gf64>::new().unwrap();
+        let _ = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::new();
+        let _ = Embedding::<FanPaar8Row, Gf64>::new();
+        let _ = Embedding::<Gf1, Gf64>::new();
+        let _ = Isomorphism::<FanPaar64Field, Gf64>::new();
     });
     assert_eq!(constructions, 0, "embedding construction allocated");
 
@@ -679,15 +674,14 @@ fn embedding_construction_and_application_allocate_nothing() {
         )
         .unwrap();
         let _ = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::generator(0);
-        let wide = Isomorphism::<Gf64, Gf64>::new().unwrap();
+        let wide = Isomorphism::<Gf64, Gf64>::new();
         let _ = rebuilt.then(&wide);
         let byte_iso = Isomorphism::<
             FiniteField<2, 8, Polynomial<AES>>,
             FiniteField<2, 8, Polynomial<AES>>,
-        >::new()
-        .unwrap();
+        >::new();
         let _ = byte_iso.then_embedding(&byte_tower);
-        let iso = Isomorphism::<Gf64, Gf64>::new().unwrap();
+        let iso = Isomorphism::<Gf64, Gf64>::new();
         let _ = iso.apply(target);
         let _ = iso.unapply(target);
         let _ = iso.inverse();
@@ -695,7 +689,7 @@ fn embedding_construction_and_application_allocate_nothing() {
         let _ = Isomorphism::<Gf64, Gf64>::from_images(iso.to_images()).unwrap();
         let _ = iso.then(&iso);
         // An odd-characteristic isomorphism under the allocator.
-        let qiso = Isomorphism::<QuadMersenne31, QuadMersenne31>::new().unwrap();
+        let qiso = Isomorphism::<QuadMersenne31, QuadMersenne31>::new();
         let z = Elem::<QuadMersenne31>::from_raw([3, 5]);
         let _ = qiso.apply(z);
         let _ = qiso.unapply(qiso.apply(z));
@@ -731,22 +725,12 @@ impl ExtensionSpec<2> for Packed16Spec {
 }
 type Packed16Row = FiniteField<2, 16, Extension<Packed16Spec, 2>>;
 
-#[derive(Clone, Copy)]
-struct MersennePairSpec;
-impl ExtensionSpec<2> for MersennePairSpec {
-    type Base = Mersenne31;
-    type Storage = Components;
-    const NAME: &'static str = "component Mersenne31 pair";
-    const RELATION: Relation = Relation::from_coordinates(&[2, 0]);
-}
-type MersennePair = FiniteField<0x7fff_ffff, 2, Extension<MersennePairSpec, 2>>;
-
 /// The whole checked packed surface the generic family serves, inside one
 /// counted window per row: every borrowed operation, the scatter, matrix,
 /// and offset-addressed forms, the broadcast scalar forms, and the
 /// prepared coefficient and prepared collections.
 #[allow(clippy::too_many_lines)]
-fn assert_extension_packed_surface_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
+fn assert_extension_packed_surface_zero_alloc<F: FieldBuffer>(coeff: Elem<F>) {
     let row_len = 64;
     let src = noise(row_len, 0x611);
     let other = noise(row_len, 0x622);
@@ -778,7 +762,7 @@ fn assert_extension_packed_surface_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
     // Warm dispatch and every path before counting.
     ops::add_assign::<F>(&mut dst, &src);
     ops::add_assign_rows::<F>(&mut dst, row_len, &src);
-    ops::add_gather_offsets::<F>(&mut dst, &region, &offsets);
+    ops::add_gather_offsets::<F>(&mut dst, &offsets, &region);
     ops::sub_assign::<F>(&mut dst, &src);
     ops::sub_assign_rows::<F>(&mut dst, row_len, &src);
     ops::mul_add::<F>(&mut dst, coeff, &src);
@@ -791,7 +775,7 @@ fn assert_extension_packed_surface_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
     ops::mul_add_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
     ops::mul_into_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
     ops::mul_into_matrix_at::<F>(&mut at_rows, row_len, &row_starts, &terms);
-    ops::mul_elementwise::<F>(&mut ew, &src, &other);
+    ops::mul_elementwise_into::<F>(&mut ew, &src, &other);
     ops::mul_elementwise_assign::<F>(&mut ew, &other);
     ops::add_assign_scalar::<F>(&mut dst, coeff);
     ops::sub_assign_scalar::<F>(&mut dst, coeff);
@@ -808,7 +792,7 @@ fn assert_extension_packed_surface_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
     let allocations = count_allocations(|| {
         ops::add_assign::<F>(&mut dst, &src);
         ops::add_assign_rows::<F>(&mut dst, row_len, &src);
-        ops::add_gather_offsets::<F>(&mut dst, &region, &offsets);
+        ops::add_gather_offsets::<F>(&mut dst, &offsets, &region);
         ops::sub_assign::<F>(&mut dst, &src);
         ops::sub_assign_rows::<F>(&mut dst, row_len, &src);
         ops::mul_add::<F>(&mut dst, coeff, &src);
@@ -821,7 +805,7 @@ fn assert_extension_packed_surface_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
         ops::mul_add_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
         ops::mul_into_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
         ops::mul_into_matrix_at::<F>(&mut at_rows, row_len, &row_starts, &terms);
-        ops::mul_elementwise::<F>(&mut ew, &src, &other);
+        ops::mul_elementwise_into::<F>(&mut ew, &src, &other);
         ops::mul_elementwise_assign::<F>(&mut ew, &other);
         ops::add_assign_scalar::<F>(&mut dst, coeff);
         ops::sub_assign_scalar::<F>(&mut dst, coeff);
@@ -858,8 +842,6 @@ fn generic_extension_rows_steady_state_allocate_nothing() {
     assert_extension_packed_surface_zero_alloc::<Gf49Row>(odd_coeff);
     let binary_coeff = Elem::<Packed16Row>::from_raw(0x1B70);
     assert_extension_packed_surface_zero_alloc::<Packed16Row>(binary_coeff);
-    let component_coeff = Elem::<MersennePair>::from_raw([3, 5]);
-    assert_extension_packed_surface_zero_alloc::<MersennePair>(component_coeff);
 }
 
 /// Byte-lane dot products return by value and fold scalar lanes, so steady
@@ -867,8 +849,8 @@ fn generic_extension_rows_steady_state_allocate_nothing() {
 #[test]
 fn bulk_dot_product_steady_state_allocates_nothing() {
     use fgf::FiniteField;
-    use fgf::Polynomial;
-    use fgf::poly::AES;
+    use fgf::binary::AES;
+    use fgf::binary::Polynomial;
 
     let _guard = TEST_LOCK
         .lock()
@@ -897,8 +879,8 @@ fn bulk_dot_product_steady_state_allocates_nothing() {
 #[test]
 fn inv_div_rows_steady_state_allocate_nothing() {
     use fgf::FiniteField;
-    use fgf::Polynomial;
-    use fgf::poly::AES;
+    use fgf::binary::AES;
+    use fgf::binary::Polynomial;
 
     let _guard = TEST_LOCK
         .lock()
@@ -919,19 +901,19 @@ fn inv_div_rows_steady_state_allocate_nothing() {
     // Warm dispatch before counting.
     ops::inv_into::<Gf8>(&mut dst, &src);
     ops::inv_assign::<Gf8>(&mut dst_assign);
-    ops::div_elementwise::<Gf8>(&mut dst_div, &num, &den);
+    ops::div_elementwise_into::<Gf8>(&mut dst_div, &num, &den);
     ops::div_elementwise_assign::<Gf8>(&mut dst_div, &den);
     ops::inv_into::<Mersenne31>(&mut dst31, &src31);
-    ops::div_elementwise::<Goldilocks>(&mut dst_div, &num_g, &den_g);
+    ops::div_elementwise_into::<Goldilocks>(&mut dst_div, &num_g, &den_g);
     ops::inv_assign::<ResiduePrime>(&mut dst);
 
     let allocations = count_allocations(|| {
         ops::inv_into::<Gf8>(&mut dst, &src);
         ops::inv_assign::<Gf8>(&mut dst_assign);
-        ops::div_elementwise::<Gf8>(&mut dst_div, &num, &den);
+        ops::div_elementwise_into::<Gf8>(&mut dst_div, &num, &den);
         ops::div_elementwise_assign::<Gf8>(&mut dst_div, &den);
         ops::inv_into::<Mersenne31>(&mut dst31, &src31);
-        ops::div_elementwise::<Goldilocks>(&mut dst_div, &num_g, &den_g);
+        ops::div_elementwise_into::<Goldilocks>(&mut dst_div, &num_g, &den_g);
         ops::inv_assign::<ResiduePrime>(&mut dst);
     });
     assert_eq!(allocations, 0, "batch reciprocal/division rows allocated");

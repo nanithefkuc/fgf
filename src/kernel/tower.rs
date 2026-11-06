@@ -28,24 +28,28 @@ pub mod gf16 {
     //! representation, or an element.
 
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    use crate::field::binary::byte::ByteReprData;
+    use crate::field::binary::byte::ScaleTable;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::field::binary::tower::FanPaar16Field;
     use crate::field::binary::tower::Rijndael16Field;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    use crate::field::binary::{AES, Polynomial};
+    use crate::field::dispatch::RawDispatch;
     use crate::field::extension::Packed;
     use crate::field::extension::pinned::{self, Instance};
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    use crate::field::{AES, Polynomial};
+    use crate::field::extension::storage::{StorageDispatch, StorageRow};
     use crate::field::{BinaryField, Elem, Field};
-    use crate::kernel::extension::{StorageKernels, StorageRow};
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::kernel::tables::AES_BANK;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    use crate::kernel::tables::{ByteBanks, RIJNDAEL16_B};
-    use crate::kernel::tables::{FpTowerTables, ScaleTable, TowerCoeff, TowerTables};
+    use crate::kernel::tables::RIJNDAEL16_B;
+    use crate::kernel::tables::{FpTowerTables, TowerCoeff, TowerTables};
     // `Backend` is referenced only from the SIMD dispatch arms, which cfg
     // away entirely on a scalar-only build or on an architecture without the
     // corresponding backend.
     #[allow(unused_imports)]
-    use crate::kernel::{Backend, KernelDispatch, RawDispatch, backend, scalar};
+    use crate::kernel::{Backend, backend, scalar};
 
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::kernel::Matrix;
@@ -529,11 +533,11 @@ pub mod gf16 {
         }
     }
 
-    impl<B: BinaryField, const D: usize> StorageKernels<B, D> for Packed<u16> {
+    impl<B: BinaryField, const D: usize> StorageDispatch<B, D> for Packed<u16> {
         type Prepared = Prepared;
 
         #[inline]
-        fn backend<F: StorageRow<B, D, Self>>() -> Backend {
+        fn backend<F: StorageRow<B, D, Self>>(_proof: RawDispatch) -> Backend {
             if rijndael16::<F>() {
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 {
@@ -551,7 +555,7 @@ pub mod gf16 {
         }
 
         #[inline]
-        fn has_vector_elementwise<F: StorageRow<B, D, Self>>() -> bool {
+        fn has_vector_elementwise<F: StorageRow<B, D, Self>>(_proof: RawDispatch) -> bool {
             // The vector elementwise formulas fold the relation's linear
             // term into the Karatsuba cross sum, which holds only when that
             // coefficient is the base's multiplicative identity: the
@@ -958,25 +962,6 @@ pub mod gf16 {
             F::mul_add_gather_with(RawDispatch, dst, coeffs, srcs);
         }
 
-        fn mul_into_gather<F: StorageRow<B, D, Self>>(
-            _proof: RawDispatch,
-            dst: &mut [u8],
-            coeffs: &[Elem<F>],
-            srcs: &[&[u8]],
-        ) {
-            crate::kernel::fallback::mul_into_gather_by_class::<F>(dst, coeffs, srcs);
-        }
-
-        #[cfg(any(feature = "alloc", test))]
-        fn mul_into_gather_with<F: StorageRow<B, D, Self>>(
-            _proof: RawDispatch,
-            dst: &mut [u8],
-            coeffs: &[Prepared],
-            srcs: &[&[u8]],
-        ) {
-            crate::kernel::fallback::mul_into_gather_by_class_with::<F>(dst, coeffs, srcs);
-        }
-
         fn mul_add_matrix<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
@@ -1127,7 +1112,7 @@ pub mod gf16 {
             #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             let b_raw = RIJNDAEL16_B;
             #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-            let reduction = <Polynomial<AES> as ByteBanks>::REDUCTION_LOW;
+            let reduction = <Polynomial<AES> as ByteReprData>::REDUCTION_LOW;
             match backend() {
                 #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
                 Backend::V4x => {
@@ -1206,7 +1191,7 @@ pub mod gf16 {
             #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             let b_raw = RIJNDAEL16_B;
             #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-            let reduction = <Polynomial<AES> as ByteBanks>::REDUCTION_LOW;
+            let reduction = <Polynomial<AES> as ByteReprData>::REDUCTION_LOW;
             match backend() {
                 #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
                 Backend::V4x => {
@@ -1263,6 +1248,10 @@ pub mod gf16 {
                 _ => scalar::mul_elementwise_assign::<F>(dst, src),
             }
         }
+
+        fallback_entries!(
+            storage: vector_elementwise_min_bytes, add_assign_scalar, sub_assign_scalar,
+        );
     }
 }
 
@@ -1278,12 +1267,13 @@ pub mod gf32 {
 
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::field::binary::tower::{FanPaar32Field, Rijndael32Field};
+    use crate::field::dispatch::RawDispatch;
     use crate::field::extension::Packed;
     use crate::field::extension::pinned::{self, Instance};
+    use crate::field::extension::storage::{StorageDispatch, StorageRow};
     use crate::field::{BinaryField, Elem, Field};
-    use crate::kernel::extension::{StorageKernels, StorageRow};
     #[allow(unused_imports)]
-    use crate::kernel::{Backend, KernelDispatch, RawDispatch, backend, scalar};
+    use crate::kernel::{Backend, backend, scalar};
 
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::kernel::x86;
@@ -1347,11 +1337,11 @@ pub mod gf32 {
         }
     }
 
-    impl<B: BinaryField, const D: usize> StorageKernels<B, D> for Packed<u32> {
+    impl<B: BinaryField, const D: usize> StorageDispatch<B, D> for Packed<u32> {
         type Prepared = Prepared;
 
         #[inline]
-        fn backend<F: StorageRow<B, D, Self>>() -> Backend {
+        fn backend<F: StorageRow<B, D, Self>>(_proof: RawDispatch) -> Backend {
             if rijndael32::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -1539,25 +1529,6 @@ pub mod gf32 {
             }
         }
 
-        fn mul_into_gather<F: StorageRow<B, D, Self>>(
-            _proof: RawDispatch,
-            dst: &mut [u8],
-            coeffs: &[Elem<F>],
-            srcs: &[&[u8]],
-        ) {
-            crate::kernel::fallback::mul_into_gather_by_class::<F>(dst, coeffs, srcs);
-        }
-
-        #[cfg(any(feature = "alloc", test))]
-        fn mul_into_gather_with<F: StorageRow<B, D, Self>>(
-            _proof: RawDispatch,
-            dst: &mut [u8],
-            coeffs: &[Prepared],
-            srcs: &[&[u8]],
-        ) {
-            crate::kernel::fallback::mul_into_gather_by_class_with::<F>(dst, coeffs, srcs);
-        }
-
         fn mul_add_matrix<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
@@ -1583,6 +1554,12 @@ pub mod gf32 {
             // the degree-32 rows.
             scalar::mul_elementwise::<F>(dst, a, b);
         }
+
+        fallback_entries!(
+            storage: has_vector_elementwise, vector_elementwise_min_bytes,
+            mul_add_scatter_plan, mul_add_gather_plan, mul_add_matrix_plan,
+            mul_elementwise_assign, add_assign_scalar, sub_assign_scalar,
+        );
     }
 }
 
@@ -1598,12 +1575,13 @@ pub mod gf64 {
 
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::field::binary::tower::{FanPaar64Field, Rijndael64Field};
+    use crate::field::dispatch::RawDispatch;
     use crate::field::extension::Packed;
     use crate::field::extension::pinned::{self, Instance};
+    use crate::field::extension::storage::{StorageDispatch, StorageRow};
     use crate::field::{BinaryField, Elem, Field};
-    use crate::kernel::extension::{StorageKernels, StorageRow};
     #[allow(unused_imports)]
-    use crate::kernel::{Backend, KernelDispatch, RawDispatch, backend, scalar};
+    use crate::kernel::{Backend, backend, scalar};
 
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::kernel::x86;
@@ -1665,11 +1643,11 @@ pub mod gf64 {
         }
     }
 
-    impl<B: BinaryField, const D: usize> StorageKernels<B, D> for Packed<u64> {
+    impl<B: BinaryField, const D: usize> StorageDispatch<B, D> for Packed<u64> {
         type Prepared = Prepared;
 
         #[inline]
-        fn backend<F: StorageRow<B, D, Self>>() -> Backend {
+        fn backend<F: StorageRow<B, D, Self>>(_proof: RawDispatch) -> Backend {
             if rijndael64::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -1854,25 +1832,6 @@ pub mod gf64 {
             }
         }
 
-        fn mul_into_gather<F: StorageRow<B, D, Self>>(
-            _proof: RawDispatch,
-            dst: &mut [u8],
-            coeffs: &[Elem<F>],
-            srcs: &[&[u8]],
-        ) {
-            crate::kernel::fallback::mul_into_gather_by_class::<F>(dst, coeffs, srcs);
-        }
-
-        #[cfg(any(feature = "alloc", test))]
-        fn mul_into_gather_with<F: StorageRow<B, D, Self>>(
-            _proof: RawDispatch,
-            dst: &mut [u8],
-            coeffs: &[Prepared],
-            srcs: &[&[u8]],
-        ) {
-            crate::kernel::fallback::mul_into_gather_by_class_with::<F>(dst, coeffs, srcs);
-        }
-
         fn mul_add_matrix<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
@@ -1898,5 +1857,11 @@ pub mod gf64 {
             // the degree-64 rows.
             scalar::mul_elementwise::<F>(dst, a, b);
         }
+
+        fallback_entries!(
+            storage: has_vector_elementwise, vector_elementwise_min_bytes,
+            mul_add_scatter_plan, mul_add_gather_plan, mul_add_matrix_plan,
+            mul_elementwise_assign, add_assign_scalar, sub_assign_scalar,
+        );
     }
 }

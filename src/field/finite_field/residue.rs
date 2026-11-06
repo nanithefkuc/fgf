@@ -54,7 +54,7 @@
 use crate::field::extension::Descriptor;
 use crate::field::extension::descriptor::PrimePresentation;
 use crate::field::{
-    Elem, Field, FieldBuffer, PrimeCharacteristic, PrimeIdentity, RangeError, Validate, private,
+    Elem, Field, FieldBuffer, PrimeCharacteristic, PrimeIdentity, RangeError, Validate,
 };
 
 use super::{FiniteField, FiniteFieldRepr, checked_order};
@@ -74,6 +74,9 @@ impl super::private::Sealed for Residue {}
 
 impl<const P: u64> FiniteFieldRepr<P, 1> for Residue {
     const NAME: &'static str = "residue";
+}
+
+impl<const P: u64> super::super::private::FiniteFieldReprValidation<P, 1> for Residue {
     // The defining data of the residue presentation is the characteristic
     // itself; the shared metadata check validates it before any remainder
     // arithmetic can run.
@@ -199,19 +202,22 @@ impl<const P: u64> Field for FiniteField<P, 1, Residue> {
         1
     };
     const ORDER: u128 = checked_order::<P, 1>();
+}
+
+impl<const P: u64> super::super::private::RawArithmetic<u64> for FiniteField<P, 1, Residue> {
     // The identity words evaluate the row's validity first and then read
     // their row-local data, never the reverse.
     const ZERO_RAW: u64 = {
-        let () = <Self as Field>::VALID;
+        let () = <Self as super::super::private::RawArithmetic<u64>>::VALID;
         0
     };
     const ONE_RAW: u64 = {
-        let () = <Self as Field>::VALID;
+        let () = <Self as super::super::private::RawArithmetic<u64>>::VALID;
         1
     };
     const VALID: () = {
         checked_order::<P, 1>();
-        let () = <Residue as FiniteFieldRepr<P, 1>>::VALID;
+        let () = <Residue as super::super::private::FiniteFieldReprValidation<P, 1>>::VALID;
     };
 
     #[inline]
@@ -321,35 +327,25 @@ impl<const P: u64> FieldBuffer for FiniteField<P, 1, Residue> {
 
     #[inline]
     fn decode(bytes: &[u8]) -> Elem<Self> {
+        let () = Validate::<Self>::OK;
         assert_eq!(
             bytes.len(),
             Self::BYTES,
-            "GF(p) element has the wrong byte width"
+            "FieldBuffer::decode: bytes has the wrong byte width for a GF(p) element"
         );
         Elem::<Self>::from_raw(read_lane(bytes))
     }
 
     #[inline]
     fn encode(bytes: &mut [u8], value: Elem<Self>) {
+        let () = Validate::<Self>::OK;
         assert_eq!(
             bytes.len(),
             Self::BYTES,
-            "GF(p) element has the wrong byte width"
+            "FieldBuffer::encode: bytes has the wrong byte width for a GF(p) element"
         );
         let raw = value.to_raw().to_le_bytes();
         bytes.copy_from_slice(&raw[..Self::BYTES]);
-    }
-}
-
-impl<const P: u64> private::BufferDispatch for FiniteField<P, 1, Residue> {
-    #[inline]
-    fn add_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
-        <Self as crate::kernel::KernelDispatch>::add_assign(proof, dst, src);
-    }
-
-    #[inline]
-    fn sub_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
-        <Self as crate::kernel::KernelDispatch>::sub_assign(proof, dst, src);
     }
 }
 
@@ -358,7 +354,7 @@ impl<const P: u64> private::BufferDispatch for FiniteField<P, 1, Residue> {
 // ---------------------------------------------------------------------------
 
 impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
-    /// Wrap a raw word, reducing it into canonical storage.
+    /// Wraps a raw word, reducing it into canonical storage.
     #[inline]
     #[must_use]
     pub const fn from_raw(value: u64) -> Self {
@@ -368,7 +364,7 @@ impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
         }
     }
 
-    /// Wrap an ordinary residue in `0..P`.
+    /// Wraps an ordinary residue in `0..P`.
     ///
     /// Rejects `value >= P` instead of narrowing it.
     ///
@@ -377,6 +373,7 @@ impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
     /// characteristic.
     #[inline]
     pub const fn from_residue(value: u64) -> Result<Self, RangeError> {
+        let () = Validate::<FiniteField<P, 1, Residue>>::OK;
         match super::super::check_residue(
             value,
             <PrimeCharacteristic<P> as PrimeIdentity>::CHARACTERISTIC,
@@ -430,7 +427,7 @@ impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
         }
     }
 
-    /// Square.
+    /// Squares the element.
     #[inline]
     #[must_use]
     pub const fn square(self) -> Self {
@@ -462,7 +459,7 @@ impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
         self.mul(rhs.inv())
     }
 
-    /// Raise to an unsigned integer power. `pow(_, 0) == ONE`, zero
+    /// Raises to an unsigned integer power. `pow(_, 0) == ONE`, zero
     /// included.
     #[inline]
     #[must_use]

@@ -39,7 +39,7 @@ jobs:
         run: |
           for tier in v4x v3_gfni_crypto v3 v2 scalar; do
             echo "── SIMD_BACKEND=${tier}"
-            SIMD_BACKEND="${tier}" just backend-report
+            SIMD_BACKEND="${tier}" just example backend_report --all-features
           done
       - name: fail closed, then tier differentials
         run: just isa-accept v3
@@ -134,9 +134,8 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: just test-gather-validation-32
 
-  # All educational examples under the default features, then the prepared
-  # surface under alloc-only (no std), then the library-noalloc examples
-  # with no features at all.
+  # All educational examples under the default features and under alloc-only
+  # (no std), then the library-noalloc examples with no features at all.
   examples:
     name: examples
     runs-on: ubuntu-latest
@@ -145,8 +144,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: extractions/setup-just@v2
       - run: just examples
-      - run: just examples --no-default-features --features alloc
-      - run: just examples-portable
 
   # Every standalone comparison package type-checks against the working
   # copy. The native toolchains the build scripts require: Go and Intel
@@ -175,8 +172,23 @@ jobs:
       - run: rustup toolchain install nightly-2026-09-30 --profile minimal
       - uses: extractions/setup-just@v2
       - run: just benchmark-check
-      - run: just simd-ledger
-      - run: just route-check
+
+  # The committed stable API inventory: twelve feature/target cells, the
+  # cross-target equality check, and the one-path report. Read-only; an
+  # authorized API change commits the regenerated inventory with the source.
+  # Tool versions match API_PUBLIC_API and API_SEMVER_CHECKS in crate.just.
+  api:
+    name: api inventory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install nightly-2026-09-30 --profile minimal --target aarch64-unknown-linux-gnu,wasm32-unknown-unknown
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-public-api@0.52.0,cargo-semver-checks@0.51.0
+      - uses: extractions/setup-just@v2
+      - run: just api
 
   lint:
     name: fmt + clippy + docs

@@ -5,12 +5,20 @@
 //! uses the Karatsuba form under test, so reduction bugs remain visible rather
 //! than self-consistent.
 
-use fgf::field::{Field, FieldBuffer, HasGenerator, PrimeIdentity};
-use fgf::poly::{AES, RS};
-use fgf::{
-    BinaryField, Cantor, Elem, FiniteField, Goldilocks, Mersenne31, Normal, Polynomial,
-    QuadMersenne31, goldilocks, mersenne31, quad_mersenne31,
-};
+use fgf::binary::{AES, RS};
+use fgf::binary::{BinaryField, Cantor, Normal, Polynomial};
+use fgf::extension::QuadMersenne31;
+use fgf::prime::{Goldilocks, Mersenne31, PrimeIdentity};
+use fgf::{Elem, FiniteField};
+use fgf::{Field, FieldBuffer, HasGenerator};
+
+/// The Mersenne31 characteristic, read through the prime identity.
+const M31_CHARACTERISTIC: u64 =
+    <<Mersenne31 as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC;
+
+/// The Goldilocks characteristic, read through the prime identity.
+const GLD_CHARACTERISTIC: u64 =
+    <<Goldilocks as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC;
 
 /// Every element of `FiniteField<2, 8, Polynomial<POLY>>`, in ascending raw order.
 fn all_gf8_elems<const POLY: u128>()
@@ -921,7 +929,7 @@ fn gld_sub_oracle(x: Elem<Goldilocks>, y: Elem<Goldilocks>) -> Elem<Goldilocks> 
 
 #[test]
 fn m31_known_answer_products() {
-    use fgf::Mersenne31 as _M31;
+    use fgf::prime::Mersenne31 as _M31;
     type Elem = fgf::Elem<_M31>;
     assert_eq!(
         Elem::from_raw(0x5555_5555).mul(Elem::from_raw(0x5555_5555)),
@@ -945,15 +953,11 @@ fn m31_known_answer_products() {
     );
     assert_eq!(Elem::from_raw(2).inv(), Elem::from_raw(0x4000_0000));
     assert_eq!(Elem::from_raw(0x5555_5555).inv(), Elem::from_raw(3));
-    // Fold known-answers: non-canonical lanes reduce branchlessly.
-    assert_eq!(mersenne31::reduce(0x8000_0000), 1);
-    assert_eq!(mersenne31::reduce(0xFFFF_FFFF), 1);
-    assert_eq!(mersenne31::reduce(0x7FFF_FFFF), 0);
 }
 
 #[test]
 fn gld_known_answer_products() {
-    use fgf::Goldilocks as _Gld;
+    use fgf::prime::Goldilocks as _Gld;
     type Elem = fgf::Elem<_Gld>;
     assert_eq!(
         Elem::from_raw(0x5555_5555_5555_5555).mul(Elem::from_raw(0xAAAA_AAAA_AAAA_AAAA)),
@@ -979,11 +983,6 @@ fn gld_known_answer_products() {
         Elem::from_raw(7).inv(),
         Elem::from_raw(0x2492_4924_6DB6_DB6E)
     );
-    // Fold known-answers pinning the split reduction chain.
-    assert_eq!(goldilocks::reduce(goldilocks::MODULUS), 0);
-    assert_eq!(goldilocks::reduce(u64::MAX), 0xFFFF_FFFE);
-    assert_eq!(goldilocks::reduce_wide(1u128 << 64), 0xFFFF_FFFF); // 2^64 = 2^32 - 1
-    assert_eq!(goldilocks::reduce_wide(1u128 << 96), 0xFFFF_FFFF_0000_0000); // 2^96 = -1
 }
 
 #[test]
@@ -1027,10 +1026,10 @@ fn gld_field_axioms() {
     for (i, &a) in sample.iter().enumerate() {
         let b = sample[(i * 7 + 3) % sample.len()];
         let c = sample[(i * 13 + 5) % sample.len()];
-        assert!(a.mul(b).to_raw() < goldilocks::MODULUS, "mul canonical");
-        assert!(a.add(b).to_raw() < goldilocks::MODULUS, "add canonical");
-        assert!(a.sub(b).to_raw() < goldilocks::MODULUS, "sub canonical");
-        assert!(a.neg().to_raw() < goldilocks::MODULUS, "neg canonical");
+        assert!(a.mul(b).to_raw() < GLD_CHARACTERISTIC, "mul canonical");
+        assert!(a.add(b).to_raw() < GLD_CHARACTERISTIC, "add canonical");
+        assert!(a.sub(b).to_raw() < GLD_CHARACTERISTIC, "sub canonical");
+        assert!(a.neg().to_raw() < GLD_CHARACTERISTIC, "neg canonical");
         assert_eq!(a.mul(b), gld_mul_oracle(a, b), "{a:?} * {b:?}");
         assert_eq!(a.add(b), gld_add_oracle(a, b), "{a:?} + {b:?}");
         assert_eq!(a.sub(b), gld_sub_oracle(a, b), "{a:?} - {b:?}");
@@ -1092,8 +1091,8 @@ fn prime_arithmetic_is_total_over_raw_lanes() {
         }
     }
     let raws64 = [
-        goldilocks::MODULUS,
-        goldilocks::MODULUS + 1,
+        GLD_CHARACTERISTIC,
+        GLD_CHARACTERISTIC + 1,
         u64::MAX,
         0xFFFF_FFFF_8000_0000,
     ];
@@ -1101,7 +1100,7 @@ fn prime_arithmetic_is_total_over_raw_lanes() {
         for &rb in &raws64 {
             let a = Elem::<Goldilocks>::from_raw(ra);
             let b = Elem::<Goldilocks>::from_raw(rb);
-            assert!(a.mul(b).to_raw() < goldilocks::MODULUS);
+            assert!(a.mul(b).to_raw() < GLD_CHARACTERISTIC);
             assert_eq!(a.mul(b), gld_mul_oracle(a, b), "raw {ra:#x} * {rb:#x}");
             assert_eq!(a.add(b), gld_add_oracle(a, b));
             assert_eq!(a.sub(b), gld_sub_oracle(a, b));
@@ -1169,7 +1168,7 @@ fn sample_qm() -> Vec<Elem<QuadMersenne31>> {
 
 #[test]
 fn qm31_known_answer_products() {
-    use fgf::QuadMersenne31 as _Qm;
+    use fgf::extension::QuadMersenne31 as _Qm;
     type Elem = fgf::Elem<_Qm>;
     // i^2 = -1
     assert_eq!(
@@ -1181,8 +1180,8 @@ fn qm31_known_answer_products() {
         Elem::from_raw([0x7FFF_FFFE, 0])
     );
     // (a+ai)^2 = 0 + 2a^2 i with a^2 = 0x71C7_1C71 (the frozen M31 KAT).
-    let two_a_sq = fgf::Elem::<fgf::Mersenne31>::from_raw(0x71C7_1C71)
-        .add(fgf::Elem::<fgf::Mersenne31>::from_raw(0x71C7_1C71))
+    let two_a_sq = fgf::Elem::<fgf::prime::Mersenne31>::from_raw(0x71C7_1C71)
+        .add(fgf::Elem::<fgf::prime::Mersenne31>::from_raw(0x71C7_1C71))
         .to_raw();
     assert_eq!(
         Elem::from_raw([0x5555_5555, 0x5555_5555]).square(),
@@ -1549,7 +1548,7 @@ fn field_constants_are_consistent() {
 /// The only portable integer embedding: a raw byte pattern is not an integer
 /// in a binary extension field, and a lane value is not one in QM31.
 fn embed<F: Field>(mut n: u64) -> Elem<F> {
-    use fgf::field::FieldElem as _;
+    use fgf::FieldElem as _;
     let mut term = Elem::<F>::ONE;
     let mut total = Elem::<F>::ZERO;
     while n != 0 {
@@ -1564,7 +1563,7 @@ fn embed<F: Field>(mut n: u64) -> Elem<F> {
 
 #[test]
 fn field_characteristic_is_not_derived_from_order() {
-    use fgf::field::FieldElem as _;
+    use fgf::FieldElem as _;
 
     fn characteristic<F: Field>() -> u64 {
         <<F as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC
@@ -1643,7 +1642,7 @@ fn field_characteristic_is_not_derived_from_order() {
 // against the same laws, so a broken delegation cannot hide behind a correct
 // inherent body.
 
-use fgf::field::FieldElem as _;
+use fgf::FieldElem as _;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -1655,50 +1654,48 @@ fn hashes_equal<T: Hash>(a: &T, b: &T) -> bool {
     ha.finish() == hb.finish()
 }
 
-fn empty_sum_of<E: fgf::field::FieldElem + Sum>(_seed: E) -> E {
+fn empty_sum_of<E: fgf::FieldElem + Sum>(_seed: E) -> E {
     std::iter::empty::<E>().sum()
 }
 
-fn empty_product_of<E: fgf::field::FieldElem + Product>(_seed: E) -> E {
+fn empty_product_of<E: fgf::FieldElem + Product>(_seed: E) -> E {
     std::iter::empty::<E>().product()
 }
 
-fn sum_of<E: fgf::field::FieldElem + Sum>(it: impl Iterator<Item = E>) -> E {
+fn sum_of<E: fgf::FieldElem + Sum>(it: impl Iterator<Item = E>) -> E {
     it.sum()
 }
 
-fn product_of<E: fgf::field::FieldElem + Product>(it: impl Iterator<Item = E>) -> E {
+fn product_of<E: fgf::FieldElem + Product>(it: impl Iterator<Item = E>) -> E {
     it.product()
 }
 
-fn sum_of_ref<'a, E: fgf::field::FieldElem + Sum<&'a E>>(it: impl Iterator<Item = &'a E>) -> E {
+fn sum_of_ref<'a, E: fgf::FieldElem + Sum<&'a E>>(it: impl Iterator<Item = &'a E>) -> E {
     it.sum()
 }
 
-fn product_of_ref<'a, E: fgf::field::FieldElem + Product<&'a E>>(
-    it: impl Iterator<Item = &'a E>,
-) -> E {
+fn product_of_ref<'a, E: fgf::FieldElem + Product<&'a E>>(it: impl Iterator<Item = &'a E>) -> E {
     it.product()
 }
 
-fn empty_sum_of_ref<'a, E: fgf::field::FieldElem + Sum<&'a E>>(_seed: &'a E) -> E {
+fn empty_sum_of_ref<'a, E: fgf::FieldElem + Sum<&'a E>>(_seed: &'a E) -> E {
     std::iter::empty::<&'a E>().sum()
 }
 
-fn empty_product_of_ref<'a, E: fgf::field::FieldElem + Product<&'a E>>(_seed: &'a E) -> E {
+fn empty_product_of_ref<'a, E: fgf::FieldElem + Product<&'a E>>(_seed: &'a E) -> E {
     std::iter::empty::<&'a E>().product()
 }
 
 use std::iter::{Product, Sum};
 
-type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
-type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Extension<fgf::FanPaar8, 2>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
-type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Extension<fgf::FanPaar32, 2>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
+type Gf1 = fgf::FiniteField<2, 1, fgf::binary::Polynomial<3>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
+type FanPaar8Field = fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>;
 
 /// Every `field::FieldElem`/`field::Field` surface reachable from generic code:
 /// the trait's arithmetic (including defaulted methods), the total
@@ -1994,14 +1991,13 @@ fn inherent_conversion_helpers_round_trip() {
     // Prime fields: storage is canonical, and lanes below the modulus
     // survive construction unchanged.
     for a in sample_m31().into_iter().step_by(7) {
-        assert_eq!(a.to_raw(), a.to_raw() % 0x7FFF_FFFF, "canonical storage");
+        assert_eq!(
+            u64::from(a.to_raw()),
+            u64::from(a.to_raw()) % M31_CHARACTERISTIC,
+            "canonical storage"
+        );
         assert_eq!(Elem::<Mersenne31>::from_raw(a.to_raw()), a);
         assert_eq!(Elem::<Mersenne31>::from_bytes(a.to_bytes()), a);
-        assert_eq!(
-            mersenne31::reduce(a.to_raw()),
-            a.to_raw(),
-            "reduce is the identity on storage"
-        );
     }
     for a in sample_gld().into_iter().step_by(7) {
         assert!(
@@ -2132,7 +2128,7 @@ fn gf1_constants_and_predicates() {
 fn gf1_elem_trait_bodies_match_inherent() {
     // Through a generic: only the trait's methods are visible, so the
     // delegating bodies themselves execute.
-    fn through_trait<E: fgf::field::FieldElem>(a: E, b: E) {
+    fn through_trait<E: fgf::FieldElem>(a: E, b: E) {
         let zero = E::ZERO;
         let one = E::ONE;
         assert_eq!(a.add(zero), a, "a + 0");
@@ -2157,43 +2153,37 @@ fn gf1_elem_trait_bodies_match_inherent() {
     for (a, b) in all_gf1_pairs() {
         through_trait(a, b);
         assert_eq!(
-            <Elem<Gf1> as fgf::field::FieldElem>::add(a, b),
+            <Elem<Gf1> as fgf::FieldElem>::add(a, b),
             Elem::<Gf1>::add(a, b)
         );
         assert_eq!(
-            <Elem<Gf1> as fgf::field::FieldElem>::sub(a, b),
+            <Elem<Gf1> as fgf::FieldElem>::sub(a, b),
             Elem::<Gf1>::sub(a, b)
         );
+        assert_eq!(<Elem<Gf1> as fgf::FieldElem>::neg(a), Elem::<Gf1>::neg(a));
         assert_eq!(
-            <Elem<Gf1> as fgf::field::FieldElem>::neg(a),
-            Elem::<Gf1>::neg(a)
-        );
-        assert_eq!(
-            <Elem<Gf1> as fgf::field::FieldElem>::mul(a, b),
+            <Elem<Gf1> as fgf::FieldElem>::mul(a, b),
             Elem::<Gf1>::mul(a, b)
         );
         assert_eq!(
-            <Elem<Gf1> as fgf::field::FieldElem>::square(a),
+            <Elem<Gf1> as fgf::FieldElem>::square(a),
             Elem::<Gf1>::square(a)
         );
+        assert_eq!(<Elem<Gf1> as fgf::FieldElem>::inv(a), Elem::<Gf1>::inv(a));
         assert_eq!(
-            <Elem<Gf1> as fgf::field::FieldElem>::inv(a),
-            Elem::<Gf1>::inv(a)
-        );
-        assert_eq!(
-            <Elem<Gf1> as fgf::field::FieldElem>::div(a, b),
+            <Elem<Gf1> as fgf::FieldElem>::div(a, b),
             Elem::<Gf1>::div(a, b)
         );
         assert_eq!(
-            <Elem<Gf1> as fgf::field::FieldElem>::pow(a, 7),
+            <Elem<Gf1> as fgf::FieldElem>::pow(a, 7),
             Elem::<Gf1>::pow(a, 7)
         );
         assert_eq!(
-            <Elem<Gf1> as fgf::field::FieldElem>::is_zero(a),
+            <Elem<Gf1> as fgf::FieldElem>::is_zero(a),
             Elem::<Gf1>::is_zero(a)
         );
         assert_eq!(
-            <Elem<Gf1> as fgf::field::FieldElem>::is_one(a),
+            <Elem<Gf1> as fgf::FieldElem>::is_one(a),
             Elem::<Gf1>::is_one(a)
         );
     }
@@ -2263,17 +2253,17 @@ fn elem_trait_defaults_hold_over_every_residue_element() {
     // mul, pow is square-and-multiply.
     for &a in &samples {
         assert_eq!(
-            <Elem<Seven> as fgf::field::FieldElem>::neg(a).add(a),
+            <Elem<Seven> as fgf::FieldElem>::neg(a).add(a),
             Elem::<Seven>::ZERO,
             "blanket neg"
         );
         assert_eq!(
-            <Elem<Seven> as fgf::field::FieldElem>::square(a),
+            <Elem<Seven> as fgf::FieldElem>::square(a),
             a.mul(a),
             "blanket square"
         );
         assert_eq!(
-            <Elem<Seven> as fgf::field::FieldElem>::pow(a, 5),
+            <Elem<Seven> as fgf::FieldElem>::pow(a, 5),
             a.mul(a).mul(a).mul(a).mul(a),
             "blanket pow"
         );
@@ -2290,7 +2280,7 @@ fn generic_from_raw_agrees_with_inherent_constructors() {
     macro_rules! check_agreement {
         ($($field:ty: [$($raw:expr),+]),+) => {$({
             $(assert_eq!(
-                <Elem<$field> as fgf::field::FieldElem>::from_raw($raw),
+                <Elem<$field> as fgf::FieldElem>::from_raw($raw),
                 Elem::<$field>::from_raw($raw),
                 "generic and inherent from_raw disagree",
             );)+
@@ -2314,7 +2304,7 @@ fn generic_from_raw_agrees_with_inherent_constructors() {
     // QuadMersenne31 takes two limbs, so it does not fit the macro above.
     for &raw in &[[0, 0], [1, 0], [0x7FFF_FFFF, 0], [u32::MAX, u32::MAX]] {
         assert_eq!(
-            <Elem<QuadMersenne31> as fgf::field::FieldElem>::from_raw(raw),
+            <Elem<QuadMersenne31> as fgf::FieldElem>::from_raw(raw),
             Elem::<QuadMersenne31>::from_raw(raw),
             "generic and inherent from_raw disagree",
         );
@@ -2361,7 +2351,7 @@ fn qm31_wide_pow_matches_repeated_squaring() {
 
 /// One aliased pair naming one field value: equal, same hash,
 /// `Ordering::Equal`, and indistinguishable inside a `HashSet`.
-fn assert_same_value<E: fgf::field::FieldElem + Ord>(noncanonical: E, canonical: E) {
+fn assert_same_value<E: fgf::FieldElem + Ord>(noncanonical: E, canonical: E) {
     use std::cmp::Ordering;
     use std::collections::HashSet;
 
@@ -2390,7 +2380,7 @@ fn assert_same_value<E: fgf::field::FieldElem + Ord>(noncanonical: E, canonical:
 #[test]
 fn m31_equivalent_representatives_are_one_value() {
     // p ≡ 0, p + 1 ≡ 1, 2^31 ≡ 1, 2^32 − 1 ≡ 1 (mod p).
-    let p = mersenne31::MODULUS;
+    let p = u32::try_from(M31_CHARACTERISTIC).expect("the Mersenne31 characteristic fits its lane");
     assert_same_value(Elem::<Mersenne31>::from_raw(p), Elem::<Mersenne31>::ZERO);
     assert_same_value(Elem::<Mersenne31>::from_raw(p + 1), Elem::<Mersenne31>::ONE);
     assert_same_value(
@@ -2424,7 +2414,7 @@ fn m31_equivalent_representatives_are_one_value() {
 
 #[test]
 fn goldilocks_equivalent_representatives_are_one_value() {
-    let p = goldilocks::MODULUS;
+    let p = GLD_CHARACTERISTIC;
     assert_same_value(Elem::<Goldilocks>::from_raw(p), Elem::<Goldilocks>::ZERO);
     assert_same_value(Elem::<Goldilocks>::from_raw(p + 1), Elem::<Goldilocks>::ONE);
     // u64::MAX = p + 2^32 − 2, pinned by the `canonical` known answer.
@@ -2453,7 +2443,7 @@ fn goldilocks_equivalent_representatives_are_one_value() {
 
 #[test]
 fn qm31_equivalent_representatives_are_one_value() {
-    let p = quad_mersenne31::MODULUS;
+    let p = u32::try_from(M31_CHARACTERISTIC).expect("the Mersenne31 characteristic fits its lane");
     // Each limb canonicalizes independently: p ≡ 0, 2^31 ≡ 1.
     assert_same_value(
         Elem::<QuadMersenne31>::from_raw([p, 0]),

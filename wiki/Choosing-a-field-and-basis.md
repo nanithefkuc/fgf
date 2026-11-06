@@ -22,7 +22,7 @@ polynomial, coefficients, or generator schedule.
 
 Defining parameters are checked; a listed shape does not make every polynomial,
 normal element, seed, or relation valid. GF(2) uses `Polynomial<3>` for scalars
-and `bits` for vectors. Binary degrees two and four are scalar-only.
+and `ops::bits` for vectors. Binary degrees two and four are scalar-only.
 
 For a prime characteristic, start with `FiniteField<P, 1>`. Mersenne31 and
 Goldilocks select specialized representations of prime fields;
@@ -33,7 +33,8 @@ QuadMersenne31 is a quadratic extension. See [prime fields](Prime-fields).
 In `FiniteField<2, N, Polynomial<P>>`, bit `i` selects the coefficient of `x^i`. Addition XORs those coefficients; multiplication reduces the polynomial product modulo `P`. The polynomial includes its leading term and must be irreducible of degree `N`.
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Polynomial, RS};
+use fgf::{FiniteField, Elem};
+use fgf::binary::{AES, Polynomial, RS};
 
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
 type Rs = FiniteField<2, 8, Polynomial<RS>>;
@@ -51,11 +52,13 @@ Copying coordinates is not a value-preserving conversion.
 `Normal<P, E>` starts from a polynomial-field element `E` and uses its conjugates `E, E^2, E^4, ...` as an ordered basis. Bit `i` selects `E^(2^i)`. The conjugates must form a full-rank basis. One is represented by all the live coordinate bits being set, not by the integer `1`.
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Isomorphism, Normal, Polynomial};
+use fgf::{FiniteField, Elem};
+use fgf::binary::{AES, Normal, Polynomial};
+use fgf::maps::Isomorphism;
 
 type PolynomialField = FiniteField<2, 8, Polynomial<AES>>;
 type NormalField = FiniteField<2, 8, Normal<AES, 0x20>>;
-let change = Isomorphism::<PolynomialField, NormalField>::new().unwrap();
+let change = Isomorphism::<PolynomialField, NormalField>::new();
 assert_eq!(Elem::<NormalField>::ONE.to_raw(), 0xff);
 assert_eq!(change.apply(Elem::<PolynomialField>::ONE), Elem::<NormalField>::ONE);
 let x = Elem::<PolynomialField>::from_raw(0x53);
@@ -69,11 +72,13 @@ assert_eq!(change.unapply(change.apply(x)), x);
 `Cantor<P, SEED>` builds an ordered chain with `c_(N-1) = SEED` and `c_i = c_(i+1)^2 + c_(i+1)`. Bit `i` selects `c_i`. A valid chain reaches `c_0 = ONE` and spans the field.
 
 ```rust
-use fgf::{AES, FiniteField, Cantor, Elem, Isomorphism, Polynomial};
+use fgf::{FiniteField, Elem};
+use fgf::binary::{AES, Cantor, Polynomial};
+use fgf::maps::Isomorphism;
 
 type PolynomialField = FiniteField<2, 8, Polynomial<AES>>;
 type CantorField = FiniteField<2, 8, Cantor<AES, 0x20>>;
-let change = Isomorphism::<PolynomialField, CantorField>::new().unwrap();
+let change = Isomorphism::<PolynomialField, CantorField>::new();
 let x = Elem::<PolynomialField>::from_raw(0x53);
 let y = Elem::<PolynomialField>::from_raw(0xca);
 assert_eq!(change.apply(x * y), change.apply(x) * change.apply(y));
@@ -96,6 +101,6 @@ polynomial indeterminate, and custom rows need not supply one.
 
 Continue with [packing](Coordinates-and-packed-bytes), [quadratic extensions](Quadratic-towers),
 or [presentation changes](Embeddings-and-presentation-changes).
-The [binary reference](https://docs.rs/fgf/3.0.2/fgf/field/binary/index.html) owns
+The [binary reference](https://docs.rs/fgf/4.0.0/fgf/binary/index.html) owns
 parameter validity; [deployment](Features-and-deployment) explains acceleration.
 

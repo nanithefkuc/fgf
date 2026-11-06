@@ -6,6 +6,251 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-11-06
+
+The 4.x stable surface: one public path per item, sealed trait plumbing,
+`FieldBuffer` as the sole byte-operation bound, and the crate's error
+classification. Every item and guarantee listed here holds for all of 4.x.
+The [3.x migration guide](https://github.com/nanithefkuc/fgf/wiki/Migrating-from-3.x)
+collects every breaking change below.
+
+### Added
+
+- A committed stable API inventory under `api/`, generated for the portable,
+  alloc-only, default, and all-feature builds on x86_64, aarch64, and wasm32.
+  `just api` checks it in CI and `just release-accept`, requires every target
+  to expose the same stable surface, and fails on every stable item reachable
+  through more than one public path (its one-path checker runs in `enforce`
+  mode). `just api-update` regenerates it inside an authorized API change, and
+  `just api-semver` checks the stable feature sets against the latest published
+  release of the major version.
+- A `wiki/Migrating-from-3.x.md` migration guide covering paths, deletions,
+  bounds, signatures, and error changes.
+- `backend_for` is documented as a field-strategy summary; `Coeff`,
+  `CoeffVec`, and `CoeffMatrix` sizes and layouts are documented as
+  unspecified.
+- Rustdoc contracts for the 4.x freeze: `FieldBuffer::decode` states the
+  accepted byte patterns and their canonicalization per row family, and the
+  decoders link to it; contiguous matrix operations document the
+  whole-element `row_len` panic; prepared matrix accumulation documents the
+  zero-coefficient guarantee; collection `clone` documents its allocation.
+  Corrected statements: `Coeff` construction allocates nothing only once the
+  process backend is resolved; `CoeffRef` and `CoeffVecRef` promise borrowing
+  and `Copy`, not a representation size; `backend_for` no longer lists
+  which presentations report scalar, since that set may change; only canonical
+  `Embedding` inclusions commute as triangles; an invalid field row is a
+  compile error wherever code using it is generated, not a runtime panic.
+  Stable rustdoc no longer describes backend tiers, register blocking, or
+  prepared-table shapes; the `ops` module states which operations allocate.
+- `Relation::to_binary_words` reads a relation back as one coordinate word
+  per coefficient over a binary base, pairing with `from_binary_words`.
+- `just package-api` regenerates the stable API inventory from the exact
+  `cargo package` archive and compares it with `api/`; `just release-accept`
+  runs it.
+- `just doc-stable` builds the default-feature rustdoc that docs.rs publishes,
+  with warnings denied; `just release-accept` runs it.
+- The compile-fail recipe rejects private-module errors (`E0603`).
+  Rejection-only cases also fail on unresolved-name codes `E0405`, `E0412`,
+  `E0422`, `E0423`, `E0425`, `E0432`, and `E0433`, so a missing path cannot
+  substitute for the bound under test. Explicit item-removal cases require
+  their named diagnostic instead.
+
+### Changed
+
+- Competitor benchmark campaigns run through one recipe,
+  `just bench-comp FAMILY` (`gf`, `gdl`, `m31`, or `gf16`), which requires
+  `FEC_GOLDEN_CORE`. It replaces `bench-gf-comp`, `bench-gdl-comp`,
+  `bench-m31-comp`, and `bench-gf16-comp`; `bench-gf2-comp` is removed
+  because bit-packed GF(2) has no competitor harness.
+- `just examples` runs every example in each feature configuration and
+  replaces `examples-portable`; `just example NAME [ARGS]` runs one.
+- **Breaking:** Public modules are facades over private implementation
+  modules, and every stable item has one public path. The 3.x root re-exports,
+  implementation-module paths, and `fgf::bits` module migrate as follows.
+
+  Each row applies to every former export of its listed items, including
+  aliases under `fgf::field` and its submodules. For example,
+  `fgf::field::Polynomial`, `fgf::poly::Polynomial`,
+  `fgf::field::poly::Polynomial`, and
+  `fgf::field::binary::poly::Polynomial` all become
+  `fgf::binary::Polynomial`. Destinations are selected by item, not by
+  replacing a whole module prefix: descriptor, reduction, and recurrence
+  helpers have separate destinations.
+
+  | Old items and module paths | New path |
+  | --- | --- |
+  | `fgf::field::{FiniteField, FiniteFieldRepr, Elem, Field, FieldElem, FieldBuffer, HasGenerator, RangeError}`; `fgf::field::finite_field::{FiniteField, FiniteFieldRepr}` | `fgf::{…}` |
+  | `fgf::kernel::{Backend, backend, backend_for}` | `fgf::{…}` |
+  | `Mersenne31`, `MersenneFold`, `Goldilocks`, `GoldilocksFold`, `Residue`, `PrimeField`, `PrimeIdentity`, `PrimeCharacteristic`, `is_prime`, exported at the root or under `field`, `field::finite_field`, `field::prime`, `mersenne31`, or `goldilocks` | `fgf::prime::{…}` |
+  | `Polynomial`, `AES`, `RS`, `Normal`, `Cantor`, `BinaryRepr`, `BinaryField`, `BinaryDegree`, exported at the root or under `field`, `field::binary`, `poly`, `normal`, or `cantor` | `fgf::binary::{…}` |
+  | `Rijndael16`, `Rijndael32`, `Rijndael64`, `FanPaar2`, `FanPaar4`, `FanPaar8`, `FanPaar16`, `FanPaar32`, `FanPaar64`, exported at the root or under `field` or `tower` | `fgf::binary::{…}` |
+  | `Extension`, `ExtensionSpec`, `ExtensionField`, `ExtensionStorage`, `Relation`, `Components`, `Packed`, `PackedPadded`, `PackedWord`, exported at the root or under `field` or `field::extension` | `fgf::extension::{…}` |
+  | `QuadMersenne31`, `ComplexMersenne31`, exported at the root or under `field` or `quad_mersenne31` | `fgf::extension::{…}` |
+  | `Embedding`, `Isomorphism`, `Postcompose`, exported at the root or under `field`, `embedding`, or `field::embedding` | `fgf::maps::{…}` |
+  | `EmbeddingError`, exported at the root or under `field`, `embedding`, or `field::embedding` | `fgf::maps::ImageError` (see the error-classification entry below) |
+  | `fgf::bits::{bytes_for, xor_assign, xor_range, XorRange, xor_range_with, xor_gather, and_into, and_assign, andnot_assign, clear_range, set_range, weight, dot_product}` | `fgf::ops::bits::{…}` |
+  | `KernelBackend`, `FGF_TIERS`, `has_vector_elementwise`, `ParseBackendError`, exported at the root or under `fgf::kernel`; `fgf::kernel::vector_elementwise_min_bytes` | `fgf::internals::kernel::{…}` |
+  | `BinaryDescription`, `ByteLogExp`, exported at the root or under `field`, `description`, `field::description`, `field::binary`, or `field::binary::description` | `fgf::internals::field::description::{…}` |
+  | `fp_mul_alpha`, `fp_multiply`, `fp_square`, `fp_invert`, exported under `tower`, `field::tower`, or `field::binary::tower` | `fgf::internals::field::fan_paar::{…}` |
+  | `fgf::field::prime::{reduce, reduce_wide}` | `fgf::internals::field::prime::{…}` |
+  | `fgf::mersenne31::reduce`, `fgf::field::mersenne31::reduce` | `fgf::internals::field::mersenne31::reduce` |
+  | `fgf::goldilocks::{reduce, reduce_wide}`, `fgf::field::goldilocks::{reduce, reduce_wide}` | `fgf::internals::field::goldilocks::{…}` |
+  | `MODULUS` under `goldilocks`, `mersenne31`, `quad_mersenne31`, or their `fgf::field` aliases | deleted; use `<<F as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC` |
+
+  Binary presentation submodules also have the equivalent `fgf::field`
+  and `fgf::field::binary` prefixes; named prime and quadratic modules also
+  have `fgf::field` prefixes. All of these aliases follow the item-specific
+  rows above. Existing items already at their listed destination retain
+  that path.
+
+  The removed modules are `fgf::field` with every submodule, `fgf::kernel`,
+  `fgf::bits`, `fgf::embedding`, `fgf::cantor`, `fgf::normal`, `fgf::poly`,
+  `fgf::tower`, `fgf::description`, `fgf::goldilocks`, `fgf::mersenne31`,
+  `fgf::quad_mersenne31`, `fgf::ops::map`, and `fgf::ops::map_bits`.
+  `fgf::extension` remains as a facade. The source
+  tree moves `src/bits.rs` to the facade `src/ops/bits.rs` and its private
+  submodules `src/ops/bits/{logic,range,gather,count,geometry}.rs`, and adds
+  the private `src/ops/geometry.rs` and `src/ops/tests.rs`. The new facade
+  files `src/prime.rs`, `src/binary.rs`, `src/extension.rs`, and `src/maps.rs`
+  carry the public module documentation.
+
+- **Breaking:** Raw arithmetic and validation plumbing moves behind
+  crate-private supertraits. `Field` no longer carries `canonical_raw`,
+  `add_raw`, `sub_raw`, `neg_raw`, `mul_raw`, `inv_raw`, `ZERO_RAW`,
+  `ONE_RAW`, or `VALID`; `HasGenerator` no longer carries `GENERATOR_RAW`;
+  `BinaryRepr` no longer carries `DESCRIPTION` or `LOG_EXP`; `BinaryField`
+  no longer carries `DESCRIPTION`; `FiniteFieldRepr` no longer carries
+  `VALID`; `PrimeIdentity` no longer carries `VALID`; and `Postcompose`
+  no longer carries its `postcompose` callback. Use `Elem::from_raw` and
+  `Elem::to_raw` for raw-word conversion, `FieldElem` operations for scalar
+  arithmetic, and `Elem::ZERO`, `Elem::ONE`, and `Elem::GENERATOR` for
+  identities and the generator. Map application uses `Embedding::embed` or
+  `Isomorphism::apply`; composition uses `Embedding::then` or
+  `Isomorphism::then`. `VALID` has no replacement: element constants and
+  constructors evaluate validation. `DESCRIPTION` and `LOG_EXP` have no
+  stable replacement. `PrimeIdentity` no longer exposes `C::Row`; generic
+  callers take an explicit row parameter such as
+  `F: PrimeField<Characteristic = C>`, or name the intended concrete row.
+- **Breaking:** `FieldKernels` is deleted; `FieldBuffer` is the sole bound
+  for byte-lane operations and prepared coefficient types. Migration:
+  replace every `F: FieldKernels` bound with `F: FieldBuffer` — arbitrary
+  downstream generic code needs no further bound, including generic
+  `R: BinaryRepr<8>`, custom `ExtensionSpec` component storage, and every
+  supported `Packed<W>` storage. The backend query is
+  `fgf::backend_for::<F>()`; `has_vector_elementwise` and
+  `vector_elementwise_min_bytes` have no stable replacement — they are
+  internals-only free functions under `fgf::internals::kernel`. The
+  dispatch contract, its `RawDispatch` proof, the trait default bodies,
+  and the byte-representation data carriers move in the source tree: the
+  contract declarations live in the field layer
+  (`src/field/dispatch.rs`, `src/field/binary/byte.rs`,
+  `src/field/extension/storage.rs`), the default bodies in
+  `src/kernel/fallback.rs`, and `ScaleTable` is declared in the field
+  layer's byte module with the unstable
+  `fgf::internals::kernel::tables::ScaleTable` path preserved by facade
+  re-export. `Field::Raw` and `ExtensionStorage::Raw` are `Send + Sync`.
+  Byte operations, packing, prepared-coefficient constructors, and
+  `backend_for` evaluate the row's central const validation before any
+  byte work, so an invalid row (a reducible polynomial, a non-bijective
+  basis, a composite characteristic, a reducible relation) is a compile
+  error even when no element is constructed and every buffer is empty;
+  the compile-fail fixtures under `tests/compile_fail/` pin the
+  rejections; the cases added for this change name both the diagnostic
+  fragment and `E0080`.
+- **Breaking:** Map constructors and data errors follow the error
+  classification. `Embedding::new` and `Isomorphism::new` return `Self`:
+  a pair outside the degree contract — equal degrees for `Embedding`, a
+  source degree that does not divide the target degree, unequal degrees
+  for `Isomorphism` — is a compile-time assertion that surfaces at code
+  generation (`cargo build` and `cargo test` catch it; `cargo check`
+  alone may skip it), after each row's own field validation. Both
+  constructors of both maps now evaluate the source and target rows'
+  field validation, so a map over an invalid row (for example a
+  reducible extension relation) no longer compiles even when the degree
+  check would previously have returned an error first. A pair inside
+  the contracts that no structural or ladder rule covers panics under
+  `# Panics`, naming the constructor and the source and target
+  presentation types. Migration: drop the `Result` handling on `new`,
+  move impossible pairs out of the codebase, and obtain noncanonical
+  maps from `from_images` with validated images.
+- **Breaking:** `EmbeddingError` is removed; `fgf::maps::ImageError`
+  replaces it as a `#[non_exhaustive]` unit covering exactly the
+  rejection of a supplied generator-image sequence (wrong count, or a
+  failed transported relation), which `Embedding::from_images` and
+  `Isomorphism::from_images` return after checking the count before the
+  relations. `from_images` no longer requires or searches for a
+  canonical map. `RangeError` is `#[non_exhaustive]`. Migration: neither
+  error type can be constructed outside the crate — obtain the value
+  from a rejected conversion or image sequence, match it with
+  `Err(RangeError { .. })` or `Err(ImageError { .. })` (the bare unit
+  pattern no longer names the type outside the crate and binds a
+  variable instead), and replace variant matches on `EmbeddingError`
+  with the single `ImageError` arm; degree mismatches no longer reach
+  runtime code.
+- Runtime precondition panics of the row operations, field byte codecs,
+  `Relation` constructors, and `Embedding::generator` name the operation
+  and the offending operand. The checks, their order, and the accepted
+  inputs are unchanged; tests matching panic text may need the new
+  operation-prefixed fragments.
+- The generic extension test suite is one binary: `tests/extension.rs`
+  holds the shared rows and splits into `rows` (per-field laws, encodings,
+  and the packed surface) and `reference` (arithmetic against the
+  independent schoolbook and brute-force references), replacing the
+  separate `tests/extension_reference.rs` binary.
+- **Breaking:** `ops::bits::xor_range`, `ops::bits::xor_range_with`, and
+  `ops::add_gather_offsets` take the destination, then geometry, then
+  prepared state, then sources. Migration: `xor_range(dst, src, bits, from,
+  to)` becomes `xor_range(dst, bits, from, to, src)`,
+  `xor_range_with(dst, src, range)` becomes `xor_range_with(dst, range,
+  src)`, and `add_gather_offsets(dst, region, offsets)` becomes
+  `add_gather_offsets(dst, offsets, region)`. Behavior is unchanged.
+- **Breaking:** `ops::mul_elementwise` is `ops::mul_elementwise_into` and
+  `ops::div_elementwise` is `ops::div_elementwise_into`, matching the `_into`
+  overwrite spelling of `mul_into`, `inv_into`, and `bits::and_into`.
+  Migration: rename the calls; arguments and behavior are unchanged, and
+  panic messages name the new operation.
+- **Breaking:** `CoeffMatrix::values` is replaced by
+  `CoeffMatrix::to_source_major`, which returns the source-major
+  coefficients as a `Vec` and pairs with `from_source_major`. Migration:
+  `matrix.values().collect::<Vec<_>>()` becomes `matrix.to_source_major()`;
+  `get_at` and `source` read single coefficients without allocating.
+- `ops::mul_add_matrix` and `ops::mul_add_matrix_at` return after
+  validation when every coefficient is zero, leaving the destination bytes
+  untouched, noncanonical lanes included.
+
+### Removed
+
+- **Breaking:** The prepared field maps: `Frobenius`, `PreparedEmbedding`,
+  `PreparedIsomorphism`, `Elem::frobenius_with`, the nine `ops::map` row
+  functions with their `ops` re-exports, and the five `ops::map_bits` row
+  functions over packed GF(2) bits. Migration: call the per-element
+  `Embedding` and `Isomorphism` methods (`embed`, `contains`, `restrict`,
+  `frobenius`, `trace`, `norm`, `apply`, `unapply`) in a loop, or a compact
+  map method inside a decode/encode lane loop. `Embedding::frobenius`
+  replaces the relative Frobenius `x^|S|`; an absolute power
+  `Frobenius::new(k)` or `frobenius_with` becomes `x.pow(p^(k mod N))`, or
+  `k` applications of the prime-subfield embedding's `frobenius`. The
+  restriction rows' validity bitmap becomes the `Option` that `restrict`
+  returns per element. The GF(2) bit/lane interop kernels behind
+  `ops::map_bits` go with them; the bit-buffer operations in `bits` are
+  unchanged.
+- The 3.x benchmark record: `BENCHMARKS.md`, the `benchmarks/` pages and
+  charts, the publisher scripts behind them (`benches/publish.py`,
+  `surface_publish.py`, `residue_publish.py`, `benchmark_chart.py`,
+  `test_maps_publisher.py`), the released-v2 comparison tooling
+  (`benches/prepare_v2.py` and `benches/v2.patch`), and the `bench-paired`,
+  `bench-prepare-v2`, `bench-publish`, `bench-refresh-build`, and
+  `bench-refresh-round` recipes. Benchmark targets, competitor harnesses,
+  `bench-comp`, and the surfaces coverage check stay. Measured thresholds in
+  source comments cite the 3.0.2 record by its tag URL, and new measurements
+  stay in git-ignored `bench-records/` until a fresh record is published.
+- Removed recipes: the single-family aliases `bench-gf`, `bench-gdl`,
+  `bench-m31`, `bench-gf2`, and `bench-field-maps` (use `just bench` with the
+  bench name and family flag), `backend-report` (use
+  `just example backend_report --all-features`), `binary-relation-accept`
+  (the consumer matrix compiles and executes the degree-64 relations),
+  `bench-maps-publisher`, `gf16-smoke`, `gf16-fmt`, and `gf16-lint`.
+
 ### Fixed
 
 - macOS CI uses the supported macOS 15 runner image.
@@ -13,76 +258,12 @@ All notable changes to this project are documented here. The format follows
   irreducibility validation, allowing degree-64 `Packed<u64>` rows to
   compile under the default const-evaluation lint while retaining
   compile-time rejection of reducible relations.
-- SIMD coverage accounting includes odd-characteristic and wide field maps,
-  requires explicit callable exclusions, and separates relative norm's
-  conjugate, product, and projection work budgets.
-- Native negative acceptance restores the canonical route table before
-  suppressing vector-work evidence and requires the receipt auditor to
-  reject the run. Portable CI checks route inventories and generated cases.
-- Conversion benchmarks make complete packed and unpacked output slices
-  observable, retain allocation and destruction in owned-result timings,
-  and verify destination contents outside the timed region.
-- Route-tooling checks rely on compiled field and prepared-map fixture
-  consumers instead of a duplicated synthetic route-type harness.
-- Native route-evidence references identify measurement hosts by processor
-  architecture rather than local connection names.
-- Unprepared prime and residue scatter, gather, and contiguous matrix operations
-  compose the existing single-row kernels for rows from a measured length;
-  shorter rows keep the portable row body. Scalar residue routes avoid unused
-  coefficient preparation.
-- Component-row addition, subtraction, and unit accumulation reuse whole-buffer
-  base-field dispatch from a measured row length, without strengthening
-  `FieldBuffer` bounds. Rows over an order-two base keep the component loop.
-  Raw dispatch remains inaccessible without the crate-private proof.
-- Residue rows at the Mersenne31 and Goldilocks moduli reuse the corresponding
-  prime add/sub kernels on vector tiers from measured row lengths (Goldilocks
-  on AVX2 and AVX-512 only), including unit accumulation and row/offset
-  siblings. Their backend query remains a fixed-coefficient multiplication
-  summary.
-- `mul_add_matrix` and `mul_add_matrix_at` return after validation when every
-  coefficient is zero, leaving the destination untouched.
-- Unit-coefficient overwrite scatter preserves noncanonical source bytes for
-  specialized prime and quadratic rows; zero accumulation preserves destination
-  bytes across unprepared and prepared row compositions.
-- `backend_for` documents its field-strategy meaning separately from individual
-  operation routes.
-- Route acceptance credits multiplication work once when its emitting call has
-  already excluded zero and unit coefficients. Unqualified work keeps the
-  conservative zero/unit reserve, qualified work is capped by the general
-  terms present, and it never funds unit additions.
-- Route acceptance credits an overwrite gather's general first term to the
-  overwriting multiply that seeds its destination, once per call, at the
-  required tier; cells that budget their own multiply keep that work.
-- Overwrite gathers over binary packed towers (`Packed<u16>`, `Packed<u32>`,
-  and `Packed<u64>` rows) and over polynomial-basis GF(2^8) rows outside the
-  AES-native gather and the GFNI and AVX-512 matrix routes skip zero terms and
-  add unit terms instead of multiplying by them, unprepared and prepared.
-- Route acceptance attributes the fused GF(2^8) GFNI and AVX-512 scatter and
-  matrix kernels' work by coefficient: unit terms count as vector addition and
-  general terms as qualified multiplication. A matrix row group's seeding term
-  counts as qualified multiplication when general and as the copy base when
-  unit.
-
-### Changed
-
-- Normal- and Cantor-basis GF(2^8) rows and every `Packed<u8>` extension row
-  run the GF(2^8) vector kernels for fixed-coefficient, multi-row, and
-  elementwise operations on every x86 tier, with tables and an isomorphism
-  onto the AES field built at compile time from the row's own product.
-  `backend_for` and `has_vector_elementwise` report the process tier for
-  these rows instead of `Scalar`.
-- **Breaking:** `ops::Coeff`, `CoeffVec`, and `CoeffMatrix` entries over
-  `Packed<u8>` extension rows hold the GF(2^8) prepared form (a table
-  reference and an affine word) instead of the raw byte, growing each entry
-  from one byte to two words. Code that relies on the prepared size
-  recomputes it with `core::mem::size_of`.
-
-### Removed
-
-- **Breaking:** The unstable `internals::kernel::prime` multi-row
-  `mul_add_scatter`, `mul_add_gather`, and `mul_add_matrix` entries are removed.
-  Consumers use the checked `ops` operations; scalar single-row references
-  remain under the unstable facade.
+- `ops::mul_into_scatter` copies the source bytes verbatim into rows with a
+  unit coefficient, as `ops::mul_into` does. Mersenne31, Goldilocks,
+  QuadMersenne31, and residue rows canonicalized noncanonical source lanes
+  instead.
+- `Embedding::generator_count` evaluates the source row's const validation,
+  so a query over an invalid source row no longer compiles.
 
 ## [3.0.2] - 2026-10-20
 
@@ -1857,7 +2038,8 @@ behaviour.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v3.0.2...HEAD
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v4.0.0...HEAD
+[4.0.0]: https://github.com/nanithefkuc/fgf/compare/v3.0.2...v4.0.0
 [3.0.2]: https://github.com/nanithefkuc/fgf/compare/v3.0.1...v3.0.2
 [3.0.1]: https://github.com/nanithefkuc/fgf/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/nanithefkuc/fgf/compare/v2.1.0...v3.0.0

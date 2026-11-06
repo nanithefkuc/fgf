@@ -1,7 +1,7 @@
 # fgf guides
 
 Define a field, compute with `Elem<F>`, then apply the same arithmetic to packed
-buffers. These guides use 3.0.2 and require Rust 1.93 or later.
+buffers. These guides use 4.0 and require Rust 1.93 or later.
 
 > This library is AI-assisted and requires independent audit. Arithmetic is
 > variable-time; safe Rust does not make it suitable for secret data.
@@ -19,7 +19,7 @@ buffers. These guides use 3.0.2 and require Rust 1.93 or later.
 
 [Operation suffixes](Operation-suffixes) is the naming reference. Exact
 signatures, panics, and invariants belong to the
-[API reference](https://docs.rs/fgf/3.0.2/fgf/).
+[API reference](https://docs.rs/fgf/4.0.0/fgf/).
 
 ## A linear combination
 
@@ -27,7 +27,8 @@ Here `out[i] = a[i] + 2*b[i]` in the AES binary field. The overwrite call needs
 no pre-zeroing:
 
 ```rust
-use fgf::{AES, Elem, FiniteField, Polynomial, ops};
+use fgf::{Elem, FiniteField, ops};
+use fgf::binary::{AES, Polynomial};
 
 type F = FiniteField<2, 8, Polynomial<AES>>;
 let a = [1u8, 2, 3];
@@ -49,14 +50,13 @@ The application supplies coefficients and recovery decisions; `fgf` is not a cod
 | Larger fields from base components | [Quadratic towers](Quadratic-towers) |
 | Value-preserving field conversions, trace, or norm | [Embeddings](Embeddings-and-presentation-changes) |
 | A custom extension relation or storage | [Custom fields](Downstream-scalar-fields) |
-| Upgrade an existing application | [Migrating from 2.x](Migrating-from-2.x) |
+| Upgrade an existing application | [Migrating from 3.x](Migrating-from-3.x); from 2.x, [Migrating from 2.x](Migrating-from-2.x) first |
 
 Rust blocks are self-contained unless marked as historical text; pages identify
 `alloc` requirements. Local type aliases are examples, not extra crate exports.
-The [example programs](https://github.com/nanithefkuc/fgf/tree/v3.0.2/examples)
+The [example programs](https://github.com/nanithefkuc/fgf/tree/v4.0.0/examples)
 run from a checkout with `just example NAME` or `just examples`.
 
-[Installation](https://github.com/nanithefkuc/fgf/blob/main/README.md),
-[release changes](https://github.com/nanithefkuc/fgf/blob/main/CHANGELOG.md), and
-[measurements](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md)
+[Installation](https://github.com/nanithefkuc/fgf/blob/main/README.md) and
+[release changes](https://github.com/nanithefkuc/fgf/blob/main/CHANGELOG.md)
 each have their own reference page.

@@ -7,11 +7,13 @@
 //! and deterministic samples. Residues agree with repeated addition at
 //! small primes and double-and-add at full width.
 
-use fgf::{
-    AES, Cantor, ComplexMersenne31, Components, Elem, Extension, ExtensionField, ExtensionSpec,
-    Field, FieldElem, FiniteField, Goldilocks, Mersenne31, Normal, Polynomial, QuadMersenne31,
-    RangeError, Relation, Residue,
+use fgf::binary::{AES, Cantor, Normal, Polynomial};
+use fgf::extension::{
+    ComplexMersenne31, Components, Extension, ExtensionField, ExtensionSpec, QuadMersenne31,
+    Relation,
 };
+use fgf::prime::{Goldilocks, Mersenne31, Residue};
+use fgf::{Elem, Field, FieldElem, FiniteField, RangeError};
 
 /// Every index round-trips, and the order and `u128::MAX` are rejected.
 fn index_round_trip<F: Field>() {
@@ -19,8 +21,14 @@ fn index_round_trip<F: Field>() {
         let element = Elem::<F>::from_index(index).unwrap();
         assert_eq!(element.to_index(), index, "index {index}");
     }
-    assert_eq!(Elem::<F>::from_index(F::ORDER), Err(RangeError));
-    assert_eq!(Elem::<F>::from_index(u128::MAX), Err(RangeError));
+    assert!(matches!(
+        Elem::<F>::from_index(F::ORDER),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<F>::from_index(u128::MAX),
+        Err(RangeError { .. })
+    ));
 }
 
 /// Every residue round-trips through the prime subfield.
@@ -30,9 +38,11 @@ fn residue_round_trip<F: Field>(characteristic: u64) {
         let element = Elem::<F>::from_residue(residue).unwrap();
         assert_eq!(element.to_residue(), Some(residue), "residue {residue}");
     }
-    assert_eq!(
-        Elem::<F>::from_residue(characteristic),
-        Err(RangeError),
+    assert!(
+        matches!(
+            Elem::<F>::from_residue(characteristic),
+            Err(RangeError { .. })
+        ),
         "characteristic rejected"
     );
 }
@@ -50,9 +60,8 @@ fn residue_matches_repeated_addition<F: Field>(characteristic: u64) {
 /// valid but sit at or above the characteristic.
 fn residue_rejects_aliases<F: Field>(values: &[u64]) {
     for &value in values {
-        assert_eq!(
-            Elem::<F>::from_residue(value),
-            Err(RangeError),
+        assert!(
+            matches!(Elem::<F>::from_residue(value), Err(RangeError { .. })),
             "alias {value:#x}"
         );
     }
@@ -192,10 +201,10 @@ fn quad_mersenne31_index_is_real_plus_imaginary_times_p() {
         assert_eq!(element.to_index(), index);
         assert_eq!(Elem::<QuadMersenne31>::from_index(index).unwrap(), element);
     }
-    assert_eq!(
+    assert!(matches!(
         Elem::<QuadMersenne31>::from_index(P as u128 * P as u128),
-        Err(RangeError)
-    );
+        Err(RangeError { .. })
+    ));
     // The prime subfield is the real axis.
     assert_eq!(
         Elem::<QuadMersenne31>::from_residue(5)
@@ -243,21 +252,36 @@ fn widest_prime_rows_agree_with_double_and_add() {
         }
         assert_eq!(Elem::<Row>::from_residue(n).unwrap(), acc, "residue {n}");
     }
-    assert_eq!(Elem::<Row>::from_residue(P), Err(RangeError));
-    assert_eq!(Elem::<Row>::from_residue(u64::MAX), Err(RangeError));
-    assert_eq!(Elem::<Row>::from_index(P as u128), Err(RangeError));
-    assert_eq!(Elem::<Row>::from_index(u128::MAX), Err(RangeError));
+    assert!(matches!(
+        Elem::<Row>::from_residue(P),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Row>::from_residue(u64::MAX),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Row>::from_index(P as u128),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Row>::from_index(u128::MAX),
+        Err(RangeError { .. })
+    ));
     // At degree one the index is the ordinary residue.
     assert_eq!(Elem::<Row>::from_residue(17).unwrap().to_index(), 17);
 }
 #[test]
 fn mersenne31_rejects_the_shifted_alias() {
     residue_rejects_aliases::<Mersenne31>(&[1 << 31, 1 << 32, u64::MAX]);
-    assert_eq!(
+    assert!(matches!(
         Elem::<Mersenne31>::from_residue(0x7FFF_FFFF),
-        Err(RangeError)
-    );
-    assert_eq!(Elem::<Mersenne31>::from_index(0x7FFF_FFFF), Err(RangeError));
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Mersenne31>::from_index(0x7FFF_FFFF),
+        Err(RangeError { .. })
+    ));
 }
 
 #[test]
@@ -307,7 +331,10 @@ fn goldilocks_quadratic_indices_reach_the_order_edge() {
     for index in [Row::ORDER - 1, Row::ORDER - 2] {
         assert_eq!(Elem::<Row>::from_index(index).unwrap().to_index(), index);
     }
-    assert_eq!(Elem::<Row>::from_index(Row::ORDER), Err(RangeError));
+    assert!(matches!(
+        Elem::<Row>::from_index(Row::ORDER),
+        Err(RangeError { .. })
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -382,8 +409,14 @@ fn degree_64_odd_row_round_trips_indices_at_the_cap() {
         let element = Elem::<Row>::from_index(index).unwrap();
         assert_eq!(element.to_index(), index, "index {index}");
     }
-    assert_eq!(Elem::<Row>::from_index(Row::ORDER), Err(RangeError));
-    assert_eq!(Elem::<Row>::from_index(u128::MAX), Err(RangeError));
+    assert!(matches!(
+        Elem::<Row>::from_index(Row::ORDER),
+        Err(RangeError { .. })
+    ));
+    assert!(matches!(
+        Elem::<Row>::from_index(u128::MAX),
+        Err(RangeError { .. })
+    ));
     // Deterministic samples across the full width: a fixed-seed stream
     // reduced below the order, each round-tripping through the conversion.
     let mut state = 0x243F_6A88_85A3_08D3u128;

@@ -16,9 +16,9 @@ the same flow with their [lane encoding](Coordinates-and-packed-bytes).
 | `out[o] += c[o] * src` | One source, many outputs | `mul_add_scatter` |
 | `dst = sum(c[s] * src[s])` | Many sources, one output | `mul_into_gather` |
 | `out[o] = sum(c[s,o] * src[s])` | Many sources, many outputs | `mul_into_matrix` |
-| `dst[i] = a[i] * b[i]` | Two varying operands | `mul_elementwise` |
+| `dst[i] = a[i] * b[i]` | Two varying operands | `mul_elementwise_into` |
 | `dst[i] = 1 / src[i]` | One row, reciprocal lanes | `inv_into` / `inv_assign` |
-| `dst[i] = a[i] / b[i]` | Two varying operands | `div_elementwise` / `div_elementwise_assign` |
+| `dst[i] = a[i] / b[i]` | Two varying operands | `div_elementwise_into` / `div_elementwise_assign` |
 | `sum(a[i] * b[i])` | Two rows, one element | `dot_product` |
 
 Overwrite calls need no pre-zeroing. Accumulation needs a deliberate starting
@@ -33,7 +33,8 @@ second. The index is `source * outputs + output`, not the output-major
 order often written on paper.
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Polynomial, ops};
+use fgf::{FiniteField, Elem, ops};
+use fgf::binary::{AES, Polynomial};
 
 type F = FiniteField<2, 8, Polynomial<AES>>;
 let a = [1u8, 2];
@@ -56,7 +57,8 @@ Each output occupies a complete row. Prior destination bytes are ignored.
 Start at zero and scatter each source as it arrives to obtain the same result:
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Polynomial, ops};
+use fgf::{FiniteField, Elem, ops};
+use fgf::binary::{AES, Polynomial};
 
 type F = FiniteField<2, 8, Polynomial<AES>>;
 let a = [1u8, 2];
@@ -71,7 +73,7 @@ assert_eq!(outputs, [13, 18, 13, 16, 9, 30]);
 
 For a source replacement, scatter `new_source - old_source` into existing
 outputs. Subtraction is XOR only in binary fields. The
-[streaming example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/examples/streaming_encode.rs)
+[streaming example](https://github.com/nanithefkuc/fgf/blob/v4.0.0/examples/streaming_encode.rs)
 uses this update with wider lanes.
 
 ## Offset destinations preserve unrelated frame bytes
@@ -79,7 +81,8 @@ uses this update with wider lanes.
 `_at` addresses destination rows by byte offsets within one mutable region. Named rows must be in bounds, start on field-element boundaries relative to that region, and be pairwise disjoint. Unnamed bytes remain outside the operation.
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Polynomial, ops};
+use fgf::{FiniteField, Elem, ops};
+use fgf::binary::{AES, Polynomial};
 
 type F = FiniteField<2, 8, Polynomial<AES>>;
 let coefficients = [Elem::<F>::ONE, Elem::<F>::from_raw(2)];
@@ -108,5 +111,5 @@ transactional: validate it before writing if later failure must leave output
 unchanged.
 
 For repeated coefficients, continue with [preparation](Prepared-coefficients).
-The [ops reference](https://docs.rs/fgf/3.0.2/fgf/ops/index.html) owns each call's
+The [ops reference](https://docs.rs/fgf/4.0.0/fgf/ops/index.html) owns each call's
 exact validation and empty-input rules.

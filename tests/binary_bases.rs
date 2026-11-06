@@ -4,14 +4,15 @@
 
 use std::fmt::{self, Write};
 
-use fgf::{
-    AES, BinaryField, Cantor, Elem, Embedding, Extension, ExtensionSpec, Field, FieldBuffer,
-    FieldElem, FiniteField, Normal, Packed, Polynomial, RS, RangeError, Relation, Residue,
-};
+use fgf::binary::{AES, BinaryField, Cantor, Normal, Polynomial, RS};
+use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
+use fgf::maps::Embedding;
+use fgf::prime::Residue;
+use fgf::{Elem, Field, FieldBuffer, FieldElem, FiniteField, RangeError};
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
 
 /// Deterministic linear-congruential samples.
 fn lcg_samples(count: usize, seed: u64) -> Vec<u64> {
@@ -72,12 +73,11 @@ fn binary_formatting_reports_writer_failure() {
         .expect_err("excess coordinate bits");
     assert_eq!(write!(FullWriter, "{coordinate}"), Err(fmt::Error));
 
-    let degree = Embedding::<Gf16, FiniteField<2, 8, Polynomial<AES>>>::new()
-        .expect_err("sixteen does not divide eight");
-    assert_eq!(write!(FullWriter, "{degree}"), Err(fmt::Error));
+    let rejected = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf16>::from_images(&[])
+        .expect_err("the empty sequence has the wrong count");
+    assert_eq!(write!(FullWriter, "{rejected}"), Err(fmt::Error));
 
-    let embedding = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf16>::new()
-        .expect("eight divides sixteen");
+    let embedding = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf16>::new();
     assert_eq!(write!(FullWriter, "{embedding:?}"), Err(fmt::Error));
 }
 
@@ -266,6 +266,50 @@ fn residue_two_and_binary_degree_one_transport_by_residue() {
         }
     }
     for out_of_range in [2, 3, 256, u64::MAX] {
-        assert_eq!(Elem::<Bin>::from_residue(out_of_range), Err(RangeError));
+        assert!(matches!(
+            Elem::<Bin>::from_residue(out_of_range),
+            Err(RangeError { .. })
+        ));
     }
+}
+
+/// Binary-word relations read back in the words they were built from, over
+/// sixteen-bit and thirty-two-bit bases, and regroup under a narrower base.
+#[test]
+fn binary_word_relations_round_trip() {
+    type Gf8 = FiniteField<2, 8, Polynomial<AES>>;
+    let words = [0x2001u64, 0x0001];
+    let relation = Relation::from_binary_words::<Gf16>(&words);
+    assert_eq!(
+        relation.to_binary_words::<Gf16>().collect::<Vec<_>>(),
+        words
+    );
+    let words = [0x2ada_7f36u64, 0x0000_0001];
+    let relation = Relation::from_binary_words::<Gf32>(&words);
+    assert_eq!(
+        relation.to_binary_words::<Gf32>().collect::<Vec<_>>(),
+        words
+    );
+    // The same coordinates regroup under a narrower base.
+    let relation = Relation::from_binary_words::<Gf16>(&[0x2001, 0x0001]);
+    assert_eq!(
+        relation.to_binary_words::<Gf8>().collect::<Vec<_>>(),
+        [0x01, 0x20, 0x01, 0x00]
+    );
+}
+
+#[test]
+#[should_panic(expected = "Relation::to_binary_words: relation of 3 coordinates")]
+fn binary_words_reject_partial_words() {
+    let _ = Relation::from_coordinates(&[1, 0, 1])
+        .to_binary_words::<FiniteField<2, 8, Polynomial<AES>>>();
+}
+
+#[test]
+#[should_panic(
+    expected = "Relation::to_binary_words: relation holds a coordinate that is not a bit"
+)]
+fn binary_words_reject_non_bit_coordinates() {
+    let _ =
+        Relation::from_coordinates(&[2; 8]).to_binary_words::<FiniteField<2, 8, Polynomial<AES>>>();
 }

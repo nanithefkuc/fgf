@@ -49,17 +49,27 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::{Elem, FieldBuffer};
-use fgf::{
-    Goldilocks, Mersenne31, QuadMersenne31, backend, backend_for, goldilocks, mersenne31, ops,
-};
+use fgf::extension::QuadMersenne31;
+use fgf::prime::{Goldilocks, Mersenne31, PrimeIdentity};
+use fgf::{Elem, Field, FieldBuffer};
+use fgf::{backend, backend_for, ops};
 use p3_field::extension::Complex;
 use p3_field::{
-    ExtensionField, Field as P3Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing as _,
-    PrimeField32 as _, PrimeField64 as _,
+    ExtensionField, Field as P3Field, PackedFieldExtension, PackedValue,
+    PrimeCharacteristicRing as _, PrimeField32 as _, PrimeField64 as _,
 };
 use p3_goldilocks::Goldilocks as P3Gld;
 use p3_mersenne_31::Mersenne31 as P3M31;
+
+/// The Mersenne31 characteristic, read through the prime identity.
+const M31_MODULUS: u64 = <<Mersenne31 as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC;
+/// The Goldilocks characteristic, read through the prime identity.
+const GLD_MODULUS: u64 = <<Goldilocks as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC;
+
+/// One raw draw folded into the Mersenne31 residue range.
+fn m31_lane(raw: u64) -> u32 {
+    u32::try_from(raw % M31_MODULUS).expect("the Mersenne31 remainder fits u32")
+}
 
 /// The Plonky3 release this harness pins in `Cargo.toml`.
 const P3_VERSION: &str = "0.7.0";
@@ -113,7 +123,10 @@ impl<T: Copy + Default> Aligned<T> {
         let mut start = 0;
         while (backing.as_ptr() as usize + start * elem) % ALIGN != 0 {
             start += 1;
-            assert!(start <= ALIGN / elem, "page offset is reachable in one page");
+            assert!(
+                start <= ALIGN / elem,
+                "page offset is reachable in one page"
+            );
         }
         backing[start..start + data.len()].copy_from_slice(&data);
         Self {
@@ -297,12 +310,7 @@ fn throughput(bytes: usize, ns_per_call: f64) -> f64 {
 /// Plonky3 median divided by the `fgf` median: above 1.00 means `fgf` is
 /// faster. `Scalar` rows report nanoseconds per element multiply instead
 /// of throughput.
-fn compare(
-    label: &str,
-    kind: RowKind,
-    mut ours: impl FnMut(),
-    mut theirs: impl FnMut(),
-) {
+fn compare(label: &str, kind: RowKind, mut ours: impl FnMut(), mut theirs: impl FnMut()) {
     for _ in 0..WARMUP {
         ours();
         theirs();
@@ -404,7 +412,7 @@ fn sink(canon: u128) -> u64 {
 /// The harness's own noise floor: one `fgf` body timed against itself
 /// over two distinct destinations. Anything other than 1.00x is
 /// interleaving bias.
-fn control<Fg: fgf::FieldKernels>(
+fn control<Fg: fgf::FieldBuffer>(
     c: Elem<Fg>,
     src: &Aligned<u8>,
     first: &mut Aligned<u8>,
@@ -448,7 +456,7 @@ fn run_slice_field<Fg, Fp>(
     canon_fg: impl Fn(Elem<Fg>) -> u128,
     canon_p: impl Fn(Fp) -> u128,
 ) where
-    Fg: fgf::FieldKernels,
+    Fg: fgf::FieldBuffer,
     Elem<Fg>: Copy + core::ops::Add<Output = Elem<Fg>> + core::ops::Mul<Output = Elem<Fg>>,
     Fp: P3Field,
 {
@@ -485,7 +493,10 @@ fn run_slice_field<Fg, Fp>(
     let src_v = Aligned::from_vec(src_p.clone());
     let a_v = Aligned::from_vec(a_p.clone());
     let b_v = Aligned::from_vec(b_p.clone());
-    let mut d_v: Vec<Aligned<Fp>> = dst_slots.iter().map(|(_, e)| Aligned::from_vec(e.clone())).collect();
+    let mut d_v: Vec<Aligned<Fp>> = dst_slots
+        .iter()
+        .map(|(_, e)| Aligned::from_vec(e.clone()))
+        .collect();
 
     // Prepared broadcasts, outside every timed region.
     let cb = <Fp::Packing as PackedValue>::broadcast(c_p);
@@ -496,31 +507,71 @@ fn run_slice_field<Fg, Fp>(
     ops::mul_into::<Fg>(&mut check_f, c_fg, src_f.as_slice());
     let mut check_v = d_v[0].as_slice().to_vec();
     p3_scale_into::<Fp>(&mut check_v, cb, src_v.as_slice());
-    assert_canon::<Fg, Fp>(&format!("{name} {}", LABELS[0]), &check_f, &check_v, &canon_fg, &canon_p, n, elem_bytes);
+    assert_canon::<Fg, Fp>(
+        &format!("{name} {}", LABELS[0]),
+        &check_f,
+        &check_v,
+        &canon_fg,
+        &canon_p,
+        n,
+        elem_bytes,
+    );
 
     let mut check_f = d_f[1].as_slice().to_vec();
     ops::mul_add::<Fg>(&mut check_f, c_fg, src_f.as_slice());
     let mut check_v = d_v[1].as_slice().to_vec();
     p3_scale_add::<Fp>(&mut check_v, cb, src_v.as_slice());
-    assert_canon::<Fg, Fp>(&format!("{name} {}", LABELS[1]), &check_f, &check_v, &canon_fg, &canon_p, n, elem_bytes);
+    assert_canon::<Fg, Fp>(
+        &format!("{name} {}", LABELS[1]),
+        &check_f,
+        &check_v,
+        &canon_fg,
+        &canon_p,
+        n,
+        elem_bytes,
+    );
 
     let mut check_f = vec![0u8; n * elem_bytes];
-    ops::mul_elementwise::<Fg>(&mut check_f, a_f.as_slice(), b_f.as_slice());
+    ops::mul_elementwise_into::<Fg>(&mut check_f, a_f.as_slice(), b_f.as_slice());
     let mut check_v = vec![Fp::ZERO; n];
     p3_elementwise::<Fp>(&mut check_v, a_v.as_slice(), b_v.as_slice());
-    assert_canon::<Fg, Fp>(&format!("{name} {}", LABELS[2]), &check_f, &check_v, &canon_fg, &canon_p, n, elem_bytes);
+    assert_canon::<Fg, Fp>(
+        &format!("{name} {}", LABELS[2]),
+        &check_f,
+        &check_v,
+        &canon_fg,
+        &canon_p,
+        n,
+        elem_bytes,
+    );
 
     let mut check_f = d_f[3].as_slice().to_vec();
     ops::add_assign_scalar::<Fg>(&mut check_f, v_fg);
     let mut check_v = d_v[3].as_slice().to_vec();
     p3_add_scalar::<Fp>(&mut check_v, vb);
-    assert_canon::<Fg, Fp>(&format!("{name} {}", LABELS[3]), &check_f, &check_v, &canon_fg, &canon_p, n, elem_bytes);
+    assert_canon::<Fg, Fp>(
+        &format!("{name} {}", LABELS[3]),
+        &check_f,
+        &check_v,
+        &canon_fg,
+        &canon_p,
+        n,
+        elem_bytes,
+    );
 
     let mut check_f = d_f[4].as_slice().to_vec();
     ops::sub_assign_scalar::<Fg>(&mut check_f, v_fg);
     let mut check_v = d_v[4].as_slice().to_vec();
     p3_sub_scalar::<Fp>(&mut check_v, vb);
-    assert_canon::<Fg, Fp>(&format!("{name} {}", LABELS[4]), &check_f, &check_v, &canon_fg, &canon_p, n, elem_bytes);
+    assert_canon::<Fg, Fp>(
+        &format!("{name} {}", LABELS[4]),
+        &check_f,
+        &check_v,
+        &canon_fg,
+        &canon_p,
+        n,
+        elem_bytes,
+    );
 
     if control_row {
         let mut second = pack(&dst_slots[0].0);
@@ -533,58 +584,104 @@ fn run_slice_field<Fg, Fp>(
         <Fp::Packing as PackedValue>::WIDTH
     );
 
-    compare("scalar a * b", RowKind::Scalar, || {
-        let mut acc = Elem::<Fg>::default();
-        for i in 0..SCALAR_ITERS {
-            let x = src_fg[(i.wrapping_mul(7919)) & (n - 1)];
-            let y = src_fg[(i.wrapping_mul(104729)) & (n - 1)];
-            acc = acc + x * y;
-        }
-        sink(canon_fg(acc));
-    }, || {
-        let mut acc = Fp::ZERO;
-        for i in 0..SCALAR_ITERS {
-            let x = src_p[(i.wrapping_mul(7919)) & (n - 1)];
-            let y = src_p[(i.wrapping_mul(104729)) & (n - 1)];
-            acc += x * y;
-        }
-        sink(canon_p(acc));
-    });
+    compare(
+        "scalar a * b",
+        RowKind::Scalar,
+        || {
+            let mut acc = Elem::<Fg>::default();
+            for i in 0..SCALAR_ITERS {
+                let x = src_fg[(i.wrapping_mul(7919)) & (n - 1)];
+                let y = src_fg[(i.wrapping_mul(104729)) & (n - 1)];
+                acc = acc + x * y;
+            }
+            sink(canon_fg(acc));
+        },
+        || {
+            let mut acc = Fp::ZERO;
+            for i in 0..SCALAR_ITERS {
+                let x = src_p[(i.wrapping_mul(7919)) & (n - 1)];
+                let y = src_p[(i.wrapping_mul(104729)) & (n - 1)];
+                acc += x * y;
+            }
+            sink(canon_p(acc));
+        },
+    );
 
     let bytes = RowKind::Rate(2 * REGION_BYTES);
-    compare(LABELS[0], bytes, || {
-        ops::mul_into::<Fg>(black_box(d_f[0].as_mut_slice()), c_fg, black_box(src_f.as_slice()));
-    }, || {
-        p3_scale_into::<Fp>(black_box(d_v[0].as_mut_slice()), cb, black_box(src_v.as_slice()));
-    });
-    compare(LABELS[1], bytes, || {
-        ops::mul_add::<Fg>(black_box(d_f[1].as_mut_slice()), c_fg, black_box(src_f.as_slice()));
-    }, || {
-        p3_scale_add::<Fp>(black_box(d_v[1].as_mut_slice()), cb, black_box(src_v.as_slice()));
-    });
-    compare(LABELS[2], bytes, || {
-        ops::mul_elementwise::<Fg>(
-            black_box(d_f[2].as_mut_slice()),
-            black_box(a_f.as_slice()),
-            black_box(b_f.as_slice()),
-        );
-    }, || {
-        p3_elementwise::<Fp>(
-            black_box(d_v[2].as_mut_slice()),
-            black_box(a_v.as_slice()),
-            black_box(b_v.as_slice()),
-        );
-    });
-    compare(LABELS[3], bytes, || {
-        ops::add_assign_scalar::<Fg>(black_box(d_f[3].as_mut_slice()), v_fg);
-    }, || {
-        p3_add_scalar::<Fp>(black_box(d_v[3].as_mut_slice()), vb);
-    });
-    compare(LABELS[4], bytes, || {
-        ops::sub_assign_scalar::<Fg>(black_box(d_f[4].as_mut_slice()), v_fg);
-    }, || {
-        p3_sub_scalar::<Fp>(black_box(d_v[4].as_mut_slice()), vb);
-    });
+    compare(
+        LABELS[0],
+        bytes,
+        || {
+            ops::mul_into::<Fg>(
+                black_box(d_f[0].as_mut_slice()),
+                c_fg,
+                black_box(src_f.as_slice()),
+            );
+        },
+        || {
+            p3_scale_into::<Fp>(
+                black_box(d_v[0].as_mut_slice()),
+                cb,
+                black_box(src_v.as_slice()),
+            );
+        },
+    );
+    compare(
+        LABELS[1],
+        bytes,
+        || {
+            ops::mul_add::<Fg>(
+                black_box(d_f[1].as_mut_slice()),
+                c_fg,
+                black_box(src_f.as_slice()),
+            );
+        },
+        || {
+            p3_scale_add::<Fp>(
+                black_box(d_v[1].as_mut_slice()),
+                cb,
+                black_box(src_v.as_slice()),
+            );
+        },
+    );
+    compare(
+        LABELS[2],
+        bytes,
+        || {
+            ops::mul_elementwise_into::<Fg>(
+                black_box(d_f[2].as_mut_slice()),
+                black_box(a_f.as_slice()),
+                black_box(b_f.as_slice()),
+            );
+        },
+        || {
+            p3_elementwise::<Fp>(
+                black_box(d_v[2].as_mut_slice()),
+                black_box(a_v.as_slice()),
+                black_box(b_v.as_slice()),
+            );
+        },
+    );
+    compare(
+        LABELS[3],
+        bytes,
+        || {
+            ops::add_assign_scalar::<Fg>(black_box(d_f[3].as_mut_slice()), v_fg);
+        },
+        || {
+            p3_add_scalar::<Fp>(black_box(d_v[3].as_mut_slice()), vb);
+        },
+    );
+    compare(
+        LABELS[4],
+        bytes,
+        || {
+            ops::sub_assign_scalar::<Fg>(black_box(d_f[4].as_mut_slice()), v_fg);
+        },
+        || {
+            p3_sub_scalar::<Fp>(black_box(d_v[4].as_mut_slice()), vb);
+        },
+    );
 }
 
 /// Compare one shape's `fgf` bytes against Plonky3's elements as
@@ -598,7 +695,7 @@ fn assert_canon<Fg, Fp>(
     n: usize,
     elem_bytes: usize,
 ) where
-    Fg: fgf::FieldKernels,
+    Fg: fgf::FieldBuffer,
     Elem<Fg>: Copy + Default,
     Fp: Copy,
 {
@@ -619,11 +716,8 @@ fn run_mersenne31(control_row: bool) {
         "Mersenne31",
         control_row,
         |raw| {
-            let lane = (raw % mersenne31::MODULUS as u64) as u32;
-            (
-                Elem::<Mersenne31>::from_raw(lane),
-                P3M31::new(lane),
-            )
+            let lane = m31_lane(raw);
+            (Elem::<Mersenne31>::from_raw(lane), P3M31::new(lane))
         },
         |e| u128::from(e.to_raw()),
         |e| u128::from(e.as_canonical_u32()),
@@ -635,11 +729,8 @@ fn run_goldilocks(control_row: bool) {
         "Goldilocks",
         control_row,
         |raw| {
-            let lane = raw % goldilocks::MODULUS;
-            (
-                Elem::<Goldilocks>::from_raw(lane),
-                P3Gld::new(lane),
-            )
+            let lane = raw % GLD_MODULUS;
+            (Elem::<Goldilocks>::from_raw(lane), P3Gld::new(lane))
         },
         |e| u128::from(e.to_raw()),
         |e| u128::from(e.to_unique_u64()),
@@ -660,8 +751,8 @@ fn run_quadratic(control_row: bool) {
         let raw = seeds(2 * count, seed);
         (0..count)
             .map(|i| {
-                let re = (raw[2 * i] % mersenne31::MODULUS as u64) as u32;
-                let im = (raw[2 * i + 1] % mersenne31::MODULUS as u64) as u32;
+                let re = m31_lane(raw[2 * i]);
+                let im = m31_lane(raw[2 * i + 1]);
                 (
                     Elem::<QuadMersenne31>::from_raw([re, im]),
                     Complex::<P3M31>::new_complex(P3M31::new(re), P3M31::new(im)),
@@ -679,8 +770,8 @@ fn run_quadratic(control_row: bool) {
     }
     let (c_fg, c_p) = {
         let raw = seeds(2, 0x7F0);
-        let re = (raw[0] % mersenne31::MODULUS as u64) as u32;
-        let im = (raw[1] % mersenne31::MODULUS as u64) as u32;
+        let re = m31_lane(raw[0]);
+        let im = m31_lane(raw[1]);
         (
             Elem::<QuadMersenne31>::from_raw([re, im]),
             Complex::<P3M31>::new_complex(P3M31::new(re), P3M31::new(im)),
@@ -688,8 +779,8 @@ fn run_quadratic(control_row: bool) {
     };
     let (v_fg, v_p) = {
         let raw = seeds(2, 0x7F1);
-        let re = (raw[0] % mersenne31::MODULUS as u64) as u32;
-        let im = (raw[1] % mersenne31::MODULUS as u64) as u32;
+        let re = m31_lane(raw[0]);
+        let im = m31_lane(raw[1]);
         (
             Elem::<QuadMersenne31>::from_raw([re, im]),
             Complex::<P3M31>::new_complex(P3M31::new(re), P3M31::new(im)),
@@ -739,31 +830,38 @@ fn run_quadratic(control_row: bool) {
             .collect()
     };
 
-    let validate = |slot: usize, label: &str, fg_body: &dyn Fn(&mut [u8]), p3_body: &dyn Fn(&mut [PeSlot])| {
-        let mut check_f = d_f[slot].as_slice().to_vec();
-        fg_body(&mut check_f);
-        let mut check_v = d_v[slot].as_slice().to_vec();
-        p3_body(&mut check_v);
-        assert_canon::<QuadMersenne31, Ext>(
-            &format!("QuadMersenne31 {label}"),
-            &check_f,
-            &unpack_packed(&check_v),
-            &canon_fg,
-            &canon_p,
-            n,
-            elem_bytes,
-        );
-    };
+    let validate =
+        |slot: usize, label: &str, fg_body: &dyn Fn(&mut [u8]), p3_body: &dyn Fn(&mut [PeSlot])| {
+            let mut check_f = d_f[slot].as_slice().to_vec();
+            fg_body(&mut check_f);
+            let mut check_v = d_v[slot].as_slice().to_vec();
+            p3_body(&mut check_v);
+            assert_canon::<QuadMersenne31, Ext>(
+                &format!("QuadMersenne31 {label}"),
+                &check_f,
+                &unpack_packed(&check_v),
+                &canon_fg,
+                &canon_p,
+                n,
+                elem_bytes,
+            );
+        };
 
-    validate(0, LABELS[0], &|d| ops::mul_into::<QuadMersenne31>(d, c_fg, src_f.as_slice()), &|d| {
-        pe_scale_into(d, cb, src_v.as_slice())
-    });
-    validate(1, LABELS[1], &|d| ops::mul_add::<QuadMersenne31>(d, c_fg, src_f.as_slice()), &|d| {
-        pe_scale_add(d, cb, src_v.as_slice())
-    });
+    validate(
+        0,
+        LABELS[0],
+        &|d| ops::mul_into::<QuadMersenne31>(d, c_fg, src_f.as_slice()),
+        &|d| pe_scale_into(d, cb, src_v.as_slice()),
+    );
+    validate(
+        1,
+        LABELS[1],
+        &|d| ops::mul_add::<QuadMersenne31>(d, c_fg, src_f.as_slice()),
+        &|d| pe_scale_add(d, cb, src_v.as_slice()),
+    );
     {
         let mut check_f = vec![0u8; n * elem_bytes];
-        ops::mul_elementwise::<QuadMersenne31>(&mut check_f, a_f.as_slice(), b_f.as_slice());
+        ops::mul_elementwise_into::<QuadMersenne31>(&mut check_f, a_f.as_slice(), b_f.as_slice());
         let mut check_v = vec![PeSlot::default(); d_v[2].as_slice().len()];
         pe_elementwise(&mut check_v, a_v.as_slice(), b_v.as_slice());
         assert_canon::<QuadMersenne31, Ext>(
@@ -776,12 +874,18 @@ fn run_quadratic(control_row: bool) {
             elem_bytes,
         );
     }
-    validate(3, LABELS[3], &|d| ops::add_assign_scalar::<QuadMersenne31>(d, v_fg), &|d| {
-        pe_add_scalar(d, v_p)
-    });
-    validate(4, LABELS[4], &|d| ops::sub_assign_scalar::<QuadMersenne31>(d, v_fg), &|d| {
-        pe_sub_scalar(d, v_p)
-    });
+    validate(
+        3,
+        LABELS[3],
+        &|d| ops::add_assign_scalar::<QuadMersenne31>(d, v_fg),
+        &|d| pe_add_scalar(d, v_p),
+    );
+    validate(
+        4,
+        LABELS[4],
+        &|d| ops::sub_assign_scalar::<QuadMersenne31>(d, v_fg),
+        &|d| pe_sub_scalar(d, v_p),
+    );
 
     if control_row {
         let mut second = pack(&dst_slots[0].0);
@@ -789,71 +893,106 @@ fn run_quadratic(control_row: bool) {
     }
 
     println!("QuadMersenne31 — {REGION_BYTES} B regions, {elem_bytes} B lanes");
-    println!(
-        "[Plonky3 packing width: {} extension elements]",
-        width
+    println!("[Plonky3 packing width: {} extension elements]", width);
+
+    compare(
+        "scalar a * b",
+        RowKind::Scalar,
+        || {
+            let mut acc = Elem::<QuadMersenne31>::ZERO;
+            for i in 0..SCALAR_ITERS {
+                let x = src_fg[(i.wrapping_mul(7919)) & (n - 1)];
+                let y = src_fg[(i.wrapping_mul(104729)) & (n - 1)];
+                acc = acc + x * y;
+            }
+            sink(canon_fg(acc));
+        },
+        || {
+            let mut acc = Ext::ZERO;
+            for i in 0..SCALAR_ITERS {
+                let x = src_p[(i.wrapping_mul(7919)) & (n - 1)];
+                let y = src_p[(i.wrapping_mul(104729)) & (n - 1)];
+                acc += x * y;
+            }
+            sink(canon_p(acc));
+        },
     );
 
-    compare("scalar a * b", RowKind::Scalar, || {
-        let mut acc = Elem::<QuadMersenne31>::ZERO;
-        for i in 0..SCALAR_ITERS {
-            let x = src_fg[(i.wrapping_mul(7919)) & (n - 1)];
-            let y = src_fg[(i.wrapping_mul(104729)) & (n - 1)];
-            acc = acc + x * y;
-        }
-        sink(canon_fg(acc));
-    }, || {
-        let mut acc = Ext::ZERO;
-        for i in 0..SCALAR_ITERS {
-            let x = src_p[(i.wrapping_mul(7919)) & (n - 1)];
-            let y = src_p[(i.wrapping_mul(104729)) & (n - 1)];
-            acc += x * y;
-        }
-        sink(canon_p(acc));
-    });
-
     let bytes = RowKind::Rate(2 * REGION_BYTES);
-    compare(LABELS[0], bytes, || {
-        ops::mul_into::<QuadMersenne31>(
-            black_box(d_f[0].as_mut_slice()),
-            c_fg,
-            black_box(src_f.as_slice()),
-        );
-    }, || {
-        pe_scale_into(black_box(d_v[0].as_mut_slice()), cb, black_box(src_v.as_slice()));
-    });
-    compare(LABELS[1], bytes, || {
-        ops::mul_add::<QuadMersenne31>(
-            black_box(d_f[1].as_mut_slice()),
-            c_fg,
-            black_box(src_f.as_slice()),
-        );
-    }, || {
-        pe_scale_add(black_box(d_v[1].as_mut_slice()), cb, black_box(src_v.as_slice()));
-    });
-    compare(LABELS[2], bytes, || {
-        ops::mul_elementwise::<QuadMersenne31>(
-            black_box(d_f[2].as_mut_slice()),
-            black_box(a_f.as_slice()),
-            black_box(b_f.as_slice()),
-        );
-    }, || {
-        pe_elementwise(
-            black_box(d_v[2].as_mut_slice()),
-            black_box(a_v.as_slice()),
-            black_box(b_v.as_slice()),
-        );
-    });
-    compare(LABELS[3], bytes, || {
-        ops::add_assign_scalar::<QuadMersenne31>(black_box(d_f[3].as_mut_slice()), v_fg);
-    }, || {
-        pe_add_scalar(black_box(d_v[3].as_mut_slice()), v_p);
-    });
-    compare(LABELS[4], bytes, || {
-        ops::sub_assign_scalar::<QuadMersenne31>(black_box(d_f[4].as_mut_slice()), v_fg);
-    }, || {
-        pe_sub_scalar(black_box(d_v[4].as_mut_slice()), v_p);
-    });
+    compare(
+        LABELS[0],
+        bytes,
+        || {
+            ops::mul_into::<QuadMersenne31>(
+                black_box(d_f[0].as_mut_slice()),
+                c_fg,
+                black_box(src_f.as_slice()),
+            );
+        },
+        || {
+            pe_scale_into(
+                black_box(d_v[0].as_mut_slice()),
+                cb,
+                black_box(src_v.as_slice()),
+            );
+        },
+    );
+    compare(
+        LABELS[1],
+        bytes,
+        || {
+            ops::mul_add::<QuadMersenne31>(
+                black_box(d_f[1].as_mut_slice()),
+                c_fg,
+                black_box(src_f.as_slice()),
+            );
+        },
+        || {
+            pe_scale_add(
+                black_box(d_v[1].as_mut_slice()),
+                cb,
+                black_box(src_v.as_slice()),
+            );
+        },
+    );
+    compare(
+        LABELS[2],
+        bytes,
+        || {
+            ops::mul_elementwise_into::<QuadMersenne31>(
+                black_box(d_f[2].as_mut_slice()),
+                black_box(a_f.as_slice()),
+                black_box(b_f.as_slice()),
+            );
+        },
+        || {
+            pe_elementwise(
+                black_box(d_v[2].as_mut_slice()),
+                black_box(a_v.as_slice()),
+                black_box(b_v.as_slice()),
+            );
+        },
+    );
+    compare(
+        LABELS[3],
+        bytes,
+        || {
+            ops::add_assign_scalar::<QuadMersenne31>(black_box(d_f[3].as_mut_slice()), v_fg);
+        },
+        || {
+            pe_add_scalar(black_box(d_v[3].as_mut_slice()), v_p);
+        },
+    );
+    compare(
+        LABELS[4],
+        bytes,
+        || {
+            ops::sub_assign_scalar::<QuadMersenne31>(black_box(d_f[4].as_mut_slice()), v_fg);
+        },
+        || {
+            pe_sub_scalar(black_box(d_v[4].as_mut_slice()), v_p);
+        },
+    );
 }
 
 fn main() {

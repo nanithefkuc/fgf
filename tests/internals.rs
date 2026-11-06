@@ -4,7 +4,9 @@
 //! These tests instead call each direct architecture entry as an external
 //! `internals` consumer would: summon the exact capability token, skip a tier
 //! when the host cannot prove it, and compare every observable byte against an
-//! independent scalar oracle or per-lane field arithmetic.
+//! independent scalar oracle or per-lane field arithmetic. The file also holds
+//! the direct gather-offset validation cases and the tier capability queries
+//! that read `internals` state.
 //!
 //! Destinations are seeded with nonzero noise before every overwrite
 //! operation so an accumulation-into-destination bug cannot agree with the
@@ -14,26 +16,18 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
-use fgf::internals::field::fan_paar as wiedemann;
+use fgf::binary::{AES, Polynomial, RS};
 #[cfg(feature = "simd512")]
 use fgf::internals::kernel::X64V4xToken;
 use fgf::internals::kernel::gf8::Prepared;
 use fgf::internals::kernel::scalar;
-use fgf::internals::kernel::tables::{
-    FpTowerTables, TowerCoeff, TowerTables, isomorphism_to_aes, scale_table,
-};
+use fgf::internals::kernel::tables::{TowerCoeff, TowerTables, isomorphism_to_aes, scale_table};
 use fgf::internals::kernel::{
     FlatMatrix, SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token, x86,
 };
-use fgf::poly::{AES, RS};
-use fgf::{Elem, FiniteField, Goldilocks, Mersenne31, Polynomial, goldilocks};
+use fgf::{Elem, FiniteField};
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
-type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Extension<fgf::FanPaar32, 2>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
 
 /// Deterministic LCG noise, the crate's shared convention.
 fn noise(len: usize, seed: u64) -> Vec<u8> {
@@ -61,18 +55,6 @@ const LENGTHS16: &[usize] = &[0, 2, 16, 30, 32, 34, 64, 66, 128, 130, 300];
 /// Truncated under Miri on the same terms as `LENGTHS8`.
 #[cfg(miri)]
 const LENGTHS16: &[usize] = &[0, 2, 30, 32, 34];
-/// Multiples of four for GF(2^32) kernels.
-#[cfg(not(miri))]
-const LENGTHS32: &[usize] = &[0, 4, 16, 28, 32, 36, 64, 68, 128, 132, 300];
-/// Truncated under Miri on the same terms as `LENGTHS8`.
-#[cfg(miri)]
-const LENGTHS32: &[usize] = &[0, 4, 28, 32, 36];
-/// Multiples of eight for GF(2^64) kernels.
-#[cfg(not(miri))]
-const LENGTHS64: &[usize] = &[0, 8, 24, 32, 40, 64, 72, 128, 136, 296];
-/// Truncated under Miri on the same terms as `LENGTHS8`.
-#[cfg(miri)]
-const LENGTHS64: &[usize] = &[0, 8, 24, 32, 40];
 
 /// Row counts straddling the blocked kernels' four/two/one row groups.
 #[cfg(not(miri))]
@@ -135,31 +117,6 @@ fn gf16_coeffs() -> Vec<Elem<Gf16>> {
     raw.iter().map(|&c| Elem::<Gf16>::from_raw(c)).collect()
 }
 
-fn gf32_coeffs() -> Vec<Elem<Gf32>> {
-    #[cfg(not(miri))]
-    let raw = [0u32, 1, 0x0001_0000, 0x0000_ffff, 0x1234_5678, u32::MAX];
-    // Short-circuits, one mixed value, and the extreme under Miri.
-    #[cfg(miri)]
-    let raw = [0u32, 1, 0x1234_5678, u32::MAX];
-    raw.iter().map(|&c| Elem::<Gf32>::from_raw(c)).collect()
-}
-
-fn gf64_coeffs() -> Vec<Elem<Gf64>> {
-    #[cfg(not(miri))]
-    let raw = [
-        0u64,
-        1,
-        0x0000_0001_0000_0000,
-        0x0000_0000_ffff_ffff,
-        0x0123_4567_89ab_cdef,
-        u64::MAX,
-    ];
-    // Short-circuits, one mixed value, and the extreme under Miri.
-    #[cfg(miri)]
-    let raw = [0u64, 1, 0x0123_4567_89ab_cdef, u64::MAX];
-    raw.iter().map(|&c| Elem::<Gf64>::from_raw(c)).collect()
-}
-
 // ---------------------------------------------------------------------------
 // Scalar oracles.
 // ---------------------------------------------------------------------------
@@ -173,52 +130,6 @@ fn gf8_ref<const POLY: u128>(
 }
 fn gf16_ref(dst: &mut [u8], coeff: Elem<Gf16>, src: &[u8]) {
     scalar::mul_add::<Gf16>(dst, coeff, src);
-}
-fn gf32_ref(dst: &mut [u8], coeff: Elem<Gf32>, src: &[u8]) {
-    scalar::mul_add::<Gf32>(dst, coeff, src);
-}
-fn gf64_ref(dst: &mut [u8], coeff: Elem<Gf64>, src: &[u8]) {
-    scalar::mul_add::<Gf64>(dst, coeff, src);
-}
-/// `dst ^= coeff * src` through the independent Fan-Paar recurrence.
-fn fp_buffer_mul_add(dst: &mut [u8], coeff: u64, src: &[u8], bits: u32) {
-    let width = bits as usize / 8;
-    for (d, s) in dst.chunks_exact_mut(width).zip(src.chunks_exact(width)) {
-        let mut word = [0u8; 8];
-        word[..width].copy_from_slice(s);
-        let product = wiedemann::fp_multiply(u64::from_le_bytes(word), coeff, bits);
-        let mut acc = [0u8; 8];
-        acc[..width].copy_from_slice(d);
-        let summed = u64::from_le_bytes(acc) ^ product;
-        d.copy_from_slice(&summed.to_le_bytes()[..width]);
-    }
-}
-
-/// `dst *= coeff` through the independent Fan-Paar recurrence.
-fn fp_buffer_mul_assign(dst: &mut [u8], coeff: u64, bits: u32) {
-    let width = bits as usize / 8;
-    for d in dst.chunks_exact_mut(width) {
-        let mut word = [0u8; 8];
-        word[..width].copy_from_slice(d);
-        let scaled = wiedemann::fp_multiply(u64::from_le_bytes(word), coeff, bits);
-        d.copy_from_slice(&scaled.to_le_bytes()[..width]);
-    }
-}
-
-fn fp16_ref(dst: &mut [u8], coeff: Elem<FanPaar16Field>, src: &[u8]) {
-    fp_buffer_mul_add(dst, u64::from(coeff.to_raw()), src, 16);
-}
-fn fp32_ref(dst: &mut [u8], coeff: Elem<FanPaar32Field>, src: &[u8]) {
-    fp_buffer_mul_add(dst, u64::from(coeff.to_raw()), src, 32);
-}
-fn fp64_ref(dst: &mut [u8], coeff: Elem<FanPaar64Field>, src: &[u8]) {
-    fp_buffer_mul_add(dst, coeff.to_raw(), src, 64);
-}
-fn m31_ref(dst: &mut [u8], coeff: Elem<Mersenne31>, src: &[u8]) {
-    scalar::mul_add::<Mersenne31>(dst, coeff, src);
-}
-fn gld_ref(dst: &mut [u8], coeff: Elem<Goldilocks>, src: &[u8]) {
-    scalar::mul_add::<Goldilocks>(dst, coeff, src);
 }
 
 // ---------------------------------------------------------------------------
@@ -493,62 +404,6 @@ macro_rules! prepared_pairs {
 }
 fn gf16_coeff_at2(t: usize, j: usize) -> Elem<Gf16> {
     Elem::<Gf16>::from_raw(((t * 7919 + j * 613) % 65536) as u16)
-}
-
-// ---------------------------------------------------------------------------
-// Field-independent byte kernels.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn proven_bytes_xor_matches_scalar() {
-    let Some(v3) = X64V3Token::summon() else {
-        eprintln!("skipping: no AVX2 on this host");
-        return;
-    };
-    let Some(v2) = X64V2Token::summon() else {
-        eprintln!("skipping: no SSE2 on this host");
-        return;
-    };
-
-    for &len in LENGTHS8 {
-        let src = noise(len, 0x11);
-        let mut got = noise(len, 0x22);
-        let mut want = got.clone();
-        x86::bytes::xor_avx2(v3, &mut got, &src);
-        scalar::xor(&mut want, &src);
-        assert_eq!(got, want, "xor_avx2: len {len}");
-
-        let mut got = noise(len, 0x33);
-        let mut want = got.clone();
-        x86::bytes::xor_sse2(v2.v1(), &mut got, &src);
-        scalar::xor(&mut want, &src);
-        assert_eq!(got, want, "xor_sse2: len {len}");
-    }
-}
-
-#[test]
-fn proven_bytes_xor_gather_matches_offsets() {
-    let Some(v3) = X64V3Token::summon() else {
-        eprintln!("skipping: no AVX2 on this host");
-        return;
-    };
-    let region = noise(512, 0x77);
-    let live = 100;
-    for offsets in [
-        vec![0u32],
-        vec![0u32, 32, 412],
-        vec![7u32, 131, 260, 411],
-        vec![],
-    ] {
-        let mut got = noise(live, 0x88);
-        let mut want = got.clone();
-        x86::bytes::xor_gather_avx2(v3, &region, &mut got, &offsets);
-        for &start in &offsets {
-            let start = start as usize;
-            scalar::xor(&mut want, &region[start..start + live]);
-        }
-        assert_eq!(got, want, "xor_gather_avx2: offsets {offsets:?}");
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1218,19 +1073,6 @@ fn proven_gf16_rejects_partial_element() {
 }
 
 #[test]
-fn proven_scatter_rejects_short_rows_buffer() {
-    rejects_geometry("gf8 scatter", |token| {
-        let mut rows = vec![0u8; 16];
-        let src = vec![0u8; 16];
-        let coeffs = [
-            Prepared::new(Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(1)),
-            Prepared::new(Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(2)),
-        ];
-        x86::gf8::mul_add_scatter_gfni::<true>(token, &mut rows, 16, &coeffs, &src);
-    });
-}
-
-#[test]
 fn proven_matrix_rejects_term_coefficient_mismatch() {
     rejects_geometry("gf8 matrix", |token| {
         let mut rows = vec![0u8; 64];
@@ -1475,7 +1317,7 @@ fn proven_gf16_kernels_match_scalar() {
     );
 
     let delta_byte: u8 = 0x20;
-    let reduction = fgf::poly::Polynomial::<AES>::POLY.to_le_bytes()[0];
+    let reduction = fgf::binary::Polynomial::<AES>::POLY.to_le_bytes()[0];
     let delta_table = scale_table(fgf::Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
         0x20,
     ));
@@ -1551,434 +1393,6 @@ fn proven_gf16_kernels_match_scalar() {
             x86::gf16::mul_add_matrix_ssse3(v2, rows, row_len, nrows, terms)
         },
     );
-}
-
-#[test]
-fn proven_gf32_gf64_kernels_match_scalar() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    let coeffs32 = gf32_coeffs();
-    check_mul_add(
-        "gf32::mul_add_gfni",
-        LENGTHS32,
-        &coeffs32,
-        gf32_ref,
-        |dst, c, src| x86::gf32::mul_add_gfni(token, dst, c, x86::gf32::gf32_tiles(c), src),
-    );
-    check_mul_assign(
-        "gf32::mul_assign_gfni",
-        LENGTHS32,
-        &coeffs32,
-        scalar::mul_assign::<Gf32>,
-        |dst, c| x86::gf32::mul_assign_gfni(token, dst, c, x86::gf32::gf32_tiles(c)),
-    );
-    check_mul_into(
-        "gf32::mul_into_gfni",
-        LENGTHS32,
-        &coeffs32,
-        gf32_ref,
-        |dst, c, src| x86::gf32::mul_into_gfni(token, dst, c, x86::gf32::gf32_tiles(c), src),
-    );
-
-    let coeffs64 = gf64_coeffs();
-    check_mul_add(
-        "gf64::mul_add_gfni",
-        LENGTHS64,
-        &coeffs64,
-        gf64_ref,
-        |dst, c, src| x86::gf64::mul_add_gfni(token, dst, c, x86::gf64::gf64_tiles(c), src),
-    );
-    check_mul_assign(
-        "gf64::mul_assign_gfni",
-        LENGTHS64,
-        &coeffs64,
-        scalar::mul_assign::<Gf64>,
-        |dst, c| x86::gf64::mul_assign_gfni(token, dst, c, x86::gf64::gf64_tiles(c)),
-    );
-    check_mul_into(
-        "gf64::mul_into_gfni",
-        LENGTHS64,
-        &coeffs64,
-        gf64_ref,
-        |dst, c, src| x86::gf64::mul_into_gfni(token, dst, c, x86::gf64::gf64_tiles(c), src),
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Fan–Paar towers.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn proven_fan_paar_kernels_match_scalar() {
-    let Some(v3) = X64V3Token::summon() else {
-        eprintln!("skipping: no AVX2 on this host");
-        return;
-    };
-    let Some(v2) = X64V2Token::summon() else {
-        eprintln!("skipping: no SSE2 on this host");
-        return;
-    };
-
-    #[cfg(not(miri))]
-    let fp16_coeffs: Vec<Elem<FanPaar16Field>> =
-        [0u16, 1, 0x0100, 0x00ff, 0xbeef, 0x7411, u16::MAX]
-            .iter()
-            .map(|&c| Elem::<FanPaar16Field>::from_raw(c))
-            .collect();
-    // Short-circuits, one mixed value, and the extreme under Miri.
-    #[cfg(miri)]
-    let fp16_coeffs: Vec<Elem<FanPaar16Field>> = [0u16, 1, 0xbeef, u16::MAX]
-        .iter()
-        .map(|&c| Elem::<FanPaar16Field>::from_raw(c))
-        .collect();
-    check_mul_add(
-        "fan_paar::mul_add_avx2_fp16",
-        LENGTHS16,
-        &fp16_coeffs,
-        fp16_ref,
-        |dst, c, src| x86::fan_paar::mul_add_avx2_fp16(v3, dst, &FpTowerTables::new(c), src),
-    );
-    check_mul_assign(
-        "fan_paar::mul_assign_avx2_fp16",
-        LENGTHS16,
-        &fp16_coeffs,
-        |dst, c| fp_buffer_mul_assign(dst, u64::from(c.to_raw()), 16),
-        |dst, c| x86::fan_paar::mul_assign_avx2_fp16(v3, dst, &FpTowerTables::new(c)),
-    );
-    check_mul_into(
-        "fan_paar::mul_into_avx2_fp16",
-        LENGTHS16,
-        &fp16_coeffs,
-        fp16_ref,
-        |dst, c, src| x86::fan_paar::mul_into_avx2_fp16(v3, dst, &FpTowerTables::new(c), src),
-    );
-    check_mul_add(
-        "fan_paar::mul_add_ssse3_fp16",
-        LENGTHS16,
-        &fp16_coeffs,
-        fp16_ref,
-        |dst, c, src| x86::fan_paar::mul_add_ssse3_fp16(v2, dst, &FpTowerTables::new(c), src),
-    );
-    check_mul_assign(
-        "fan_paar::mul_assign_ssse3_fp16",
-        LENGTHS16,
-        &fp16_coeffs,
-        |dst, c| fp_buffer_mul_assign(dst, u64::from(c.to_raw()), 16),
-        |dst, c| x86::fan_paar::mul_assign_ssse3_fp16(v2, dst, &FpTowerTables::new(c)),
-    );
-    check_mul_into(
-        "fan_paar::mul_into_ssse3_fp16",
-        LENGTHS16,
-        &fp16_coeffs,
-        fp16_ref,
-        |dst, c, src| x86::fan_paar::mul_into_ssse3_fp16(v2, dst, &FpTowerTables::new(c), src),
-    );
-
-    #[cfg(not(miri))]
-    let fp32_coeffs: Vec<Elem<FanPaar32Field>> =
-        [0u32, 1, 0x0001_0000, 0x0000_ffff, 0x1234_5678, u32::MAX]
-            .iter()
-            .map(|&c| Elem::<FanPaar32Field>::from_raw(c))
-            .collect();
-    // Short-circuits, one mixed value, and the extreme under Miri.
-    #[cfg(miri)]
-    let fp32_coeffs: Vec<Elem<FanPaar32Field>> = [0u32, 1, 0x1234_5678, u32::MAX]
-        .iter()
-        .map(|&c| Elem::<FanPaar32Field>::from_raw(c))
-        .collect();
-    check_mul_add(
-        "fan_paar::mul_add_avx2_fp32",
-        LENGTHS32,
-        &fp32_coeffs,
-        fp32_ref,
-        |dst, c, src| x86::fan_paar::mul_add_avx2_fp32(v3, dst, c, src),
-    );
-    check_mul_assign(
-        "fan_paar::mul_assign_avx2_fp32",
-        LENGTHS32,
-        &fp32_coeffs,
-        |dst, c| fp_buffer_mul_assign(dst, u64::from(c.to_raw()), 32),
-        |dst, c| x86::fan_paar::mul_assign_avx2_fp32(v3, dst, c),
-    );
-    check_mul_into(
-        "fan_paar::mul_into_avx2_fp32",
-        LENGTHS32,
-        &fp32_coeffs,
-        fp32_ref,
-        |dst, c, src| x86::fan_paar::mul_into_avx2_fp32(v3, dst, c, src),
-    );
-
-    #[cfg(not(miri))]
-    let fp64_coeffs: Vec<Elem<FanPaar64Field>> = [
-        0u64,
-        1,
-        0x0000_0001_0000_0000,
-        0x0123_4567_89ab_cdef,
-        u64::MAX,
-    ]
-    .iter()
-    .map(|&c| Elem::<FanPaar64Field>::from_raw(c))
-    .collect();
-    // Short-circuits, one mixed value, and the extreme under Miri.
-    #[cfg(miri)]
-    let fp64_coeffs: Vec<Elem<FanPaar64Field>> = [0u64, 1, 0x0123_4567_89ab_cdef, u64::MAX]
-        .iter()
-        .map(|&c| Elem::<FanPaar64Field>::from_raw(c))
-        .collect();
-    check_mul_add(
-        "fan_paar::mul_add_avx2_fp64",
-        LENGTHS64,
-        &fp64_coeffs,
-        fp64_ref,
-        |dst, c, src| x86::fan_paar::mul_add_avx2_fp64(v3, dst, c, src),
-    );
-    check_mul_assign(
-        "fan_paar::mul_assign_avx2_fp64",
-        LENGTHS64,
-        &fp64_coeffs,
-        |dst, c| fp_buffer_mul_assign(dst, c.to_raw(), 64),
-        |dst, c| x86::fan_paar::mul_assign_avx2_fp64(v3, dst, c),
-    );
-    check_mul_into(
-        "fan_paar::mul_into_avx2_fp64",
-        LENGTHS64,
-        &fp64_coeffs,
-        fp64_ref,
-        |dst, c, src| x86::fan_paar::mul_into_avx2_fp64(v3, dst, c, src),
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Prime fields: canonical lanes only (kernel contract).
-// ---------------------------------------------------------------------------
-
-/// Noise with every 4-byte lane reduced to the canonical Mersenne31 range.
-fn m31_lanes(n: usize, seed: u64) -> Vec<u8> {
-    let mut bytes = noise(n * 4, seed);
-    for chunk in bytes.as_chunks_mut::<4>().0 {
-        let lane = u32::from_le_bytes(*chunk);
-        chunk.copy_from_slice(&Elem::<Mersenne31>::from_raw(lane).to_bytes());
-    }
-    bytes
-}
-
-/// Noise with every 8-byte lane reduced to the canonical Goldilocks range.
-fn gld_lanes(n: usize, seed: u64) -> Vec<u8> {
-    let mut bytes = noise(n * 8, seed);
-    for chunk in bytes.as_chunks_mut::<8>().0 {
-        let lane = u64::from_le_bytes(*chunk);
-        chunk.copy_from_slice(&Elem::<Goldilocks>::from_raw(lane % goldilocks::MODULUS).to_bytes());
-    }
-    bytes
-}
-
-#[test]
-fn proven_prime_kernels_match_scalar() {
-    let Some(v3) = X64V3Token::summon() else {
-        eprintln!("skipping: no AVX2 on this host");
-        return;
-    };
-    let Some(v2) = X64V2Token::summon() else {
-        eprintln!("skipping: no SSE4.2 on this host");
-        return;
-    };
-
-    const LANES: &[usize] = &[0, 1, 3, 4, 7, 8, 9, 16, 75];
-    let coeff = Elem::<Mersenne31>::from_raw(0x0532_1cde);
-    type BinOp<'a> = Box<dyn Fn(&mut [u8], &[u8]) + 'a>;
-
-    for &n in LANES {
-        let src = m31_lanes(n, 0x91);
-        let coeff_raw = coeff.to_raw();
-
-        // add / sub against per-lane field arithmetic.
-        for (name, kernel, sub) in [
-            (
-                "mersenne31::add_assign_avx2",
-                Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::mersenne31::add_assign_avx2(v3, dst, src)
-                }) as BinOp,
-                false,
-            ),
-            (
-                "mersenne31::sub_assign_avx2",
-                Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::mersenne31::sub_assign_avx2(v3, dst, src)
-                }),
-                true,
-            ),
-            (
-                "mersenne31::add_assign_sse42",
-                Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::mersenne31::add_assign_sse42(v2, dst, src)
-                }),
-                false,
-            ),
-            (
-                "mersenne31::sub_assign_sse42",
-                Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::mersenne31::sub_assign_sse42(v2, dst, src)
-                }),
-                true,
-            ),
-        ] {
-            let mut got = m31_lanes(n, 0x92);
-            let mut want = got.clone();
-            kernel(&mut got, &src);
-            for (d, s) in want
-                .as_chunks_mut::<4>()
-                .0
-                .iter_mut()
-                .zip(src.as_chunks::<4>().0)
-            {
-                let a = Elem::<Mersenne31>::from_bytes(*d);
-                let b = Elem::<Mersenne31>::from_bytes(*s);
-                let r = if sub { a.sub(b) } else { a.add(b) };
-                d.copy_from_slice(&r.to_bytes());
-            }
-            assert_eq!(got, want, "{name}: lanes {n}");
-        }
-
-        // mul_add / mul_assign / mul_into against the scalar oracle.
-        let mut got = m31_lanes(n, 0x93);
-        let mut want = got.clone();
-        x86::mersenne31::mul_add_avx2(v3, &mut got, coeff_raw, &src);
-        m31_ref(&mut want, coeff, &src);
-        assert_eq!(got, want, "mersenne31::mul_add_avx2: lanes {n}");
-
-        let mut got = m31_lanes(n, 0x94);
-        let mut want = got.clone();
-        x86::mersenne31::mul_add_sse42(v2, &mut got, coeff_raw, &src);
-        m31_ref(&mut want, coeff, &src);
-        assert_eq!(got, want, "mersenne31::mul_add_sse42: lanes {n}");
-
-        let mut got = m31_lanes(n, 0x95);
-        let mut want = got.clone();
-        x86::mersenne31::mul_assign_avx2(v3, &mut got, coeff_raw);
-        scalar::mul_assign::<Mersenne31>(&mut want, coeff);
-        assert_eq!(got, want, "mersenne31::mul_assign_avx2: lanes {n}");
-
-        let mut got = m31_lanes(n, 0x96);
-        let mut want = vec![0u8; n * 4];
-        x86::mersenne31::mul_into_avx2(v3, &mut got, coeff_raw, &src);
-        m31_ref(&mut want, coeff, &src);
-        assert_eq!(got, want, "mersenne31::mul_into_avx2: lanes {n}");
-
-        let mut got = m31_lanes(n, 0x97);
-        let mut want = vec![0u8; n * 4];
-        x86::mersenne31::mul_into_sse42(v2, &mut got, coeff_raw, &src);
-        m31_ref(&mut want, coeff, &src);
-        assert_eq!(got, want, "mersenne31::mul_into_sse42: lanes {n}");
-
-        // Elementwise product of two canonical buffers.
-        let a = m31_lanes(n, 0x98);
-        let b = m31_lanes(n, 0x99);
-        let mut got = m31_lanes(n, 0x9a);
-        let mut want = got.clone();
-        x86::mersenne31::mul_elementwise_avx2(v3, &mut got, &a, &b);
-        scalar::mul_elementwise::<Mersenne31>(&mut want, &a, &b);
-        assert_eq!(got, want, "mersenne31::mul_elementwise_avx2: lanes {n}");
-
-        let mut got = m31_lanes(n, 0x9b);
-        let mut want = got.clone();
-        x86::mersenne31::mul_elementwise_sse42(v2, &mut got, &a, &b);
-        scalar::mul_elementwise::<Mersenne31>(&mut want, &a, &b);
-        assert_eq!(got, want, "mersenne31::mul_elementwise_sse42: lanes {n}");
-    }
-
-    // Goldilocks: the same sweep with 8-byte lanes.
-    let gld_coeff = Elem::<Goldilocks>::from_raw(0x0123_4567_89ab_cdef % goldilocks::MODULUS);
-    for &n in &[0usize, 1, 3, 8, 9, 32] {
-        let src = gld_lanes(n, 0xa1);
-        let coeff_raw = gld_coeff.to_raw();
-
-        for (name, kernel, sub) in [
-            (
-                "goldilocks::add_assign_avx2",
-                Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::goldilocks::add_assign_avx2(v3, dst, src)
-                }) as BinOp,
-                false,
-            ),
-            (
-                "goldilocks::sub_assign_avx2",
-                Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::goldilocks::sub_assign_avx2(v3, dst, src)
-                }),
-                true,
-            ),
-            (
-                "goldilocks::add_assign_sse42",
-                Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::goldilocks::add_assign_sse42(v2, dst, src)
-                }),
-                false,
-            ),
-            (
-                "goldilocks::sub_assign_sse42",
-                Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::goldilocks::sub_assign_sse42(v2, dst, src)
-                }),
-                true,
-            ),
-        ] {
-            let mut got = gld_lanes(n, 0xa2);
-            let mut want = got.clone();
-            kernel(&mut got, &src);
-            for (d, s) in want
-                .as_chunks_mut::<8>()
-                .0
-                .iter_mut()
-                .zip(src.as_chunks::<8>().0)
-            {
-                let a = Elem::<Goldilocks>::from_bytes(*d);
-                let b = Elem::<Goldilocks>::from_bytes(*s);
-                let r = if sub { a.sub(b) } else { a.add(b) };
-                d.copy_from_slice(&r.to_bytes());
-            }
-            assert_eq!(got, want, "{name}: lanes {n}");
-        }
-
-        let mut got = gld_lanes(n, 0xa3);
-        let mut want = got.clone();
-        x86::goldilocks::mul_add_avx2(v3, &mut got, coeff_raw, &src);
-        gld_ref(&mut want, gld_coeff, &src);
-        assert_eq!(got, want, "goldilocks::mul_add_avx2: lanes {n}");
-
-        let mut got = gld_lanes(n, 0xa4);
-        let mut want = got.clone();
-        x86::goldilocks::mul_add_sse42(v2, &mut got, coeff_raw, &src);
-        gld_ref(&mut want, gld_coeff, &src);
-        assert_eq!(got, want, "goldilocks::mul_add_sse42: lanes {n}");
-
-        let mut got = gld_lanes(n, 0xa5);
-        let mut want = got.clone();
-        x86::goldilocks::mul_assign_sse42(v2, &mut got, coeff_raw);
-        scalar::mul_assign::<Goldilocks>(&mut want, gld_coeff);
-        assert_eq!(got, want, "goldilocks::mul_assign_sse42: lanes {n}");
-
-        let mut got = gld_lanes(n, 0xa6);
-        let mut want = vec![0u8; n * 8];
-        x86::goldilocks::mul_into_avx2(v3, &mut got, coeff_raw, &src);
-        gld_ref(&mut want, gld_coeff, &src);
-        assert_eq!(got, want, "goldilocks::mul_into_avx2: lanes {n}");
-
-        let a = gld_lanes(n, 0xa7);
-        let b = gld_lanes(n, 0xa8);
-        let mut got = gld_lanes(n, 0xa9);
-        let mut want = got.clone();
-        x86::goldilocks::mul_elementwise_avx2(v3, &mut got, &a, &b);
-        scalar::mul_elementwise::<Goldilocks>(&mut want, &a, &b);
-        assert_eq!(got, want, "goldilocks::mul_elementwise_avx2: lanes {n}");
-
-        let mut got = gld_lanes(n, 0xaa);
-        let mut want = got.clone();
-        x86::goldilocks::mul_elementwise_sse42(v2, &mut got, &a, &b);
-        scalar::mul_elementwise::<Goldilocks>(&mut want, &a, &b);
-        assert_eq!(got, want, "goldilocks::mul_elementwise_sse42: lanes {n}");
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -3095,4 +2509,251 @@ fn proven_residue_delayed_matrix_rejects_overflowing_geometry() {
             );
         }
     });
+}
+
+/// The scalar fallback carries neither a native multiply nor blocked rows.
+#[test]
+fn kernel_backend_capability_bits_of_scalar() {
+    use fgf::internals::kernel::KernelBackend;
+
+    assert!(!fgf::Backend::Scalar.has_native_mul());
+    assert!(!fgf::Backend::Scalar.has_blocked_rows());
+}
+
+/// Asserts `body` panics on `dst` and that `dst` still holds `sentinel` bytes
+/// afterwards, proving the rejection preceded every write.
+fn rejects_without_mutating(sentinel: &[u8], body: impl FnOnce(&mut [u8])) {
+    let mut got = sentinel.to_vec();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(&mut got)));
+    assert!(outcome.is_err(), "invalid gather offsets must panic");
+    assert_eq!(
+        got, sentinel,
+        "a rejected gather must not write any destination byte",
+    );
+}
+
+/// 33 bytes is one whole 32-byte lane plus a 1-byte tail: the shape that
+/// falls back to the per-source fold.
+#[test]
+fn direct_avx2_tail_row_rejects_invalid_later_offset_before_mutation() {
+    let Some(token) = X64V3Token::summon() else {
+        eprintln!("skipping: no AVX2 on this host");
+        return;
+    };
+    let region = noise(128, 0x61);
+    let dst = noise(33, 0x62);
+    rejects_without_mutating(&dst, |got| {
+        x86::bytes::xor_gather_avx2(token, &region, got, &[0, 96]);
+    });
+}
+
+/// 288 bytes is nine whole lanes: wider than eight vectors, the other shape
+/// that falls back to the per-source fold.
+#[test]
+fn direct_avx2_wide_row_rejects_invalid_later_offset_before_mutation() {
+    let Some(token) = X64V3Token::summon() else {
+        eprintln!("skipping: no AVX2 on this host");
+        return;
+    };
+    let region = noise(512, 0x63);
+    let dst = noise(288, 0x64);
+    rejects_without_mutating(&dst, |got| {
+        x86::bytes::xor_gather_avx2(token, &region, got, &[0, 32, 480]);
+    });
+}
+
+/// On an AVX-512+GFNI host the process and field backends must actually
+/// report `V4x`; a green run alone never proves the tier executed. A
+/// `SIMD_BACKEND` request below `v4x` lowers the tier on purpose, and hosts
+/// without the token cannot select it; both report a skip and return.
+#[cfg(feature = "simd512")]
+#[test]
+fn v4x_host_selects_v4x_backends() {
+    use fgf::binary::Polynomial;
+    use fgf::internals::kernel::has_vector_elementwise;
+    use fgf::prime::{Goldilocks, Mersenne31};
+    use fgf::{Backend, backend, backend_for};
+
+    let downgrade = std::env::var("SIMD_BACKEND")
+        .ok()
+        .filter(|tier| tier != "v4x");
+    if let Some(tier) = &downgrade {
+        eprintln!("skipping V4x assertion: SIMD_BACKEND={tier} requests a lower tier");
+        return;
+    }
+    if X64V4xToken::summon().is_none() {
+        eprintln!("skipping V4x assertion: host cannot summon X64V4xToken");
+        return;
+    }
+    assert_eq!(
+        backend(),
+        Backend::V4x,
+        "AVX-512+GFNI summons but dispatch did not select V4x"
+    );
+    assert_eq!(
+        backend_for::<FiniteField<2, 8, Polynomial<RS>>>(),
+        Backend::V4x,
+        "FiniteField<2, 8, Polynomial<RS>> does not report V4x on a V4x host"
+    );
+    // Both prime fields carry 64-byte kernels on V4x.
+    assert_eq!(
+        (backend_for::<Mersenne31>(), backend_for::<Goldilocks>()),
+        (Backend::V4x, Backend::V4x),
+        "prime fields do not report V4x on a V4x host"
+    );
+    // Both byte fields carry 64-byte elementwise kernels on V4x, so the
+    // capability query must not steer consumers to scalar.
+    assert!(
+        has_vector_elementwise::<FiniteField<2, 8, Polynomial<AES>>>()
+            && has_vector_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(),
+        "byte fields do not report vector elementwise on a V4x host"
+    );
+}
+
+/// The vector-policy queries over the `internals` free wrappers: the
+/// per-field invariants, the scalar families that never vectorize, and the
+/// x86 tiers where the vector elementwise kernels serve.
+#[test]
+fn vector_policy_reports_match_family_routes() {
+    use fgf::internals::kernel::{has_vector_elementwise, vector_elementwise_min_bytes};
+    use fgf::prime::{Goldilocks, Mersenne31};
+    use fgf::{Backend, backend, backend_for};
+
+    type Gf32 = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>;
+    type Gf64 = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>;
+    type FanPaar8Field =
+        fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>;
+    type FanPaar16Field =
+        fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>;
+    type FanPaar32Field =
+        fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>;
+    type FanPaar64Field =
+        fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>;
+
+    let process = backend();
+    let x86_tier = matches!(
+        process,
+        Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
+    );
+    let gfni = matches!(process, Backend::V4x | Backend::V3GfniCrypto);
+
+    // Query invariants for every shipped bulk field.
+    macro_rules! queries {
+        ($($field:ty),+ $(,)?) => {$(
+            let per_field = backend_for::<$field>();
+            assert!(
+                per_field >= process,
+                concat!(stringify!($field), ": field backend exceeds the process backend")
+            );
+            let vectorized = has_vector_elementwise::<$field>();
+            assert!(
+                !vectorized || per_field != Backend::Scalar,
+                concat!(stringify!($field), ": vectorized elementwise requires a vector field backend")
+            );
+            let threshold = vector_elementwise_min_bytes::<$field>();
+            assert!(
+                vectorized || threshold == 0,
+                concat!(stringify!($field), ": threshold without a vector elementwise kernel")
+            );
+        )+};
+    }
+    queries!(
+        FiniteField<2, 8, Polynomial<AES>>,
+        FiniteField<2, 8, Polynomial<RS>>,
+        FiniteField<2, 8, fgf::binary::Normal<0x11B, 0x20>>,
+        FiniteField<2, 8, fgf::binary::Cantor<0x11B, 0x20>>,
+        Gf16,
+        Gf32,
+        Gf64,
+        FanPaar8Field,
+        FanPaar16Field,
+        FanPaar32Field,
+        FanPaar64Field,
+        Mersenne31,
+        Goldilocks,
+        fgf::extension::QuadMersenne31,
+    );
+
+    // Basis rows and the Fan-Paar towers never carry vector elementwise.
+    macro_rules! scalar_fallback {
+        ($($field:ty),+ $(,)?) => {$(
+            assert!(
+                !has_vector_elementwise::<$field>(),
+                concat!(stringify!($field), " elementwise must be scalar"),
+            );
+        )+};
+    }
+    scalar_fallback!(
+        FiniteField<2, 8, fgf::binary::Normal<0x11B, 0x20>>,
+        FiniteField<2, 8, fgf::binary::Cantor<0x11B, 0x20>>,
+        FanPaar8Field,
+        FanPaar16Field,
+        FanPaar32Field,
+        FanPaar64Field,
+        Gf32,
+        Gf64,
+    );
+
+    // The byte polynomial fields and GF(2^16) follow the x86 tiers; the
+    // wider towers and the Fan-Paar family stay scalar; the prime families
+    // follow the integer-lane tiers.
+    assert_eq!(
+        has_vector_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(),
+        x86_tier,
+    );
+    assert_eq!(
+        has_vector_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(),
+        x86_tier,
+    );
+    assert_eq!(has_vector_elementwise::<Gf16>(), x86_tier,);
+    assert_eq!(has_vector_elementwise::<Mersenne31>(), x86_tier);
+    assert_eq!(has_vector_elementwise::<Goldilocks>(), x86_tier);
+    assert_eq!(
+        has_vector_elementwise::<fgf::extension::QuadMersenne31>(),
+        gfni || process == Backend::V3,
+    );
+}
+
+/// The elementwise vector threshold is a whole number of elements, and it
+/// is nonzero exactly when a vector kernel serves the elementwise product.
+#[test]
+fn quad_mersenne31_elementwise_threshold_is_consistent() {
+    use fgf::extension::QuadMersenne31;
+    use fgf::internals::kernel::{has_vector_elementwise, vector_elementwise_min_bytes};
+
+    let threshold = vector_elementwise_min_bytes::<QuadMersenne31>();
+    assert_eq!(threshold % 8, 0, "threshold {threshold} splits an element");
+    assert_eq!(
+        threshold != 0,
+        has_vector_elementwise::<QuadMersenne31>(),
+        "threshold {threshold} disagrees with elementwise eligibility"
+    );
+}
+
+/// Elementwise vectorization is available only for u32 residue rows on
+/// supported x86 hosts.
+#[test]
+fn vector_elementwise_report_matches_the_four_byte_class() {
+    use fgf::Backend;
+    use fgf::FiniteField;
+    use fgf::internals::kernel::has_vector_elementwise;
+
+    let is_vector_host = matches!(
+        fgf::backend(),
+        Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+    );
+    macro_rules! row {
+        ($field:ty, $vector_host:expr) => {
+            assert_eq!(
+                has_vector_elementwise::<$field>(),
+                <$field as fgf::FieldBuffer>::BYTES == 4 && $vector_host
+            );
+        };
+    }
+    row!(FiniteField<2, 1>, is_vector_host);
+    row!(FiniteField<251, 1>, is_vector_host);
+    row!(FiniteField<65_521, 1>, is_vector_host);
+    row!(FiniteField<1_000_000_007, 1>, is_vector_host);
+    row!(FiniteField<4_294_967_291, 1>, is_vector_host);
+    row!(FiniteField<18_446_744_073_709_551_557, 1>, is_vector_host);
 }

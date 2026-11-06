@@ -33,14 +33,14 @@ explains supported degrees, relations, storage choices, and embeddings.
 
 ```toml
 [dependencies]
-fgf = "3.0.2"
+fgf = "4.0.0"
 ```
 
 Choose the field, then construct its elements. Shipped scalar arithmetic is
 `const`; operators follow field arithmetic, not ordinary integer arithmetic.
 
 ```rust
-use fgf::{Elem, FiniteField, Polynomial, AES};
+use fgf::{Elem, FiniteField, binary::{AES, Polynomial}};
 
 type Prime = FiniteField<17, 1>;
 type Binary = FiniteField<2, 8, Polynomial<AES>>;
@@ -54,17 +54,11 @@ assert_eq!(
 ```
 
 `ops` scales and combines rows of packed elements, with prepared coefficients
-for repeated calls. Prepared Frobenius, embedding, and isomorphism maps apply
-one compiled map across scalar elements and byte rows alike, with a validity
-bitmap for partial restriction; `ops::map_bits` carries the GF(2) bit/lane
-interop rows over packed bits. The prepared maps, `ops::map` and
-`ops::map_bits`, and the prepared `_with` forms require the `alloc` feature.
-Byte lanes are fixed-width and
-little-endian; their size depends on the field representation. Bit-packed
-GF(2) vectors use `bits`.
+for repeated calls. Byte lanes are fixed-width and little-endian; their size
+depends on the field representation. Bit-packed GF(2) vectors use `ops::bits`.
 
 ```rust
-use fgf::{FiniteField, Elem, Polynomial, poly::AES, ops};
+use fgf::{FiniteField, Elem, binary::{AES, Polynomial}, ops};
 
 type Gf2P8 = FiniteField<2, 8, Polynomial<AES>>;
 
@@ -87,9 +81,10 @@ cargo run --example shard_recovery
 ```
 
 The API reference is on [docs.rs](https://docs.rs/fgf); guides and background
-are on the [wiki](https://github.com/nanithefkuc/fgf/wiki). Changes and
-migration from 2.x are in
-[`CHANGELOG.md`](https://github.com/nanithefkuc/fgf/blob/main/CHANGELOG.md).
+are on the [wiki](https://github.com/nanithefkuc/fgf/wiki). Changes are in
+[`CHANGELOG.md`](https://github.com/nanithefkuc/fgf/blob/main/CHANGELOG.md);
+the [3.x migration guide](https://github.com/nanithefkuc/fgf/wiki/Migrating-from-3.x)
+collects every 4.0 break.
 
 ## Features
 
@@ -97,7 +92,7 @@ migration from 2.x are in
 | --- | --- | --- |
 | `std` | yes | runtime backend detection and shared lookup tables; implies `alloc` |
 | `simd` | yes | runtime-dispatched SIMD kernels; implies `std` |
-| `alloc` | via `std` | prepared maps (`Frobenius`, `PreparedEmbedding`, `PreparedIsomorphism`), `ops::map` and `ops::map_bits`, prepared coefficient collections (`CoeffVec`, `CoeffMatrix`), the prepared scatter/gather/matrix `_with` forms, and `pack_to_vec` |
+| `alloc` | via `std` | prepared coefficient collections (`CoeffVec`, `CoeffMatrix`), the prepared scatter/gather/matrix `_with` forms, and `pack_to_vec` |
 | `simd512` | no | AVX-512 kernels; implies `simd` |
 | `internals` | no | direct access to kernels and tables; unstable, no compatibility guarantee |
 
@@ -114,17 +109,11 @@ fallback everywhere. `fgf::backend()` reports the selection, and setting
 a weaker backend; requests the host cannot support are ignored.
 
 Which operations accelerate depends on the field, the operation, and the
-buffer geometry; `backend_for::<F>()` summarizes a field's strategy, not each
-operation's serving tier. Generic component rows reuse base-field addition, and
-exact-modulus residue rows reuse specialized-prime addition, even when their
-multiplication strategy reports `Scalar`.
-
-Release acceptance runs the per-tier differentials on dedicated Willow
+buffer geometry; `backend_for::<F>()` reports the backend implemented for a
+field. Release acceptance runs the per-tier differentials on dedicated Willow
 Cove (`v4x`) and Golden Cove (`v3_gfni_crypto`) hosts; GitHub-hosted runners
 only cover tiers they can prove. Routing notes are in the
-[deployment guide](https://github.com/nanithefkuc/fgf/wiki/Features-and-deployment),
-and measured results live in
-[`BENCHMARKS.md`](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md).
+[deployment guide](https://github.com/nanithefkuc/fgf/wiki/Features-and-deployment).
 
 ## Safety
 

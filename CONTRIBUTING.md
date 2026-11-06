@@ -9,7 +9,7 @@ and why belong in the PR and in `CHANGELOG.md`.
 just test        # host's selected backend
 just test-tiers  # every supported backend tier
 just features    # no-default, default, all-features
-just examples-portable  # educational examples against the library without std or alloc
+just examples    # every educational example in each feature configuration
 ```
 
 Backend dispatch resolves once per process, so a single run only covers the
@@ -21,12 +21,12 @@ downgrade-only `SIMD_BACKEND` override.
 ```sh
 FEC_GOLDEN_CORE=<cpu> just bench kernels
 FEC_GOLDEN_CORE=<cpu> just bench compare
-FEC_GOLDEN_CORE=<cpu> just bench-gf-comp
+FEC_GOLDEN_CORE=<cpu> just bench-comp gf
 ```
 
 Pin the run to one core and record the CPU, operating system, Rust version,
-selected backend, and geometry with any quoted number. `BENCHMARKS.md` indexes
-the current measurements in `benchmarks/`. `just benchmark-check` validates
+selected backend, and geometry with any quoted number; raw captures stay in
+git-ignored `bench-records/`. `just benchmark-check` validates
 portable fixtures and their compiler-derived public API inventory;
 `just benchmark-check-native` validates native GF16 fixtures on capable hosts.
 
@@ -43,29 +43,6 @@ the field, operations, and backends it targets, and carries differential
 correctness against the scalar path and interleaved before/after
 measurements against an unchanged control.
 
-PRs adding public-API SIMD kernels, changing their routing or tuning, or
-changing the route ledger, trace, or acceptance tooling reference the
-tracking issue with `Refs #68`. Each applicable PR identifies:
-
-- Obligation IDs and before/after route and performance state.
-- Independent correctness references (differential, public-route, and
-  production-smoke case IDs).
-- Direct and public-route native execution evidence under default and all
-  features.
-- Pinned interleaved before/after measurements with unchanged controls.
-- Exercised dispatch gates (tier requests and feature configurations).
-- Applicable docs, CHANGELOG, residue-ledger, and unsafe-code updates.
-
-The canonical SIMD route ledger is `benches/simd_ledger.json`, validated by
-`benches/simd_ledger.py`. `just simd-ledger` checks callable classification
-and the schema, runs the Python unit tests, and compiles the field and map
-fixtures. The ledger is distinct from the unsafe residue ledger in `AGENTS.md`.
-
-`just route-check` validates executable case and benchmark inventories and
-generated-table freshness without native records. CI runs both portable
-gates. `just route-gate` additionally replays retained native evidence;
-`just route-accept REQUEST FEATURES` collects and audits a fresh native run.
-
 ## Before opening a PR
 
 ```sh
@@ -75,6 +52,24 @@ just validate
 This runs formatting, clippy at both feature ends, the dependency allowlist,
 rustdoc, the feature matrix, the backend-tier tests, Miri, and coverage.
 
+A pull request that changes the public API also runs `just api-update` and
+commits the regenerated `api/` diff with the source change; the maintainer's
+review of that diff authorizes the change. `just api` checks that the
+committed inventory matches the source and is part of CI and
+`just release-accept`. It needs the nightly, targets, and tool versions
+pinned in `crate.just`, which holds their values.
+
+`just api-semver` checks the stable feature sets — `internals` is never
+enabled — against the published baseline, and accepts an optional baseline
+version for development checks. The release gate that `just release-accept`
+calls decides by the version's major number: releases below the current
+major and the first release of the major with its prereleases are skipped,
+every later release of the major including prereleases runs the check, and a
+higher major fails until `API_MAJOR` in `crate.just` is raised.
+`API_PATHS_MODE` in `crate.just` is `report` until every stable item has one
+path, then `enforce`. `just api` never writes `api/`; only `just api-update`
+rewrites it, inside an authorized change.
+
 Release work runs the crate-specific acceptance, including the PR gate:
 `just release-accept`. Its pieces also stand alone — `just isa-accept EXPECTED`
 requires the requested process backend and positive kernel execution evidence;
@@ -83,8 +78,9 @@ code with overflow checks disabled. Native release acceptance uses dedicated
 Willow Cove (`v4x`) and Golden Cove (`v3_gfni_crypto`) hosts. GitHub-hosted
 runners cover only tiers they can prove.
 
-New public items need doc comments. MSRV is 1.93 and is checked in CI; do not
-reach for newer standard-library APIs without raising it deliberately.
+New public items need doc comments. MSRV is 1.93 and is checked in CI; it
+rises only in a minor release, never in a patch release, so do not reach for
+newer standard-library APIs without raising it deliberately.
 
 ## Commit messages
 

@@ -14,7 +14,7 @@
 //!   other polynomial folds its coefficient in through `VGF2P8AFFINEQB`.
 //! - **Nibble shuffle (AVX2, SSSE3).** With no byte-wide multiply, `c * x`
 //!   splits into `c * (x & 0xf) ^ c * (x & 0xf0)`, two `PSHUFB` lookups
-//!   against a [`ScaleTable`](crate::kernel::tables::ScaleTable).
+//!   against a [`ScaleTable`](crate::field::binary::byte::ScaleTable).
 //!
 //! Buffer lengths are arbitrary, so x86 kernels descend through narrower SIMD
 //! lanes before handing only the sub-XMM remainder to the scalar nibble
@@ -36,8 +36,8 @@ mod ssse3;
 
 pub use avx2::{
     mul_add_avx2, mul_add_gather_avx2, mul_add_matrix_avx2_with, mul_add_scatter_avx2,
-    mul_assign_avx2, mul_elementwise_assign_avx2, mul_elementwise_assign_conjugated_avx2,
-    mul_elementwise_avx2, mul_elementwise_conjugated_avx2, mul_into_avx2, multiply_vectors_avx2,
+    mul_assign_avx2, mul_elementwise_assign_avx2, mul_elementwise_avx2, mul_into_avx2,
+    multiply_vectors_avx2,
 };
 #[cfg(feature = "simd512")]
 #[cfg(test)]
@@ -58,8 +58,7 @@ pub use gfni::{
 };
 pub use ssse3::{
     mul_add_gather_ssse3, mul_add_matrix_ssse3_with, mul_add_scatter_ssse3, mul_add_ssse3,
-    mul_assign_ssse3, mul_elementwise_assign_conjugated_ssse3, mul_elementwise_assign_ssse3,
-    mul_elementwise_conjugated_ssse3, mul_elementwise_ssse3, mul_into_ssse3,
+    mul_assign_ssse3, mul_elementwise_assign_ssse3, mul_elementwise_ssse3, mul_into_ssse3,
     multiply_vectors_ssse3,
 };
 

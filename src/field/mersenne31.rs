@@ -1,54 +1,18 @@
-//! The prime field GF(2^31 − 1), the Mersenne31 field.
+//! The Mersenne31 row and its scalar body.
 //!
-//! Elements are 32-bit lanes reduced modulo the Mersenne prime
-//! `p = 2^31 − 1 = 0x7FFF_FFFF`. The reduction exploits `2^31 ≡ 1 (mod p)`, so
-//! folding the high bit back into the low 31 bits (`lo + hi`) plus a single
-//! conditional subtract canonicalizes any 32-bit value.
-//!
-//! # Totality and canonicalization
-//!
-//! Every raw 32-bit lane is a legal input: [`Elem::from_raw`](crate::field::Elem)
-//! and [`FieldBuffer::decode`](crate::field::FieldBuffer) reduce it into the
-//! canonical range `0..p` on the way in. Every arithmetic output is canonical
-//! with no branch and no panic on out-of-range operands, the prime-field
-//! analogue of the crate-wide `inv(0) == 0` convention. Storage is always
-//! canonical, so equality, hashing, and ordering compare raw words directly.
-//! Inspect the stored bits with [`Elem::to_raw`](crate::field::Elem::to_raw).
-//!
-//! Arithmetic is variable-time and not intended for secret data.
-//!
-//! ```
-//! use fgf::{Elem, Mersenne31};
-//!
-//! // Known-answer product, pinned against the modular reduction.
-//! const X: Elem<Mersenne31> = Elem::<Mersenne31>::from_raw(0x5555_5555);
-//! const _: () = assert!(X.mul(X).to_raw() == 0x71C7_1C71);
-//!
-//! // `inv` is `const`, so a reciprocal table can be a `const` item.
-//! const HALF: Elem<Mersenne31> = Elem::<Mersenne31>::from_raw(2).inv();
-//! const _: () = assert!(HALF.to_raw() == 0x4000_0000);
-//! const _: () = assert!(Elem::<Mersenne31>::from_raw(2).mul(HALF).to_raw() == 1);
-//!
-//! // Division is total: `x / 0` is zero, in `const` context too.
-//! const _: () = assert!(X.div(Elem::<Mersenne31>::ZERO).to_raw() == 0);
-//!
-//! // The generator has full multiplicative order p − 1.
-//! assert_eq!(
-//!     Elem::<Mersenne31>::GENERATOR.pow(0x7FFF_FFFE),
-//!     Elem::<Mersenne31>::ONE
-//! );
-//! ```
+//! Reduction exploits `2^31 ≡ 1 (mod p)`: the high bit folds back into the
+//! low 31 bits, followed by one conditional subtract. The public contract for
+//! this field lives on the [`prime`](crate::prime) facade.
 
 use super::extension::Descriptor;
 use super::extension::descriptor::PrimePresentation;
 use super::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
-use super::private;
 use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, RangeError, Validate};
 
 /// The field modulus, the Mersenne prime `2^31 − 1`.
-pub const MODULUS: u32 = 0x7FFF_FFFF;
+pub(crate) const MODULUS: u32 = 0x7FFF_FFFF;
 
-/// Reduce an arbitrary 32-bit lane to the canonical range `0..p`.
+/// Reduces an arbitrary 32-bit lane to the canonical range `0..p`.
 ///
 /// `2^31 ≡ 1 (mod p)`, so folding the top bit into the low 31 bits and one
 /// conditional subtract suffices for any `u32`.
@@ -66,7 +30,7 @@ pub const fn reduce(x: u32) -> u32 {
 ///
 /// One canonical `u32` per element, reduced with `2^31 ≡ 1`. Field
 /// [`NAME`](Field::NAME): `GF(2^31 - 1)`; this label: `mersenne-fold`. The
-/// [`Residue`](super::Residue) row at the same modulus is a distinct
+/// [`Residue`](crate::prime::Residue) row at the same modulus is a distinct
 /// presentation with `u64` storage; values move between the two by residue,
 /// never by buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
@@ -76,6 +40,9 @@ impl super::private::Sealed for MersenneFold {}
 
 impl FiniteFieldRepr<0x7FFF_FFFF, 1> for MersenneFold {
     const NAME: &'static str = "mersenne-fold";
+}
+
+impl super::private::FiniteFieldReprValidation<0x7FFF_FFFF, 1> for MersenneFold {
     const VALID: () = {
         checked_order::<0x7FFF_FFFF, 1>();
     };
@@ -109,9 +76,13 @@ impl Field for Mersenne31 {
     const NAME: &'static str = "GF(2^31 - 1)";
     const DEGREE: u32 = 1;
     const ORDER: u128 = MODULUS as u128;
+}
+
+impl super::private::RawArithmetic<u32> for Mersenne31 {
     const ZERO_RAW: u32 = 0;
     const ONE_RAW: u32 = 1;
-    const VALID: () = <MersenneFold as FiniteFieldRepr<0x7FFF_FFFF, 1>>::VALID;
+    const VALID: () =
+        <MersenneFold as super::private::FiniteFieldReprValidation<0x7FFF_FFFF, 1>>::VALID;
 
     #[inline]
     fn canonical_raw(raw: u32) -> u32 {
@@ -209,7 +180,7 @@ impl super::private::RowAccess for Mersenne31 {
     }
 }
 
-impl HasGenerator for Mersenne31 {
+impl super::private::GeneratorRaw for Mersenne31 {
     const GENERATOR_RAW: u32 = {
         assert!(
             is_primitive(7),
@@ -219,57 +190,50 @@ impl HasGenerator for Mersenne31 {
     };
 }
 
+impl HasGenerator for Mersenne31 {}
+
 impl FieldBuffer for Mersenne31 {
     const BYTES: usize = 4;
     const STORAGE_BITS: u32 = 32;
 
     #[inline]
     fn decode(bytes: &[u8]) -> Elem<Self> {
-        let bytes: [u8; 4] = bytes
-            .try_into()
-            .expect("GF(2^31 - 1) element has the wrong byte width");
+        let () = Validate::<Self>::OK;
+        let bytes: [u8; 4] = bytes.try_into().expect(
+            "FieldBuffer::decode: bytes has the wrong byte width for a GF(2^31 - 1) element",
+        );
         Elem::<Self>::from_raw(u32::from_le_bytes(bytes))
     }
 
     #[inline]
     fn encode(bytes: &mut [u8], value: Elem<Self>) {
+        let () = Validate::<Self>::OK;
         assert_eq!(
             bytes.len(),
             4,
-            "GF(2^31 - 1) element has the wrong byte width"
+            "FieldBuffer::encode: bytes has the wrong byte width for a GF(2^31 - 1) element"
         );
         bytes.copy_from_slice(&value.to_raw().to_le_bytes());
     }
 }
 
-impl private::BufferDispatch for Mersenne31 {
-    #[inline]
-    fn add_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
-        <Self as crate::kernel::KernelDispatch>::add_assign(proof, dst, src);
-    }
-
-    #[inline]
-    fn sub_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
-        <Self as crate::kernel::KernelDispatch>::sub_assign(proof, dst, src);
-    }
-}
-
 impl Elem<Mersenne31> {
-    /// Decode a raw little-endian lane, reducing it into canonical storage.
+    /// Decodes a little-endian lane: every `u32` is accepted and reduced
+    /// modulo the characteristic.
     #[inline]
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 4]) -> Self {
         Self::from_raw(u32::from_le_bytes(bytes))
     }
 
-    /// Encode to the stable little-endian representation.
+    /// Encodes to the stable little-endian representation.
     #[inline]
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 4] {
         self.raw.to_le_bytes()
     }
 
-    /// Wrap a raw lane, reducing it into canonical storage.
+    /// Wraps a raw lane, reducing it into canonical storage.
     #[inline]
     #[must_use]
     pub const fn from_raw(value: u32) -> Self {
@@ -341,7 +305,7 @@ impl Elem<Mersenne31> {
         }
     }
 
-    /// Square.
+    /// Squares the element.
     #[inline]
     #[must_use]
     pub const fn square(self) -> Self {
@@ -371,7 +335,7 @@ impl Elem<Mersenne31> {
         self.mul(rhs.inv())
     }
 
-    /// Raise to an unsigned integer power. `pow(_, 0) == ONE`.
+    /// Raises to an unsigned integer power. `pow(_, 0) == ONE`.
     #[inline]
     #[must_use]
     pub const fn pow(self, mut exponent: u128) -> Self {
@@ -404,7 +368,15 @@ impl core::fmt::Display for Elem<Mersenne31> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Elem, HasGenerator, MODULUS, Mersenne31, is_primitive};
+    use super::{Elem, MODULUS, Mersenne31, is_primitive, reduce};
+
+    /// The Mersenne fold reduces every non-canonical lane branchlessly.
+    #[test]
+    fn fold_reduces_noncanonical_lanes() {
+        assert_eq!(reduce(0x8000_0000), 1);
+        assert_eq!(reduce(0xFFFF_FFFF), 1);
+        assert_eq!(reduce(0x7FFF_FFFF), 0);
+    }
 
     const fn gcd(mut a: u64, mut b: u64) -> u64 {
         while b != 0 {
@@ -417,8 +389,9 @@ mod tests {
     /// check must accept and reject powers of the generator by that rule.
     #[test]
     fn primitivity_follows_generator_power_coprimality() {
-        let generator =
-            Elem::<Mersenne31>::from_raw(core::hint::black_box(Mersenne31::GENERATOR_RAW));
+        let generator = Elem::<Mersenne31>::from_raw(core::hint::black_box(
+            Elem::<Mersenne31>::GENERATOR.to_raw(),
+        ));
         for k in 1..=96u64 {
             let candidate = u64::from(generator.pow(u128::from(k)).to_raw());
             assert_eq!(

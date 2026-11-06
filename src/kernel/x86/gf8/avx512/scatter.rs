@@ -131,8 +131,6 @@ fn mul_add_scatter_impl(rows: &mut [u8], coeffs: &(impl Coeffs + ?Sized), src: &
             table: coeffs.table(group.picks[last]),
             affine: group.maps[last],
         };
-        #[cfg(test)]
-        let _term = crate::kernel::trace::term(super::term_avx512(group.maps[last]));
         brem_avx512(row, coeff, src);
     }
 }
@@ -169,8 +167,6 @@ fn scatter_rows4(group: &Group<4>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
     // One 256-byte source window feeds all four rows, and each row runs four
     // independent multiply chains over it.
     let mut offset = head;
-    #[cfg(test)]
-    let tile_start = offset;
     while offset + 256 <= len {
         // SAFETY:
         // MEMORY VALIDITY
@@ -202,10 +198,6 @@ fn scatter_rows4(group: &Group<4>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
         }
         offset += 256;
     }
-    #[cfg(test)]
-    emit_group(group, offset - tile_start);
-    #[cfg(test)]
-    let lane_start = offset;
     while offset + 64 <= len {
         // SAFETY:
         // MEMORY VALIDITY
@@ -228,8 +220,6 @@ fn scatter_rows4(group: &Group<4>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
         }
         offset += 64;
     }
-    #[cfg(test)]
-    emit_group(group, offset - lane_start);
 
     scatter_span(group, coeffs, offset, len, src);
 }
@@ -256,8 +246,6 @@ fn scatter_rows2(group: &Group<2>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
 
     // With only two rows the 256-byte window leaves room for eight chains.
     let mut offset = head;
-    #[cfg(test)]
-    let tile_start = offset;
     while offset + 256 <= len {
         // SAFETY:
         // MEMORY VALIDITY
@@ -289,10 +277,6 @@ fn scatter_rows2(group: &Group<2>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
         }
         offset += 256;
     }
-    #[cfg(test)]
-    emit_group(group, offset - tile_start);
-    #[cfg(test)]
-    let lane_start = offset;
     while offset + 64 <= len {
         // SAFETY:
         // MEMORY VALIDITY
@@ -315,8 +299,6 @@ fn scatter_rows2(group: &Group<2>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
         }
         offset += 64;
     }
-    #[cfg(test)]
-    emit_group(group, offset - lane_start);
 
     scatter_span(group, coeffs, offset, len, src);
 }
@@ -361,20 +343,6 @@ fn scatter_span<const N: usize>(
             table: coeffs.table(pick),
             affine,
         };
-        #[cfg(test)]
-        let _term = crate::kernel::trace::term(super::term_avx512(affine));
         brem_half_avx512(dst, coeff, &src[start..end]);
     }
-}
-
-/// Record `work` per staged row of `group`, by coefficient class.
-#[cfg(test)]
-fn emit_group<const N: usize>(group: &Group<N>, work: usize) {
-    crate::kernel::trace::emit_terms(
-        "gf8.avx512.scatter",
-        crate::kernel::trace::Unit::Elements,
-        work,
-        group.maps.map(super::term_avx512),
-        crate::kernel::Backend::V4x,
-    );
 }

@@ -6,7 +6,7 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::bits;
+use fgf::ops::bits;
 
 const LENGTH: usize = 7;
 const CHECKS: [[u8; 1]; 3] = [[0b0101_0101], [0b0110_0110], [0b0111_1000]];
@@ -52,7 +52,7 @@ fn main() {
     );
     // Range operations change only their window, preserving the padding bit.
     let live_bits = bits::XorRange::new(LENGTH, 0, LENGTH);
-    bits::xor_range_with(&mut with_padding, &codeword, &live_bits);
+    bits::xor_range_with(&mut with_padding, &live_bits, &codeword);
     assert_eq!(with_padding, [0x80]);
     println!("Logical-length queries ignore padding; range XOR preserves it.");
 }

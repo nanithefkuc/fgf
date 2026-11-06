@@ -1,6 +1,8 @@
 // expect: extension relation is reducible
 //! The square-free relation t^64 + t has a zero root over GF(2).
-use fgf::{Elem, Extension, ExtensionSpec, FiniteField, Packed, Polynomial, Relation, ops};
+use fgf::{Elem, FiniteField, ops};
+use fgf::binary::Polynomial;
+use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
 
 type Gf2 = FiniteField<2, 1, Polynomial<3>>;
 struct Spec;

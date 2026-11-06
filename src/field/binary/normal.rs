@@ -1,19 +1,9 @@
 //! Normal-basis binary presentations at degrees 2, 4, and 8.
 //!
-//! [`Normal`] wraps a polynomial [`Polynomial`] basis element
-//! `E` into its conjugate basis: bit `i` selects `E^(2^i)`, and one is all
-//! `N` bits set. The descriptor pins both coordinate matrices; the inverse
-//! columns come from bounded enumeration of the forward map, never from a
-//! matrix solver.
-//!
-//! Smallest valid test instances: `E = 2` over `P = 0x7`, `E = 8` over
-//! `P = 0x13`, and `E = 0x20` over [`AES`](super::poly::AES) and
-//! [`RS`](super::poly::RS).
-//!
-//! ```compile_fail,E0080
-//! // E = 1 has all conjugates equal to one, so the basis collapses.
-//! let _ = fgf::Elem::<fgf::FiniteField<2, 8, fgf::Normal<0x11B, 1>>>::from_raw(1);
-//! ```
+//! `Normal` wraps a polynomial-basis element into its conjugate basis, with
+//! both coordinate matrices pinned in the descriptor and the inverse columns
+//! derived by bounded enumeration of the forward map. The public basis
+//! contract lives on the [`binary`](crate::binary) facade.
 
 use super::BinaryRepr;
 use super::description::{BinaryDescription, ByteLogExp};
@@ -84,16 +74,23 @@ macro_rules! normal_row {
     ($n:literal) => {
         impl<const P: u128, const E: u8> FiniteFieldRepr<2, $n> for Normal<P, E> {
             const NAME: &'static str = "normal";
+        }
+        impl<const P: u128, const E: u8> super::super::private::FiniteFieldReprValidation<2, $n>
+            for Normal<P, E>
+        {
             const VALID: () = {
                 assert!((E as u64) < (1u64 << $n), "normal element has excess bits");
-                <Self as BinaryRepr<$n>>::DESCRIPTION.validate();
+                <Self as super::binary_private::BinaryReprData<$n>>::DESCRIPTION.validate();
                 assert!(
-                    <Self as BinaryRepr<$n>>::DESCRIPTION.one() == (1u64 << $n) - 1,
+                    <Self as super::binary_private::BinaryReprData<$n>>::DESCRIPTION.one()
+                        == (1u64 << $n) - 1,
                     "normal basis one is all bits set"
                 );
             };
         }
-        impl<const P: u128, const E: u8> BinaryRepr<$n> for Normal<P, E> {
+        impl<const P: u128, const E: u8> super::binary_private::BinaryReprData<$n>
+            for Normal<P, E>
+        {
             const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::append_basis(
                 &BinaryDescription::polynomial($n, P),
                 to_base::<P, E, $n>(),
@@ -101,6 +98,7 @@ macro_rules! normal_row {
             );
             const LOG_EXP: Option<&'static ByteLogExp> = None;
         }
+        impl<const P: u128, const E: u8> BinaryRepr<$n> for Normal<P, E> {}
     };
 }
 
@@ -126,11 +124,13 @@ pub(crate) const fn transported_generator<const P: u128, const E: u8, const N: u
 use super::super::HasGenerator;
 use crate::field::FiniteField;
 
-impl<const P: u128, const E: u8> HasGenerator for FiniteField<2, 2, Normal<P, E>> {
+impl<const P: u128, const E: u8> super::super::private::GeneratorRaw
+    for FiniteField<2, 2, Normal<P, E>>
+{
     const GENERATOR_RAW: u8 = {
         let g = transported_generator::<P, E, 2>();
         assert!(
-            <Normal<P, E> as BinaryRepr<2>>::DESCRIPTION.is_generator(g),
+            <Normal<P, E> as super::binary_private::BinaryReprData<2>>::DESCRIPTION.is_generator(g),
             "basis generator does not have full order"
         );
         #[allow(clippy::cast_possible_truncation)]
@@ -139,11 +139,15 @@ impl<const P: u128, const E: u8> HasGenerator for FiniteField<2, 2, Normal<P, E>
     };
 }
 
-impl<const P: u128, const E: u8> HasGenerator for FiniteField<2, 4, Normal<P, E>> {
+impl<const P: u128, const E: u8> HasGenerator for FiniteField<2, 2, Normal<P, E>> {}
+
+impl<const P: u128, const E: u8> super::super::private::GeneratorRaw
+    for FiniteField<2, 4, Normal<P, E>>
+{
     const GENERATOR_RAW: u8 = {
         let g = transported_generator::<P, E, 4>();
         assert!(
-            <Normal<P, E> as BinaryRepr<4>>::DESCRIPTION.is_generator(g),
+            <Normal<P, E> as super::binary_private::BinaryReprData<4>>::DESCRIPTION.is_generator(g),
             "basis generator does not have full order"
         );
         #[allow(clippy::cast_possible_truncation)]
@@ -152,11 +156,15 @@ impl<const P: u128, const E: u8> HasGenerator for FiniteField<2, 4, Normal<P, E>
     };
 }
 
-impl<const P: u128, const E: u8> HasGenerator for FiniteField<2, 8, Normal<P, E>> {
+impl<const P: u128, const E: u8> HasGenerator for FiniteField<2, 4, Normal<P, E>> {}
+
+impl<const P: u128, const E: u8> super::super::private::GeneratorRaw
+    for FiniteField<2, 8, Normal<P, E>>
+{
     const GENERATOR_RAW: u8 = {
         let g = transported_generator::<P, E, 8>();
         assert!(
-            <Normal<P, E> as BinaryRepr<8>>::DESCRIPTION.is_generator(g),
+            <Normal<P, E> as super::binary_private::BinaryReprData<8>>::DESCRIPTION.is_generator(g),
             "basis generator does not have full order"
         );
         #[allow(clippy::cast_possible_truncation)]
@@ -165,7 +173,9 @@ impl<const P: u128, const E: u8> HasGenerator for FiniteField<2, 8, Normal<P, E>
     };
 }
 
-impl<const P: u128, const E: u8> BinaryRepr<8> for Normal<P, E> {
+impl<const P: u128, const E: u8> HasGenerator for FiniteField<2, 8, Normal<P, E>> {}
+
+impl<const P: u128, const E: u8> super::binary_private::BinaryReprData<8> for Normal<P, E> {
     const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::append_basis(
         &BinaryDescription::polynomial(8, P),
         to_base::<P, E, 8>(),
@@ -194,16 +204,23 @@ impl<const P: u128, const E: u8> BinaryRepr<8> for Normal<P, E> {
     ));
 }
 
+impl<const P: u128, const E: u8> BinaryRepr<8> for Normal<P, E> {}
+
 impl<const P: u128, const E: u8> FiniteFieldRepr<2, 8> for Normal<P, E> {
     const NAME: &'static str = "normal";
+}
+
+impl<const P: u128, const E: u8> super::super::private::FiniteFieldReprValidation<2, 8>
+    for Normal<P, E>
+{
     const VALID: () = {
-        <Self as BinaryRepr<8>>::DESCRIPTION.validate();
+        <Self as super::binary_private::BinaryReprData<8>>::DESCRIPTION.validate();
         assert!(
-            <Self as BinaryRepr<8>>::DESCRIPTION.one() == 0xFF,
+            <Self as super::binary_private::BinaryReprData<8>>::DESCRIPTION.one() == 0xFF,
             "normal basis one is all bits set"
         );
         assert!(
-            <Self as BinaryRepr<8>>::DESCRIPTION.is_generator({
+            <Self as super::binary_private::BinaryReprData<8>>::DESCRIPTION.is_generator({
                 let poly_desc = BinaryDescription::polynomial(8, P);
                 let poly_gen = Polynomial::<P>::smallest_generator(&poly_desc);
                 let mut image = 0u64;

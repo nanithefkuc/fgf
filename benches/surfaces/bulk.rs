@@ -12,8 +12,8 @@
 
 use std::hint::black_box;
 
-use fgf::field::{Field, FieldElem};
 use fgf::{Elem, FieldBuffer, ops};
+use fgf::{Field, FieldElem};
 
 use crate::fields::{self, for_each_bulk_field};
 use crate::fixture;
@@ -30,17 +30,17 @@ const NONRESIDENT_TARGET: usize = 128 * 1024 * 1024;
 /// Lane count of the oracle fixtures.
 const ORACLE_LANES: usize = 7;
 
-fn resident_bytes<F: FieldBuffer + fgf::FieldKernels>() -> usize {
+fn resident_bytes<F: FieldBuffer>() -> usize {
     let row = 16 * F::BYTES;
     RESIDENT_TARGET - RESIDENT_TARGET % row
 }
 
-fn nonresident_bytes<F: FieldBuffer + fgf::FieldKernels>() -> usize {
+fn nonresident_bytes<F: FieldBuffer>() -> usize {
     let row = 16 * F::BYTES;
     NONRESIDENT_TARGET - NONRESIDENT_TARGET % row
 }
 
-fn short_bytes<F: FieldBuffer + fgf::FieldKernels>() -> usize {
+fn short_bytes<F: FieldBuffer>() -> usize {
     let row = 16 * F::BYTES;
     let bytes = SHORT_BYTES.max(row);
     bytes - bytes % row
@@ -59,11 +59,11 @@ const API_MUL_INTO: &[&str] = &["fgf::ops::mul_into"];
 const API_MUL_INTO_WITH: &[&str] = &["fgf::ops::mul_into_with", "fgf::ops::Coeff::new"];
 const API_MUL_ASSIGN: &[&str] = &["fgf::ops::mul_assign"];
 const API_MUL_ASSIGN_WITH: &[&str] = &["fgf::ops::mul_assign_with", "fgf::ops::Coeff::new"];
-const API_ELEMENTWISE: &[&str] = &["fgf::ops::mul_elementwise"];
+const API_ELEMENTWISE: &[&str] = &["fgf::ops::mul_elementwise_into"];
 const API_ELEMENTWISE_ASSIGN: &[&str] = &["fgf::ops::mul_elementwise_assign"];
 const API_INV_INTO: &[&str] = &["fgf::ops::inv_into"];
 const API_INV_ASSIGN: &[&str] = &["fgf::ops::inv_assign"];
-const API_DIV_ELEMENTWISE: &[&str] = &["fgf::ops::div_elementwise"];
+const API_DIV_ELEMENTWISE: &[&str] = &["fgf::ops::div_elementwise_into"];
 const API_DIV_ELEMENTWISE_ASSIGN: &[&str] = &["fgf::ops::div_elementwise_assign"];
 const API_DOT_PRODUCT: &[&str] = &["fgf::ops::dot_product"];
 const API_SUB_ROWS: &[&str] = &["fgf::ops::sub_assign_rows"];
@@ -96,7 +96,7 @@ fn coeff<F: Field>(label: &str) -> Elem<F> {
 }
 
 /// Independent canonical destination and source buffers from fixed seeds.
-fn packed_pair<F: FieldBuffer + fgf::FieldKernels>(lanes: usize, seed: u64) -> (Vec<u8>, Vec<u8>) {
+fn packed_pair<F: FieldBuffer>(lanes: usize, seed: u64) -> (Vec<u8>, Vec<u8>) {
     (
         fixture::packed::<F>(lanes, seed),
         fixture::packed::<F>(lanes, seed.wrapping_add(1)),
@@ -106,7 +106,7 @@ fn packed_pair<F: FieldBuffer + fgf::FieldKernels>(lanes: usize, seed: u64) -> (
 /// Run one bulk operation on a small fixture and compare against independent
 /// per-lane arithmetic: `run` performs the operation, `combine` names the
 /// lane function of the destination element and the source element.
-fn verify_pair<F: FieldBuffer + fgf::FieldKernels>(
+fn verify_pair<F: FieldBuffer>(
     case: &str,
     run: impl FnOnce(&mut [u8], &[u8]),
     combine: impl Fn(Elem<F>, Elem<F>) -> Elem<F>,
@@ -123,7 +123,7 @@ fn verify_pair<F: FieldBuffer + fgf::FieldKernels>(
 }
 
 /// The unary variant: the operation touches only the destination.
-fn verify_unary<F: FieldBuffer + fgf::FieldKernels>(
+fn verify_unary<F: FieldBuffer>(
     case: &str,
     run: impl FnOnce(&mut [u8]),
     combine: impl Fn(Elem<F>) -> Elem<F>,
@@ -138,7 +138,7 @@ fn verify_unary<F: FieldBuffer + fgf::FieldKernels>(
 }
 
 #[allow(clippy::too_many_arguments)] // Fields mirror the measurement record.
-fn bulk_case<F: FieldBuffer + fgf::FieldKernels>(
+fn bulk_case<F: FieldBuffer>(
     op: &'static str,
     api: &'static [&'static str],
     label: &'static str,
@@ -178,7 +178,7 @@ fn bulk_case<F: FieldBuffer + fgf::FieldKernels>(
     });
 }
 
-fn register_add_assign<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_add_assign<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -202,7 +202,7 @@ fn register_add_assign<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) 
     );
 }
 
-fn register_sub_assign<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_sub_assign<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -226,7 +226,7 @@ fn register_sub_assign<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) 
     );
 }
 
-fn register_add_rows<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_add_rows<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -260,7 +260,7 @@ fn register_add_rows<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
     );
 }
 
-fn register_mul_add<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_mul_add<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -289,7 +289,7 @@ fn register_mul_add<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
     );
 }
 
-fn register_mul_add_prepared<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_mul_add_prepared<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -319,7 +319,7 @@ fn register_mul_add_prepared<F: FieldBuffer + fgf::FieldKernels>(label: &'static
     );
 }
 
-fn register_mul_into<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_mul_into<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -344,7 +344,7 @@ fn register_mul_into<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
     );
 }
 
-fn register_mul_into_prepared<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_mul_into_prepared<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -374,7 +374,7 @@ fn register_mul_into_prepared<F: FieldBuffer + fgf::FieldKernels>(label: &'stati
     );
 }
 
-fn register_mul_assign<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_mul_assign<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -399,7 +399,7 @@ fn register_mul_assign<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) 
     );
 }
 
-fn register_mul_assign_prepared<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_mul_assign_prepared<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -429,7 +429,7 @@ fn register_mul_assign_prepared<F: FieldBuffer + fgf::FieldKernels>(label: &'sta
     );
 }
 
-fn register_elementwise<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_elementwise<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -448,20 +448,20 @@ fn register_elementwise<F: FieldBuffer + fgf::FieldKernels>(label: &'static str)
                 &case.case,
                 |d, s| {
                     let left = d.to_vec();
-                    ops::mul_elementwise::<F>(d, &left, s);
+                    ops::mul_elementwise_into::<F>(d, &left, s);
                 },
                 |x, y| x * y,
             );
             let backend = fields::backend_name::<F>();
             registry::time(case, ctx, &backend, || {
-                ops::mul_elementwise::<F>(black_box(&mut dst), black_box(&a), black_box(&b));
+                ops::mul_elementwise_into::<F>(black_box(&mut dst), black_box(&a), black_box(&b));
                 fixture::observe(dst.len());
             });
         },
     );
 }
 
-fn register_elementwise_assign<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_elementwise_assign<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -489,10 +489,7 @@ fn register_elementwise_assign<F: FieldBuffer + fgf::FieldKernels>(label: &'stat
     );
 }
 
-fn register_scalar_broadcast<F: FieldBuffer + fgf::FieldKernels>(
-    label: &'static str,
-    subtract: bool,
-) {
+fn register_scalar_broadcast<F: FieldBuffer>(label: &'static str, subtract: bool) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     let (op, api): (&'static str, &'static [&'static str]) = if subtract {
@@ -521,7 +518,7 @@ fn register_scalar_broadcast<F: FieldBuffer + fgf::FieldKernels>(
     });
 }
 
-fn register_inv_into<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_inv_into<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -545,7 +542,7 @@ fn register_inv_into<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
     );
 }
 
-fn register_inv_assign<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_inv_assign<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -569,7 +566,7 @@ fn register_inv_assign<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) 
     );
 }
 
-fn register_div_elementwise<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_div_elementwise<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -592,21 +589,21 @@ fn register_div_elementwise<F: FieldBuffer + fgf::FieldKernels>(label: &'static 
                     .zip(fixture::lanes::<F>(&orb))
                     .map(|(x, y)| x.div(y))
                     .collect();
-                ops::div_elementwise::<F>(&mut got, &ora, &orb);
+                ops::div_elementwise_into::<F>(&mut got, &ora, &orb);
                 let mut encoded = vec![0u8; got.len()];
                 fixture::write_lanes::<F>(&mut encoded, &expected);
                 fixture::assert_bytes_equal(&case.case, &got, &encoded);
             }
             let backend = fields::backend_name::<F>();
             registry::time(case, ctx, &backend, || {
-                ops::div_elementwise::<F>(black_box(&mut dst), black_box(&a), black_box(&b));
+                ops::div_elementwise_into::<F>(black_box(&mut dst), black_box(&a), black_box(&b));
                 fixture::observe(dst.len());
             });
         },
     );
 }
 
-fn register_div_elementwise_assign<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_div_elementwise_assign<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -643,7 +640,7 @@ fn register_div_elementwise_assign<F: FieldBuffer + fgf::FieldKernels>(label: &'
     );
 }
 
-fn register_dot_product<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_dot_product<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
@@ -680,7 +677,7 @@ fn register_dot_product<F: FieldBuffer + fgf::FieldKernels>(label: &'static str)
     );
 }
 
-fn register_sub_rows<F: FieldBuffer + fgf::FieldKernels>(label: &'static str) {
+fn register_sub_rows<F: FieldBuffer>(label: &'static str) {
     let bytes = resident_bytes::<F>();
     let lanes = bytes / F::BYTES;
     bulk_case::<F>(
