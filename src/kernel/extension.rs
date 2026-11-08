@@ -42,20 +42,6 @@ where
     }
 
     #[inline]
-    fn has_vector_elementwise(_proof: RawDispatch) -> bool {
-        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::has_vector_elementwise::<Self>(
-            RawDispatch,
-        )
-    }
-
-    #[inline]
-    fn vector_elementwise_min_bytes(_proof: RawDispatch) -> usize {
-        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::vector_elementwise_min_bytes::<Self>(
-            RawDispatch,
-        )
-    }
-
-    #[inline]
     fn prepare(proof: RawDispatch, coeff: Elem<Self>) -> Self::Prepared {
         <StorageOf<S, D> as StorageDispatch<S::Base, D>>::prepare::<Self>(proof, coeff)
     }
@@ -80,6 +66,20 @@ where
     #[inline]
     fn sub_assign(proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         <StorageOf<S, D> as StorageDispatch<S::Base, D>>::sub_assign::<Self>(proof, dst, src);
+    }
+
+    #[inline]
+    fn add_assign_rows(proof: RawDispatch, dst: &mut [u8], src: &[u8], row_len: usize) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::add_assign_rows::<Self>(
+            proof, dst, src, row_len,
+        );
+    }
+
+    #[inline]
+    fn sub_assign_rows(proof: RawDispatch, dst: &mut [u8], src: &[u8], row_len: usize) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::sub_assign_rows::<Self>(
+            proof, dst, src, row_len,
+        );
     }
 
     #[inline]
@@ -111,8 +111,28 @@ where
     }
 
     #[inline]
+    fn mul_into_scatter(
+        proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[Elem<Self>],
+        src: &[u8],
+    ) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_into_scatter::<Self>(
+            proof, rows, row_len, coeffs, src,
+        );
+    }
+
+    #[inline]
     fn mul_add_gather(proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem<Self>], srcs: &[&[u8]]) {
         <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_gather::<Self>(
+            proof, dst, coeffs, srcs,
+        );
+    }
+
+    #[inline]
+    fn mul_into_gather(proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem<Self>], srcs: &[&[u8]]) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_into_gather::<Self>(
             proof, dst, coeffs, srcs,
         );
     }
@@ -127,6 +147,20 @@ where
     ) {
         <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_matrix::<Self>(
             proof, rows, row_len, nrows, terms,
+        );
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn mul_add_scatter_with(
+        proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[Self::Prepared],
+        src: &[u8],
+    ) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_scatter_with::<Self>(
+            proof, rows, row_len, coeffs, src,
         );
     }
 
@@ -147,6 +181,19 @@ where
 
     #[cfg(feature = "alloc")]
     #[inline]
+    fn mul_add_gather_with(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_gather_with::<Self>(
+            proof, dst, coeffs, srcs,
+        );
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
     fn mul_add_gather_plan(
         proof: RawDispatch,
         dst: &mut [u8],
@@ -155,6 +202,33 @@ where
         srcs: &[&[u8]],
     ) {
         <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_gather_plan::<Self>(
+            proof, dst, values, coeffs, srcs,
+        );
+    }
+
+    #[cfg(any(feature = "alloc", test))]
+    #[inline]
+    fn mul_into_gather_with(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_into_gather_with::<Self>(
+            proof, dst, coeffs, srcs,
+        );
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn mul_into_gather_plan(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        values: &[Elem<Self>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_into_gather_plan::<Self>(
             proof, dst, values, coeffs, srcs,
         );
     }
@@ -172,6 +246,106 @@ where
     ) {
         <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_matrix_plan::<Self>(
             proof, rows, row_len, nrows, values, coeffs, srcs,
+        );
+    }
+
+    #[inline]
+    fn mul_into_matrix(
+        proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[Elem<Self>], &[u8])],
+    ) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_into_matrix::<Self>(
+            proof, rows, row_len, nrows, terms,
+        );
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn mul_into_matrix_plan(
+        proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        values: &[Elem<Self>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_into_matrix_plan::<Self>(
+            proof, rows, row_len, nrows, values, coeffs, srcs,
+        );
+    }
+
+    #[inline]
+    fn mul_add_matrix_at(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        terms: &[(&[Elem<Self>], &[u8])],
+    ) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_matrix_at::<Self>(
+            proof, dst, row_len, row_starts, terms,
+        );
+    }
+
+    #[inline]
+    fn mul_add_matrix_at_rows(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        terms: &[(&[Elem<Self>], &[u8])],
+    ) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_matrix_at_rows::<Self>(
+            proof, dst, row_len, row_starts, terms,
+        );
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn mul_add_matrix_at_plan(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        values: &[Elem<Self>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_add_matrix_at_plan::<Self>(
+            proof, dst, row_len, row_starts, values, coeffs, srcs,
+        );
+    }
+
+    #[inline]
+    fn mul_into_matrix_at(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        terms: &[(&[Elem<Self>], &[u8])],
+    ) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_into_matrix_at::<Self>(
+            proof, dst, row_len, row_starts, terms,
+        );
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn mul_into_matrix_at_plan(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        values: &[Elem<Self>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        <StorageOf<S, D> as StorageDispatch<S::Base, D>>::mul_into_matrix_at_plan::<Self>(
+            proof, dst, row_len, row_starts, values, coeffs, srcs,
         );
     }
 
@@ -200,13 +374,6 @@ where
             proof, dst, value,
         );
     }
-    fallback_entries!(
-        row: add_assign_rows, sub_assign_rows, mul_into_scatter, mul_into_gather,
-        mul_add_scatter_with, mul_add_gather_with, mul_into_gather_with,
-        mul_into_gather_plan, mul_add_matrix_with, mul_into_matrix,
-        mul_into_matrix_plan, mul_add_matrix_at, mul_add_matrix_at_rows,
-        mul_add_matrix_at_plan, mul_into_matrix_at, mul_into_matrix_at_plan,
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -309,10 +476,10 @@ impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Pac
         scalar::mul_elementwise::<F>(dst, a, b);
     }
 
-    fallback_entries!(
-        storage: backend, has_vector_elementwise, vector_elementwise_min_bytes,
-        mul_add_scatter_plan, mul_add_gather_plan, mul_add_matrix_plan,
-        mul_elementwise_assign, add_assign_scalar, sub_assign_scalar,
+    fallback_defaults!(
+        storage: backend, mul_add_scatter_plan, mul_add_gather_plan,
+        mul_add_matrix_plan, mul_elementwise_assign, add_assign_scalar,
+        sub_assign_scalar,
     );
 }
 
@@ -355,19 +522,6 @@ impl<B: FieldBuffer, const D: usize> StorageDispatch<B, D> for Components {
             return quad_mersenne31::backend_report();
         }
         Backend::Scalar
-    }
-
-    #[inline]
-    fn has_vector_elementwise<F: StorageRow<B, D, Self>>(_proof: RawDispatch) -> bool {
-        is_quad_mersenne::<F>() && quad_mersenne31::has_vector_elementwise()
-    }
-
-    #[inline]
-    fn vector_elementwise_min_bytes<F: StorageRow<B, D, Self>>(_proof: RawDispatch) -> usize {
-        if is_quad_mersenne::<F>() {
-            return quad_mersenne31::vector_elementwise_min_bytes();
-        }
-        0
     }
 
     #[inline]
@@ -531,7 +685,7 @@ impl<B: FieldBuffer, const D: usize> StorageDispatch<B, D> for Components {
         }
         prime::sub_assign_scalar::<F>(dst, Elem { raw: *value });
     }
-    fallback_entries!(
+    fallback_defaults!(
         storage: add_gather_offsets, mul_add_scatter_plan, mul_add_gather_plan,
         mul_add_matrix_plan,
     );

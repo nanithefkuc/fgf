@@ -172,25 +172,10 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
         }
     }
 
-    #[inline]
-    fn has_vector_elementwise(_proof: RawDispatch) -> bool {
-        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        {
-            Self::BYTES == 4 && vector_backend()
-        }
-        #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-        {
-            false
-        }
-    }
-
-    fallback_entries!(
-        row: vector_elementwise_min_bytes, add_gather_offsets, add_assign_rows,
-        sub_assign_rows, mul_into_scatter, mul_add_scatter_with,
-        mul_add_scatter_plan, mul_add_gather_with, mul_add_gather_plan,
-        mul_into_gather, mul_into_gather_with, mul_into_gather_plan,
-        mul_add_matrix_with, mul_into_matrix, mul_add_matrix_at,
-        mul_add_matrix_at_rows, mul_add_matrix_at_plan, mul_into_matrix_at,
+    fallback_defaults!(
+        row: add_gather_offsets, mul_add_scatter_plan, mul_add_gather_plan,
+        mul_into_gather, mul_into_gather_plan, mul_into_matrix,
+        mul_add_matrix_at, mul_add_matrix_at_plan, mul_into_matrix_at,
         mul_into_matrix_at_plan,
     );
 
@@ -481,15 +466,6 @@ pub const fn avx2_floor_op_len(bytes: usize, op: VectorOp) -> usize {
     };
     lanes * bytes
 }
-/// Whether this host's process backend serves the residue vector bodies:
-/// one of the AVX2-capable x86 tiers. Dispatch and the benchmark routing
-/// report share this instead of repeating the tier list.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[must_use]
-pub fn vector_backend() -> bool {
-    vector_tier() != Backend::Scalar
-}
-
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn vector_tier() -> Backend {
     match backend() {

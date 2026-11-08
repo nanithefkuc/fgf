@@ -212,7 +212,6 @@ pub mod gf16 {
     }
 
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     impl<F: Field<Raw = u16>> Coeffs for alloc::vec::Vec<Elem<F>> {
         #[inline]
         fn count(&self) -> usize {
@@ -269,7 +268,6 @@ pub mod gf16 {
         }
     }
 
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     impl<F: Field<Raw = u16>> Matrix<TowerTables> for [(&[Elem<F>], &[u8])] {
         #[inline]
@@ -552,22 +550,6 @@ pub mod gf16 {
                 };
             }
             Backend::Scalar
-        }
-
-        #[inline]
-        fn has_vector_elementwise<F: StorageRow<B, D, Self>>(_proof: RawDispatch) -> bool {
-            // The vector elementwise formulas fold the relation's linear
-            // term into the Karatsuba cross sum, which holds only when that
-            // coefficient is the base's multiplicative identity: the
-            // Rijndael relation's `c1 = 1`. Every other row runs the scalar
-            // path.
-            if !rijndael16::<F>() {
-                return false;
-            }
-            matches!(
-                backend(),
-                Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
-            )
         }
 
         fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> Prepared {
@@ -991,10 +973,6 @@ pub mod gf16 {
                     }
                     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V3 => matrix_axpy_avx2(rows, row_len, nrows, terms),
-                    // Without the 512-bit kernels the V4x tier cannot
-                    // resolve; the arm keeps the match exhaustive anyway.
-                    #[cfg(all(not(feature = "simd512"), feature = "simd", target_arch = "x86_64"))]
-                    Backend::V4x => matrix_axpy_avx2(rows, row_len, nrows, terms),
                     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V2 => x86::gf16::mul_add_matrix_ssse3(
                         crate::kernel::x86_v2_token(),
@@ -1147,19 +1125,6 @@ pub mod gf16 {
                         reduction,
                     );
                 }
-                // Without the 512-bit kernels the V4x tier cannot resolve;
-                // the arm keeps the match exhaustive anyway.
-                #[cfg(all(not(feature = "simd512"), feature = "simd", target_arch = "x86_64"))]
-                Backend::V4x => {
-                    x86::gf16::mul_elementwise_avx2(
-                        crate::kernel::x86_v3_token(),
-                        dst,
-                        a,
-                        b,
-                        &AES_BANK[RIJNDAEL16_B as usize],
-                        reduction,
-                    );
-                }
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Backend::V2 => {
                     x86::gf16::mul_elementwise_ssse3(
@@ -1223,18 +1188,6 @@ pub mod gf16 {
                         reduction,
                     );
                 }
-                // Without the 512-bit kernels the V4x tier cannot resolve;
-                // the arm keeps the match exhaustive anyway.
-                #[cfg(all(not(feature = "simd512"), feature = "simd", target_arch = "x86_64"))]
-                Backend::V4x => {
-                    x86::gf16::mul_elementwise_assign_avx2(
-                        crate::kernel::x86_v3_token(),
-                        dst,
-                        src,
-                        &AES_BANK[RIJNDAEL16_B as usize],
-                        reduction,
-                    );
-                }
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Backend::V2 => {
                     x86::gf16::mul_elementwise_assign_ssse3(
@@ -1249,9 +1202,7 @@ pub mod gf16 {
             }
         }
 
-        fallback_entries!(
-            storage: vector_elementwise_min_bytes, add_assign_scalar, sub_assign_scalar,
-        );
+        fallback_defaults!(storage: add_assign_scalar, sub_assign_scalar);
     }
 }
 
@@ -1555,10 +1506,10 @@ pub mod gf32 {
             scalar::mul_elementwise::<F>(dst, a, b);
         }
 
-        fallback_entries!(
-            storage: has_vector_elementwise, vector_elementwise_min_bytes,
-            mul_add_scatter_plan, mul_add_gather_plan, mul_add_matrix_plan,
-            mul_elementwise_assign, add_assign_scalar, sub_assign_scalar,
+        fallback_defaults!(
+            storage: mul_add_scatter_plan, mul_add_gather_plan,
+            mul_add_matrix_plan, mul_elementwise_assign, add_assign_scalar,
+            sub_assign_scalar,
         );
     }
 }
@@ -1858,10 +1809,10 @@ pub mod gf64 {
             scalar::mul_elementwise::<F>(dst, a, b);
         }
 
-        fallback_entries!(
-            storage: has_vector_elementwise, vector_elementwise_min_bytes,
-            mul_add_scatter_plan, mul_add_gather_plan, mul_add_matrix_plan,
-            mul_elementwise_assign, add_assign_scalar, sub_assign_scalar,
+        fallback_defaults!(
+            storage: mul_add_scatter_plan, mul_add_gather_plan,
+            mul_add_matrix_plan, mul_elementwise_assign, add_assign_scalar,
+            sub_assign_scalar,
         );
     }
 }

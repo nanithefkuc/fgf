@@ -28,7 +28,9 @@ use crate::field::binary::BinaryRepr;
 use crate::field::binary::byte::ScaleTable;
 use crate::field::dispatch::{KernelDispatch, RawDispatch};
 use crate::field::{Elem, FiniteField};
-use crate::kernel::{Backend, backend, scalar};
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+use crate::kernel::backend;
+use crate::kernel::{Backend, scalar};
 
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::field::binary::byte::ByteReprData;
@@ -335,23 +337,7 @@ impl<R: BinaryRepr<8>> KernelDispatch for FiniteField<2, 8, R> {
         }
     }
 
-    #[inline]
-    fn has_vector_elementwise(_proof: RawDispatch) -> bool {
-        if const { !R::DESCRIPTION.is_polynomial_root() } {
-            return false;
-        }
-        matches!(
-            backend(),
-            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
-        ) && cfg!(all(feature = "simd", target_arch = "x86_64"))
-    }
-
-    fallback_entries!(
-        row: vector_elementwise_min_bytes, add_assign_rows, sub_assign_rows,
-        mul_into_scatter, mul_add_scatter_with, mul_add_gather_with,
-        mul_into_gather_with, mul_add_matrix_with, mul_add_matrix_at_rows,
-        add_assign_scalar, sub_assign_scalar,
-    );
+    fallback_defaults!(row: add_assign_scalar, sub_assign_scalar);
 
     #[inline]
     fn prepare(_proof: RawDispatch, coeff: Elem<FiniteField<2, 8, R>>) -> Self::Prepared {

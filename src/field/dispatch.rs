@@ -54,14 +54,6 @@ pub(crate) trait KernelDispatch: Field {
     /// Backend used by this field's kernels.
     fn backend(_proof: RawDispatch) -> simdispatch::Backend;
 
-    /// Whether elementwise multiplication is vectorized for this field on
-    /// this host.
-    fn has_vector_elementwise(_proof: RawDispatch) -> bool;
-
-    /// Minimum row length in bytes at which the vector elementwise kernels
-    /// take over on this host; zero when no such threshold applies.
-    fn vector_elementwise_min_bytes(_proof: RawDispatch) -> usize;
-
     /// `dst += src`, elementwise field addition.
     ///
     /// Required, with no fallback: addition is XOR for the binary fields and
@@ -184,7 +176,7 @@ pub(crate) trait KernelDispatch: Field {
     /// terms, so destination memory traffic is independent of the term
     /// count. This is the decode/reconstruction shape.
     ///
-    /// See [`KernelDispatch::mul_add_matrix_with`] for the prepared form.
+    /// See [`KernelDispatch::mul_add_matrix_plan`] for the prepared form.
     fn mul_add_matrix(
         _proof: RawDispatch,
         rows: &mut [u8],
@@ -265,20 +257,6 @@ pub(crate) trait KernelDispatch: Field {
         _values: &[Elem<Self>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
-    );
-
-    /// [`KernelDispatch::mul_add_matrix`] over already-prepared coefficients.
-    ///
-    /// The engine fallback applies each term row by row. Fields override
-    /// this with a blocked implementation that retains destination tiles in
-    /// registers.
-    #[cfg(test)]
-    fn mul_add_matrix_with(
-        _proof: RawDispatch,
-        rows: &mut [u8],
-        row_len: usize,
-        nrows: usize,
-        terms: &[(&[Self::Prepared], &[u8])],
     );
 
     /// Prepared-plan matrix using flat row-major coefficients and source rows.

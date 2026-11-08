@@ -472,8 +472,8 @@ Tests must defend observable contracts, not implementation wiring.
 - `src/kernel/tests/tier_gate.rs`: request-bounded tokens and post-comparison
   execution receipts shared by direct suites and allocation checks.
 - `tests/zero_alloc.rs`: allocation-free steady-state contracts.
-- `tests/internals.rs`: token-gated direct architecture kernels, direct
-gather-offset validation, and the tier capability queries.
+- `tests/internals.rs`: token-gated direct architecture kernels and direct
+gather-offset validation.
 
 Reuse the deterministic test helpers and fixed-seed noise generator. Do not add
 nondeterministic randomness or duplicate oracle conventions. GF(2^16) byte

@@ -41,28 +41,10 @@ impl KernelDispatch for Goldilocks {
         }
     }
 
-    #[inline]
-    fn has_vector_elementwise(_proof: RawDispatch) -> bool {
-        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        {
-            matches!(
-                backend(),
-                Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
-            )
-        }
-        #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-        {
-            false
-        }
-    }
-
-    fallback_entries!(
-        row: vector_elementwise_min_bytes, add_gather_offsets, add_assign_rows,
-        sub_assign_rows, mul_into_scatter, mul_add_scatter_with,
-        mul_add_scatter_plan, mul_add_gather_with, mul_add_gather_plan,
-        mul_into_gather, mul_into_gather_with, mul_into_gather_plan,
-        mul_add_matrix_with, mul_add_matrix_plan, mul_into_matrix,
-        mul_into_matrix_plan, mul_add_matrix_at, mul_add_matrix_at_rows,
+    fallback_defaults!(
+        row: add_gather_offsets, mul_add_scatter_plan, mul_add_gather_plan,
+        mul_into_gather, mul_into_gather_plan, mul_add_matrix_plan,
+        mul_into_matrix, mul_into_matrix_plan, mul_add_matrix_at,
         mul_add_matrix_at_plan, mul_into_matrix_at, mul_into_matrix_at_plan,
     );
 

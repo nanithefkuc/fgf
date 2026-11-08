@@ -1,12 +1,14 @@
 //! Fan-Paar tower differentials outside the cross-family suites: the
-//! prepared-terms matrix override the macro kernels install.
+//! prepared matrix plan against one dispatched row application per term.
 
+#[cfg(feature = "alloc")]
 use super::*;
 
+#[cfg(feature = "alloc")]
 #[test]
-fn macro_kernels_matrix_with_matches_per_row_application() {
-    // `impl_field_kernels!`'s prepared-terms matrix override (FanPaar8Field):
-    // apply the same prepared coefficients row by row and compare.
+fn macro_kernels_matrix_plan_matches_per_row_application() {
+    // The prepared matrix plan applies the same prepared coefficients row by
+    // row; compare against one `mul_add` per row and term.
     let row_len = 8;
     let srcs: Vec<Vec<u8>> = vec![noise(row_len, 0x71), noise(row_len, 0x72)];
     let coeffs = [
@@ -18,18 +20,21 @@ fn macro_kernels_matrix_with_matches_per_row_application() {
         .copied()
         .map(|coeff| <FanPaar8Field>::prepare(RawDispatch, coeff))
         .collect();
+    // Source-major layout: term 0 uses (prepared[0], prepared[1]), term 1
+    // uses (prepared[1], prepared[0]).
+    let values = [coeffs[0], coeffs[1], coeffs[1], coeffs[0]];
+    let flat = [prepared[0], prepared[1], prepared[1], prepared[0]];
 
     let mut got = noise(2 * row_len, 0x73);
     let mut want = got.clone();
-    <FanPaar8Field as KernelDispatch>::mul_add_matrix_with(
+    <FanPaar8Field as KernelDispatch>::mul_add_matrix_plan(
         RawDispatch,
         &mut got,
         row_len,
         2,
-        &[
-            (&[prepared[0], prepared[1]], &srcs[0]),
-            (&[prepared[1], prepared[0]], &srcs[1]),
-        ],
+        &values,
+        &flat,
+        &[&srcs[0], &srcs[1]],
     );
     for (term, src) in srcs.iter().enumerate() {
         let row_coeffs = if term == 0 {

@@ -106,35 +106,6 @@ pub const FGF_TIERS: &[Backend] = &[
     Backend::Scalar,
 ];
 
-// Re-exported through `internals`; production dispatch never calls it.
-/// FGF's kernel-policy questions over the shared ladder.
-///
-/// `simdispatch::Backend` is capability; these two derive from the kernels
-/// this crate actually implements, so they stay here (field-kernel policy,
-/// not hardware facts). The ladder is owned upstream, so `Backend` gets these
-/// only through this trait.
-#[allow(dead_code)]
-pub trait KernelBackend {
-    /// Whether this backend has a native byte-wide field multiply (GFNI).
-    fn has_native_mul(self) -> bool;
-
-    /// Whether this backend implements the register-blocked multi-row
-    /// kernels. Others decompose into repeated single-row AXPY.
-    fn has_blocked_rows(self) -> bool;
-}
-
-impl KernelBackend for Backend {
-    #[inline]
-    fn has_native_mul(self) -> bool {
-        matches!(self, Backend::V4x | Backend::V3GfniCrypto)
-    }
-
-    #[inline]
-    fn has_blocked_rows(self) -> bool {
-        matches!(self, Backend::V4x | Backend::V3GfniCrypto)
-    }
-}
-
 /// The backend these kernels use, resolved once per process.
 ///
 /// Runs [`simdispatch::Selection`] over `FGF_TIERS` — every tier this crate implements
@@ -294,28 +265,6 @@ pub(crate) fn x86_v2_token() -> archmage::X64V2Token {
 pub fn backend_for<F: FieldBuffer>() -> Backend {
     let () = crate::field::Validate::<F>::OK;
     F::backend(crate::field::dispatch::RawDispatch)
-}
-
-// The free wrappers are re-exported through `internals`; the stable query
-// surface is `backend_for` alone.
-/// Whether elementwise multiplication is vectorized for `F` on this host.
-#[allow(dead_code)]
-#[inline]
-#[must_use]
-pub fn has_vector_elementwise<F: FieldBuffer>() -> bool {
-    F::has_vector_elementwise(crate::field::dispatch::RawDispatch)
-}
-
-/// Minimum row length in bytes at which `F` dispatches elementwise
-/// multiplication to a vector kernel on this host; zero when every length
-/// dispatches or no vector kernel serves `F`. Consumers choosing between
-/// schedules use this beside [`has_vector_elementwise`] rather than
-/// assuming the vector path serves sub-vector rows.
-#[allow(dead_code)]
-#[inline]
-#[must_use]
-pub fn vector_elementwise_min_bytes<F: FieldBuffer>() -> usize {
-    F::vector_elementwise_min_bytes(crate::field::dispatch::RawDispatch)
 }
 
 /// Shared runtime geometry validation for direct architecture kernel entries.

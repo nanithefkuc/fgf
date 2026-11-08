@@ -214,9 +214,6 @@ fn aes_tower_dispatch_matches_scalar() {
         <AesExtField as KernelDispatch>::prepare(RawDispatch, AesExtElem::from_raw(0x0104)),
         Prepared::Plain(_)
     ));
-    assert!(!<AesExtField as KernelDispatch>::has_vector_elementwise(
-        crate::field::dispatch::RawDispatch,
-    ));
 
     let Some(_) = tier_gate::summon::<X64V2Token>() else {
         eprintln!("skipping: no SSSE3 on this host");

@@ -157,21 +157,6 @@ pub(crate) fn mul_into_gather_plan<F: KernelDispatch>(
     F::mul_into_gather_with(RawDispatch, dst, coeffs, srcs);
 }
 
-/// Prepared matrix over raw-element terms, row by row.
-#[cfg(test)]
-pub(crate) fn mul_add_matrix_with<F: KernelDispatch>(
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    terms: &[(&[F::Prepared], &[u8])],
-) {
-    for &(coeffs, src) in terms {
-        for (row, coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-            F::mul_add(RawDispatch, row, coeff, src);
-        }
-    }
-}
-
 /// Allocation-free repeated prepared AXPY over flat row-major
 /// coefficients.
 #[cfg(feature = "alloc")]
@@ -345,18 +330,6 @@ macro_rules! fallback_entry {
             Backend::Scalar
         }
     };
-    (row has_vector_elementwise) => {
-        #[inline]
-        fn has_vector_elementwise(_proof: $crate::field::dispatch::RawDispatch) -> bool {
-            false
-        }
-    };
-    (row vector_elementwise_min_bytes) => {
-        #[inline]
-        fn vector_elementwise_min_bytes(_proof: $crate::field::dispatch::RawDispatch) -> usize {
-            0
-        }
-    };
     (row add_gather_offsets) => {
         #[inline]
         fn add_gather_offsets(
@@ -490,19 +463,6 @@ macro_rules! fallback_entry {
             srcs: &[&[u8]],
         ) {
             $crate::kernel::fallback::mul_into_gather_plan::<Self>(dst, values, coeffs, srcs)
-        }
-    };
-    (row mul_add_matrix_with) => {
-        #[cfg(test)]
-        #[inline]
-        fn mul_add_matrix_with(
-            _proof: $crate::field::dispatch::RawDispatch,
-            rows: &mut [u8],
-            row_len: usize,
-            nrows: usize,
-            terms: &[(&[Self::Prepared], &[u8])],
-        ) {
-            $crate::kernel::fallback::mul_add_matrix_with::<Self>(rows, row_len, nrows, terms)
         }
     };
     (row mul_add_matrix_plan) => {
@@ -652,22 +612,198 @@ macro_rules! fallback_entry {
             Backend::Scalar
         }
     };
-    (storage has_vector_elementwise) => {
+    (storage add_assign_rows) => {
         #[inline]
-        fn has_vector_elementwise<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+        fn add_assign_rows<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
             _proof: $crate::field::dispatch::RawDispatch,
-        ) -> bool {
-            false
+            dst: &mut [u8],
+            src: &[u8],
+            row_len: usize,
+        ) {
+            $crate::kernel::fallback::add_assign_rows::<F>(dst, src, row_len)
         }
     };
-    (storage vector_elementwise_min_bytes) => {
+    (storage sub_assign_rows) => {
         #[inline]
-        fn vector_elementwise_min_bytes<
-            F: $crate::field::extension::storage::StorageRow<B, D, Self>,
-        >(
+        fn sub_assign_rows<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
             _proof: $crate::field::dispatch::RawDispatch,
-        ) -> usize {
-            0
+            dst: &mut [u8],
+            src: &[u8],
+            row_len: usize,
+        ) {
+            $crate::kernel::fallback::sub_assign_rows::<F>(dst, src, row_len)
+        }
+    };
+    (storage mul_into_scatter) => {
+        #[inline]
+        fn mul_into_scatter<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            rows: &mut [u8],
+            row_len: usize,
+            coeffs: &[Elem<F>],
+            src: &[u8],
+        ) {
+            $crate::kernel::fallback::mul_into_scatter::<F>(rows, row_len, coeffs, src)
+        }
+    };
+    (storage mul_into_gather) => {
+        #[inline]
+        fn mul_into_gather<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            dst: &mut [u8],
+            coeffs: &[Elem<F>],
+            srcs: &[&[u8]],
+        ) {
+            $crate::kernel::fallback::mul_into_gather::<F>(dst, coeffs, srcs)
+        }
+    };
+    (storage mul_add_scatter_with) => {
+        #[cfg(feature = "alloc")]
+        #[inline]
+        fn mul_add_scatter_with<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            rows: &mut [u8],
+            row_len: usize,
+            coeffs: &[Self::Prepared],
+            src: &[u8],
+        ) {
+            $crate::kernel::fallback::mul_add_scatter_with::<F>(rows, row_len, coeffs, src)
+        }
+    };
+    (storage mul_add_gather_with) => {
+        #[cfg(feature = "alloc")]
+        #[inline]
+        fn mul_add_gather_with<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            dst: &mut [u8],
+            coeffs: &[Self::Prepared],
+            srcs: &[&[u8]],
+        ) {
+            $crate::kernel::fallback::mul_add_gather_with::<F>(dst, coeffs, srcs)
+        }
+    };
+    (storage mul_into_gather_with) => {
+        #[cfg(any(feature = "alloc", test))]
+        #[inline]
+        fn mul_into_gather_with<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            dst: &mut [u8],
+            coeffs: &[Self::Prepared],
+            srcs: &[&[u8]],
+        ) {
+            $crate::kernel::fallback::mul_into_gather_with::<F>(dst, coeffs, srcs)
+        }
+    };
+    (storage mul_into_gather_plan) => {
+        #[cfg(feature = "alloc")]
+        #[inline]
+        fn mul_into_gather_plan<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            dst: &mut [u8],
+            values: &[Elem<F>],
+            coeffs: &[Self::Prepared],
+            srcs: &[&[u8]],
+        ) {
+            $crate::kernel::fallback::mul_into_gather_plan::<F>(dst, values, coeffs, srcs)
+        }
+    };
+    (storage mul_into_matrix) => {
+        #[inline]
+        fn mul_into_matrix<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            rows: &mut [u8],
+            row_len: usize,
+            nrows: usize,
+            terms: &[(&[Elem<F>], &[u8])],
+        ) {
+            $crate::kernel::fallback::mul_into_matrix::<F>(rows, row_len, nrows, terms)
+        }
+    };
+    (storage mul_into_matrix_plan) => {
+        #[cfg(feature = "alloc")]
+        #[inline]
+        fn mul_into_matrix_plan<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            rows: &mut [u8],
+            row_len: usize,
+            nrows: usize,
+            values: &[Elem<F>],
+            coeffs: &[Self::Prepared],
+            srcs: &[&[u8]],
+        ) {
+            $crate::kernel::fallback::mul_into_matrix_plan::<F>(
+                rows, row_len, nrows, values, coeffs, srcs,
+            )
+        }
+    };
+    (storage mul_add_matrix_at) => {
+        #[inline]
+        fn mul_add_matrix_at<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            dst: &mut [u8],
+            row_len: usize,
+            row_starts: &[usize],
+            terms: &[(&[Elem<F>], &[u8])],
+        ) {
+            $crate::kernel::fallback::mul_add_matrix_at::<F>(dst, row_len, row_starts, terms)
+        }
+    };
+    (storage mul_add_matrix_at_rows) => {
+        #[inline]
+        fn mul_add_matrix_at_rows<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            dst: &mut [u8],
+            row_len: usize,
+            row_starts: &[usize],
+            terms: &[(&[Elem<F>], &[u8])],
+        ) {
+            $crate::kernel::fallback::mul_add_matrix_at_rows::<F>(dst, row_len, row_starts, terms)
+        }
+    };
+    (storage mul_add_matrix_at_plan) => {
+        #[cfg(feature = "alloc")]
+        #[inline]
+        fn mul_add_matrix_at_plan<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            dst: &mut [u8],
+            row_len: usize,
+            row_starts: &[usize],
+            values: &[Elem<F>],
+            coeffs: &[Self::Prepared],
+            srcs: &[&[u8]],
+        ) {
+            $crate::kernel::fallback::mul_add_matrix_at_plan::<F>(
+                dst, row_len, row_starts, values, coeffs, srcs,
+            )
+        }
+    };
+    (storage mul_into_matrix_at) => {
+        #[inline]
+        fn mul_into_matrix_at<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            dst: &mut [u8],
+            row_len: usize,
+            row_starts: &[usize],
+            terms: &[(&[Elem<F>], &[u8])],
+        ) {
+            $crate::kernel::fallback::mul_into_matrix_at::<F>(dst, row_len, row_starts, terms)
+        }
+    };
+    (storage mul_into_matrix_at_plan) => {
+        #[cfg(feature = "alloc")]
+        #[inline]
+        fn mul_into_matrix_at_plan<F: $crate::field::extension::storage::StorageRow<B, D, Self>>(
+            _proof: $crate::field::dispatch::RawDispatch,
+            dst: &mut [u8],
+            row_len: usize,
+            row_starts: &[usize],
+            values: &[Elem<F>],
+            coeffs: &[Self::Prepared],
+            srcs: &[&[u8]],
+        ) {
+            $crate::kernel::fallback::mul_into_matrix_at_plan::<F>(
+                dst, row_len, row_starts, values, coeffs, srcs,
+            )
         }
     };
     (storage add_gather_offsets) => {
@@ -771,5 +907,34 @@ macro_rules! fallback_entries {
     };
     (storage: $($name:ident),* $(,)?) => {
         $( fallback_entry!(storage $name); )*
+    };
+}
+
+/// Emit the default entry set every implementation shares, plus the named
+/// per-family additions.
+///
+/// `row:` emits the [`KernelDispatch`] entries whose engine default every
+/// row family runs unchanged; `storage:` emits the
+/// [`StorageDispatch`](crate::field::extension::storage::StorageDispatch)
+/// entries every storage leaves to the engine default. A family lists only
+/// the entries it adds to the shared set in its own `fallback_entries!`
+/// invocation.
+macro_rules! fallback_defaults {
+    (row: $($extra:ident),* $(,)?) => {
+        fallback_entries!(
+            row: add_assign_rows, sub_assign_rows, mul_into_scatter,
+            mul_add_scatter_with, mul_add_gather_with, mul_into_gather_with,
+            mul_add_matrix_at_rows $(, $extra)*
+        );
+    };
+    (storage: $($extra:ident),* $(,)?) => {
+        fallback_entries!(
+            storage: add_assign_rows, sub_assign_rows, mul_into_scatter,
+            mul_into_gather, mul_add_scatter_with, mul_add_gather_with,
+            mul_into_gather_with, mul_into_gather_plan, mul_into_matrix,
+            mul_into_matrix_plan, mul_add_matrix_at, mul_add_matrix_at_rows,
+            mul_add_matrix_at_plan, mul_into_matrix_at, mul_into_matrix_at_plan
+            $(, $extra)*
+        );
     };
 }

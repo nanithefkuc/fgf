@@ -1,24 +1,6 @@
 {
   "exceptions": [
     {
-      "item": "fgf::field::dispatch::KernelDispatch::mul_add_matrix_with",
-      "class": "unreachable",
-      "reason": "the trait method is gated `#[cfg(test)]`; the all-features bench build does not compile it, so no public route can execute it",
-      "key": "fgf::field::dispatch::KernelDispatch::mul_add_matrix_with"
-    },
-    {
-      "item": "fgf::kernel::has_vector_elementwise",
-      "class": "unreachable",
-      "reason": "internals-only capability query: it is re-exported through `fgf::internals` and is not part of the stable public surface",
-      "key": "fgf::kernel::has_vector_elementwise"
-    },
-    {
-      "item": "fgf::kernel::vector_elementwise_min_bytes",
-      "class": "unreachable",
-      "reason": "internals-only capability query: it is re-exported through `fgf::internals` and is not part of the stable public surface",
-      "key": "fgf::kernel::vector_elementwise_min_bytes"
-    },
-    {
       "key": "src/kernel/x86.rs::HALF_LANE_PEEL_MIN",
       "class": "unmapped_arcane",
       "reason": "the pinned compiler emitted no mapping for any site",

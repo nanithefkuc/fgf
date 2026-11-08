@@ -11,10 +11,8 @@ pub mod kernel {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     pub use crate::kernel::matrix_provider::{FlatMatrix, Matrix};
 
-    /// The declared tier ladder and the backend capability queries.
-    pub use crate::kernel::{
-        FGF_TIERS, KernelBackend, has_vector_elementwise, vector_elementwise_min_bytes,
-    };
+    /// The declared tier ladder.
+    pub use crate::kernel::FGF_TIERS;
     pub use simdispatch::ParseBackendError;
 
     /// Byte-field kernels and preparation.
@@ -61,7 +59,7 @@ pub mod kernel {
         pub use crate::kernel::residue::{
             DELAYED_ADD_MIN_DEPTH, DELAYED_INTO_MIN_DEPTH, DELAYED_MIN_SOURCES, VectorOp,
             avx2_floor_op_len, delay_depth, delayed_matrix_backend, routes_delayed, routes_vector,
-            single_row_backend, vector_backend,
+            single_row_backend,
         };
     }
     /// Coefficient tables shared by field and architecture kernels.

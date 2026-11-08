@@ -105,8 +105,6 @@ pub(crate) fn backend_report() -> Backend {
         match backend() {
             #[cfg(feature = "simd512")]
             Backend::V4x => Backend::V4x,
-            #[cfg(not(feature = "simd512"))]
-            Backend::V4x => Backend::V3,
             Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
             _ => Backend::Scalar,
         }
@@ -114,43 +112,6 @@ pub(crate) fn backend_report() -> Backend {
     #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
     {
         Backend::Scalar
-    }
-}
-
-/// Whether the QM31 elementwise product is vectorized on this host.
-#[inline]
-pub(crate) fn has_vector_elementwise() -> bool {
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    {
-        matches!(
-            backend(),
-            Backend::V4x | Backend::V3GfniCrypto | Backend::V3
-        )
-    }
-    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-    {
-        false
-    }
-}
-
-/// The row length in bytes at which the QM31 vector elementwise product
-/// takes over on this host; zero without one.
-#[inline]
-pub(crate) fn vector_elementwise_min_bytes() -> usize {
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    {
-        if matches!(
-            backend(),
-            Backend::V4x | Backend::V3GfniCrypto | Backend::V3
-        ) {
-            VECTOR_MUL_MIN_BYTES
-        } else {
-            0
-        }
-    }
-    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-    {
-        0
     }
 }
 

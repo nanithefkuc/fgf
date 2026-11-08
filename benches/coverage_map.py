@@ -391,11 +391,7 @@ def load_inventory(path: Path) -> list[dict]:
 
 
 EXCEPTION_CLASSES = {"unreachable", "unmapped_arcane", "ambiguous"}
-KNOWN_UNREACHABLE = {
-    "fgf::field::dispatch::KernelDispatch::mul_add_matrix_with",
-    "fgf::kernel::has_vector_elementwise",
-    "fgf::kernel::vector_elementwise_min_bytes",
-}
+KNOWN_UNREACHABLE = set()
 
 
 def load_exceptions(path: Path) -> dict[str, dict]:

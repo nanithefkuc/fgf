@@ -24,7 +24,7 @@ mod imp {
 
     use criterion::{BenchmarkId, Criterion, Throughput, criterion_group};
     use fgf::extension::QuadMersenne31;
-    use fgf::internals::kernel::{SimdToken, X64V3Token, has_vector_elementwise, x86};
+    use fgf::internals::kernel::{SimdToken, X64V3Token, x86};
     use fgf::{Elem, backend, backend_for, ops};
 
     /// Row lengths in bytes: sub-vector elements, exact and partial vectors,
@@ -44,9 +44,8 @@ mod imp {
         REPORTED.call_once(|| {
             println!("process backend: {}", backend());
             println!(
-                "QuadMersenne31 field backend: {} (has_vector_elementwise: {})",
-                backend_for::<QuadMersenne31>(),
-                has_vector_elementwise::<QuadMersenne31>()
+                "QuadMersenne31 field backend: {}",
+                backend_for::<QuadMersenne31>()
             );
         });
     }

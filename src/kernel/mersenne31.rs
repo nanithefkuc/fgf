@@ -19,16 +19,6 @@ use crate::kernel::x86;
 #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 use crate::kernel::x86_v4_token as v4;
 
-/// Whether the running backend has integer-SIMD prime kernels for this field.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[inline]
-fn vectorized() -> bool {
-    matches!(
-        backend(),
-        Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
-    )
-}
-
 impl KernelDispatch for Mersenne31 {
     /// The canonical lane word, broadcast by the kernels on entry.
     type Prepared = Elem<Mersenne31>;
@@ -51,25 +41,10 @@ impl KernelDispatch for Mersenne31 {
         }
     }
 
-    #[inline]
-    fn has_vector_elementwise(_proof: RawDispatch) -> bool {
-        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        {
-            vectorized()
-        }
-        #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-        {
-            false
-        }
-    }
-
-    fallback_entries!(
-        row: vector_elementwise_min_bytes, add_gather_offsets, add_assign_rows,
-        sub_assign_rows, mul_into_scatter, mul_add_scatter_with,
-        mul_add_scatter_plan, mul_add_gather_with, mul_add_gather_plan,
-        mul_into_gather, mul_into_gather_with, mul_into_gather_plan,
-        mul_add_matrix_with, mul_add_matrix_plan, mul_into_matrix,
-        mul_into_matrix_plan, mul_add_matrix_at, mul_add_matrix_at_rows,
+    fallback_defaults!(
+        row: add_gather_offsets, mul_add_scatter_plan, mul_add_gather_plan,
+        mul_into_gather, mul_into_gather_plan, mul_add_matrix_plan,
+        mul_into_matrix, mul_into_matrix_plan, mul_add_matrix_at,
         mul_add_matrix_at_plan, mul_into_matrix_at, mul_into_matrix_at_plan,
     );
 

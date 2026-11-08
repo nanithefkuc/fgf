@@ -80,6 +80,27 @@ All notable changes to this project are documented here. The format follows
   `PAIR_DRIFT_CAP` per hostname, disables ASLR for every check and timing
   child, gives both arms one identical environment block and equal argv
   lengths, and excludes signed unstable cells from the decision rules.
+- The private storage dispatch contract declares every row entry that
+  previously existed only as an engine fallback: the overwrite
+  scatter/gather/matrix forms, the scattered matrix family, pairwise row
+  add/sub, and the prepared `_with`/`_plan` providers. Extension rows now
+  route every entry through their storage, so the two contracts cannot
+  diverge, and each storage keeps the same default composition as before.
+- Engine fallback entry lists derive from one shared default set plus
+  per-family additions instead of one hand-kept list per implementation.
+
+### Removed
+
+- `fgf::internals::kernel::KernelBackend`, including `has_native_mul` and
+  `has_blocked_rows`, is deleted. The implemented tier ladder remains at
+  `fgf::internals::kernel::FGF_TIERS`, and `backend_for` reports the
+  field-strategy summary.
+- The free `fgf::internals::kernel::has_vector_elementwise` and
+  `vector_elementwise_min_bytes` queries, and
+  `fgf::internals::kernel::residue::vector_backend`, are deleted together
+  with the private dispatch entries they wrapped. Use `backend_for` for the
+  field-strategy summary; per-operation vector thresholds are no longer
+  exposed.
 
 ## [4.0.0] - 2026-11-06
 
