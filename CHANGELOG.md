@@ -6,6 +6,81 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `just bench-baseline` records standalone descriptive measurements across
+  scalar arithmetic, representations, storage, generic extensions, maps,
+  preparation, and bulk operations, without requiring paired acceptance or
+  calibration. An explicit harness or case selection narrows the capture.
+- `bench-pair --cells` declares a timing scope and rationale while retaining
+  full cross-arm correctness checks and the calibrated paired decision rules.
+- Calibrated inventory records preserve signed unstable-cell classifications
+  when optimization targets extend the catalogue; new cases face the paired
+  gate without an exclusion.
+- `just kernel-registry-check` derives x86 entry identities and token tiers
+  from pinned compiler rustdoc data, audits reachability and explicit helper
+  exceptions, and binds native-acceptance artifacts to their tested tree.
+- `just cover-native` reports GFNI, AVX-512, and dispatch-module coverage
+  separately on a host that executes every ISA, and applies the 95% gate to
+  the hosted scope.
+- `just bench-pair` measures a candidate library revision against a base
+  revision under one measurement snapshot, with pinned-core and host
+  preconditions, counterbalanced runs, Hodges–Lehmann location estimates and
+  one-sided Wilcoxon signed-rank bounds against `PAIR_DELTA` and `PAIR_GAMMA`,
+  per-host `PAIR_RUNS` and `PAIR_DRIFT_CAP` bindings, `(p90 - p10) / median`
+  drift, per-tier unstable-cell reporting and stable-cell run counts,
+  calibration, threshold, and layout-only modes, `--reanalyze` of a stored
+  session, and `--write-unstable` merging of calibration sessions.
+- `benches/unstable_cells.json` records owner-signed unstable cells per host,
+  tier, toolchain, flags, and inventory digest. Listed cells are measured and
+  published with the Unstable marker but excluded from the paired decisions
+  unless a target declaration with at least `PAIR_UNSTABLE_TARGET_RUNS` runs
+  includes them.
+- The `operations` bench measures public `ops` and `ops::bits` call shapes
+  over page-aligned deterministic fixtures with fixed role offsets, with an
+  independent oracle and a fixed cell inventory that drives paired measurement
+  and coverage mapping.
+- `just bench-coverage-map TIER` maps kernel-registry entries and threshold
+  branches to the operations cells that execute them under instrumented
+  coverage, with a reviewed exceptions file for unmapped and unreachable
+  items.
+- `just bench-publish` renders and verifies `BENCHMARKS.md` and the
+  `benchmarks/` record pages from the committed session manifest and captured
+  competitor logs.
+
+### Changed
+
+- Benchmark publication refreshes measured anchors independently, preserving
+  each row's revision, session, scope, and method. Descriptive surface
+  measurements have a separate table; latest measurements do not imply a
+  synchronized snapshot of the newest release.
+- Same-session measurement applies to the relevant before/after or competitor
+  comparison, not to unrelated historical rows. Both runners share one
+  campaign lock, and benchmark validation includes the Python tooling suites.
+- Direct kernel differentials share deterministic raw fixtures and a
+  request-bounded token gate. Successful arithmetic comparisons emit the
+  compiler's entry definition path; required-tier hardware shortfalls fail
+  independently of downgrade requests.
+- `just isa-accept` audits every initial and downgraded run against the entry
+  registry. CI consumes the generated artifact and rejects missing or stale
+  artifacts instead of regenerating them.
+- Kernel tests split by field family and ISA; quadratic Mersenne comparisons
+  move from production kernel files into that shared test tree.
+- Hosted coverage excludes explicit GFNI and AVX-512 files and the
+  `kernel/gf8.rs` and `kernel/tower.rs` dispatch modules, rather than whole
+  binary-field families.
+- Benchmark records publish through `BENCHMARKS.md`: rows are anchored by
+  host, tier, and cell, history is append-only, current rows track the latest
+  session, and calibration, threshold, layout-exception, and competitor
+  measurements have dedicated tables.
+- `bench-comp` drives the stable-API `operations` family panel as its self
+  arm; the `kernels` bench retains the internals-only direct-kernel panels.
+- Paired measurement records `fgf-pair/3` sessions, computes drift as
+  `(p90 - p10) / median` of start controls, resolves `PAIR_RUNS` and
+  `PAIR_DRIFT_CAP` per hostname, disables ASLR for every check and timing
+  child, gives both arms one identical environment block and equal argv
+  lengths, and excludes signed unstable cells from the decision rules.
+
 ## [4.0.0] - 2026-11-06
 
 The 4.x stable surface: one public path per item, sealed trait plumbing,

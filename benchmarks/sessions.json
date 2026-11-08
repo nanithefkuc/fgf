@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "metadata": {
+    "hosts": [
+      {
+        "host": "willow-cove",
+        "name": "Willow Cove",
+        "available": true,
+        "aliases": [
+          "zbox"
+        ]
+      },
+      {
+        "host": "golden-cove",
+        "name": "Golden Cove",
+        "available": true,
+        "aliases": [
+          "Comet"
+        ]
+      }
+    ],
+    "tiers": [
+      "v4x",
+      "v3_gfni_crypto",
+      "v3",
+      "v2",
+      "scalar"
+    ]
+  },
+  "sessions": [
+    {
+      "path": "baseline/20261108T055645Z-zbox/session.json",
+      "sha256": "c58f7a286da8af591095a90b91f6490459191b24371c982df007ebf2aee055e4"
+    },
+    {
+      "path": "baseline/20261108T061448Z-zbox/session.json",
+      "sha256": "1fe72ee60763151bdb16007b3872edc51de65e8c8e51f3e6bbdb2b335f951ece"
+    },
+    {
+      "path": "baseline/20261108T055645Z-Comet/session.json",
+      "sha256": "f0836f9905063afab634f5dafa051712c11c7f418ca79d1cf9db3c7586be6963"
+    },
+    {
+      "path": "baseline/20261108T060927Z-Comet/session.json",
+      "sha256": "2f0f5671886735ccd0a1e380fce139425d3d705ffd2a650aa285835f149da87b"
+    }
+  ],
+  "competitors": []
+}

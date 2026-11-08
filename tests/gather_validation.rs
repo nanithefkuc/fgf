@@ -16,18 +16,10 @@ use fgf::{FiniteField, ops};
 
 type Gf8 = FiniteField<2, 8, Polynomial<AES>>;
 
-/// Deterministic LCG noise, the crate's shared convention.
-fn noise(len: usize, seed: u64) -> Vec<u8> {
-    let mut state = seed | 1;
-    (0..len)
-        .map(|_| {
-            state = state
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1);
-            (state >> 33) as u8
-        })
-        .collect()
-}
+#[path = "../src/kernel/tests/fixtures.rs"]
+mod fixtures;
+
+use fixtures::noise_odd_seed as noise;
 
 /// Asserts `body` panics on `dst` and that `dst` still holds `sentinel`
 /// bytes afterwards, proving the rejection preceded every write.

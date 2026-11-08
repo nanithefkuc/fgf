@@ -27,7 +27,7 @@ def surface_log(*, duplicate=False, mode="check"):
     if mode is not None:
         lines.append(f"BENCHMARK_MODE\t{mode}")
     lines += ["FIELD_BACKEND\tgf2p8-aes\tscalar",
-             "FIELD_BACKEND\tprocess\tscalar\tnative_mul=false\tblocked_rows=false",
+             "FIELD_BACKEND\tprocess\tscalar",
              "HOST\tcpus_allowed_list=3\tsched_policy=5 idle"]
     lines.extend("SURFACE_INVENTORY\t" + json.dumps(entry) for entry in entries)
     if duplicate:
@@ -114,6 +114,28 @@ class SurfaceProtocolTests(unittest.TestCase):
         full_presentations.parse(presentation_log(mode="full"))
         with self.assertRaises(CheckError):
             full_presentations.validate_check_capture()
+
+
+    def test_process_record_with_capability_flags_fails_closed(self):
+        legacy = surface_log().replace(
+            "FIELD_BACKEND\tprocess\tscalar",
+            "FIELD_BACKEND\tprocess\tscalar\tnative_mul=false\tblocked_rows=false")
+        parsed = SurfacesLog(Path("legacy-process-record.log"))
+        with self.assertRaises(CheckError):
+            parsed.parse(legacy)
+
+    def test_selected_check_capture_parses_but_fails_full_check_validation(self):
+        entries = [control("entry"), operation(), control("exit")]
+        selected = surface_log().replace(
+            "SURFACES_CHECK_COMPLETE\tcases=3",
+            "SURFACES_SELECTED_CHECK_COMPLETE\tcases=3").replace(
+            "\n".join(f"SURFACE_CHECKED\t{entry['case']}" for entry in entries),
+            "\n".join(f"SURFACE_CHECKED\t{entry['case']}" for entry in entries[:1]))
+        parsed = SurfacesLog(Path("selected-check.log"))
+        parsed.parse(selected)
+        with self.assertRaises(CheckError) as raised:
+            parsed.validate_check_capture()
+        self.assertIn("selected", str(raised.exception))
 
 
 if __name__ == "__main__":

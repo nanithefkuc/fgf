@@ -19,7 +19,6 @@ use fgf::binary::{
 use fgf::extension::{
     Components, Extension, ExtensionSpec, Packed, PackedPadded, QuadMersenne31, Relation,
 };
-use fgf::internals::kernel::KernelBackend as _;
 use fgf::prime::{Goldilocks, Mersenne31, Residue};
 use fgf::{FiniteField, backend_for};
 
@@ -311,12 +310,5 @@ pub fn print_field_backends() {
         };
     }
     for_each_field_small!(scalar_line);
-    // The process-level capability queries the panels report.
-    let process = fgf::backend();
-    println!(
-        "FIELD_BACKEND\tprocess\t{}\tnative_mul={}\tblocked_rows={}",
-        process.name(),
-        process.has_native_mul(),
-        process.has_blocked_rows()
-    );
+    println!("FIELD_BACKEND\tprocess\t{}", fgf::backend().name());
 }

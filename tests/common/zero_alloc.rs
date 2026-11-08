@@ -54,17 +54,10 @@ unsafe impl GlobalAlloc for CountingAllocator {
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
-pub(super) fn noise(len: usize, seed: u64) -> Vec<u8> {
-    let mut state = seed | 1;
-    (0..len)
-        .map(|_| {
-            state = state
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1);
-            (state >> 33) as u8
-        })
-        .collect()
-}
+#[path = "../../src/kernel/tests/fixtures.rs"]
+mod fixtures;
+
+pub(super) use fixtures::noise_odd_seed as noise;
 
 pub(super) fn count_allocations(body: impl FnOnce()) -> usize {
     ALLOCATIONS.with(|c| c.set(0));

@@ -27,10 +27,13 @@ jobs:
       - run: cargo test --no-default-features --features alloc
 
   # Hosted runners must prove the AVX2 floor they execute. Stronger requests
-  # are reported as requests, not credited as executed ISA coverage.
+  # are reported as requests, not credited as executed ISA coverage. The
+  # kernel-registry artifact is downloaded and verified, never regenerated
+  # here, so the audited tree is the committed one.
   isa-accept:
     name: isa-accept v3 (backend floor)
     runs-on: ubuntu-latest
+    needs: kernel-registry
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -41,11 +44,40 @@ jobs:
             echo "── SIMD_BACKEND=${tier}"
             SIMD_BACKEND="${tier}" just example backend_report --all-features
           done
-      - name: fail closed, then tier differentials
-        run: just isa-accept v3
+      - uses: actions/download-artifact@v4
+        with:
+          name: kernel-registry
+          path: target/kernel-registry
+      - name: fail closed, then tier differentials audited per entry
+        run: just isa-accept v3 target/kernel-registry/registry.json
 
-  # Coverage merges tiers and portable features. Its documented exclusions
-  # include binary kernels/dispatch; native differentials run on acceptance hosts.
+  # Derive the kernel-entry registry from the pinned nightly's all-features
+  # x86_64 rustdoc documents and run its static checks: unmapped, generic, or
+  # tokenless first parameters (outside the audited tokenless list), a token
+  # family with no entries, and token-first functions unreachable through
+  # `internals` (outside the audited private-helper allowlist) all fail here.
+  # The registry binds to the source-tree hash, so the `isa-accept` job can
+  # verify the artifact is fresh for the tree it tests.
+  kernel-registry:
+    name: kernel entry registry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install nightly-2026-09-30 --profile minimal
+      - uses: extractions/setup-just@v2
+      - run: just kernel-registry-check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-registry
+          path: target/kernel-registry/registry.json
+          if-no-files-found: error
+
+  # Coverage merges tiers and portable features. `COV_IGNORE` in crate.just
+  # lists the GFNI and AVX-512 files and the two binary-field dispatch
+  # modules whose per-type, per-tier arms hosted runners cannot all execute;
+  # every other kernel file gates the 95%. Acceptance hosts report each list
+  # natively through `just cover-native`.
   coverage:
     name: coverage >=95% (llvm-cov)
     runs-on: ubuntu-latest

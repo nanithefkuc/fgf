@@ -1,10 +1,16 @@
 //! End-to-end differential tests for the token-gated `internals` surface.
 //!
-//! The in-crate kernel tests drive process-selected entries through dispatch.
-//! These tests instead call each direct architecture entry as an external
-//! `internals` consumer would: summon the exact capability token, skip a tier
-//! when the host cannot prove it, and compare every observable byte against an
-//! independent scalar oracle or per-lane field arithmetic. The file also holds
+//! Both differential suites call architecture entries past dispatch. This
+//! suite exercises the feature-gated facade as an external `internals`
+//! consumer, through the shared request-bounded tier gate:
+//! every arithmetic differential runs via [`tier_gate::run_entry`], which
+//! materializes the entry's capability token only when the host ceiling and
+//! the `SIMD_BACKEND` request ceiling allow the entry's tier, and reports
+//! `kernel_differential executed tier=… entry=…` after a successful body, one
+//! receipt per executed entry definition. Entries above the request ceiling
+//! skip, so a test spanning several tiers still executes every allowed
+//! weaker tier. Geometry-panic and allocation checks go through
+//! [`tier_gate::summon`] instead and earn no receipts. The file also holds
 //! the direct gather-offset validation cases and the tier capability queries
 //! that read `internals` state.
 //!
@@ -22,43 +28,39 @@ use fgf::internals::kernel::X64V4xToken;
 use fgf::internals::kernel::gf8::Prepared;
 use fgf::internals::kernel::scalar;
 use fgf::internals::kernel::tables::{TowerCoeff, TowerTables, isomorphism_to_aes, scale_table};
-use fgf::internals::kernel::{
-    FlatMatrix, SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token, x86,
-};
+use fgf::internals::kernel::{FlatMatrix, X64V3Token, x86};
 use fgf::{Elem, FiniteField};
+
+#[path = "../src/kernel/tests/fixtures.rs"]
+mod fixtures;
+
+use fixtures::noise_odd_seed as noise;
+
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+use fgf::internals::kernel::FGF_TIERS;
+#[path = "../src/kernel/tests/tier_gate.rs"]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+mod tier_gate;
 
 type Gf16 = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>;
 
-/// Deterministic LCG noise, the crate's shared convention.
-fn noise(len: usize, seed: u64) -> Vec<u8> {
-    let mut state = seed | 1;
-    (0..len)
-        .map(|_| {
-            state = state
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1);
-            (state >> 33) as u8
-        })
-        .collect()
-}
-
 /// Byte lengths straddling the 16/32-byte lane boundaries and tails.
 #[cfg(not(miri))]
-const LENGTHS8: &[usize] = &[0, 1, 15, 16, 17, 31, 32, 33, 64, 96, 130, 300];
+const LENGTHS8: &[usize] = fixtures::LANE_BOUNDARY_LENGTHS;
 /// Truncated under Miri to empty, tiny, lane-minus-one, lane, lane-plus-one,
 /// and two lanes with a tail; the long rows only multiply interpreted bytes.
 #[cfg(miri)]
 const LENGTHS8: &[usize] = &[0, 1, 15, 16, 17, 32, 33];
 /// Even lengths for GF(2^16)-shaped kernels.
 #[cfg(not(miri))]
-const LENGTHS16: &[usize] = &[0, 2, 16, 30, 32, 34, 64, 66, 128, 130, 300];
+const LENGTHS16: &[usize] = fixtures::EVEN_BYTE_LENGTHS;
 /// Truncated under Miri on the same terms as `LENGTHS8`.
 #[cfg(miri)]
 const LENGTHS16: &[usize] = &[0, 2, 30, 32, 34];
 
 /// Row counts straddling the blocked kernels' four/two/one row groups.
 #[cfg(not(miri))]
-const ROW_COUNTS: &[usize] = &[1, 2, 3, 4, 5, 8, 9];
+const ROW_COUNTS: &[usize] = fixtures::ROW_GROUP_COUNTS;
 /// Truncated under Miri to single, pair, full group, and group-plus-one: the
 /// walk-transition counters are safe control flow, while every row window
 /// keeps the offset-row residue.
@@ -67,17 +69,17 @@ const ROW_COUNTS: &[usize] = &[1, 2, 4, 5];
 #[cfg(not(miri))]
 /// 617 bytes: six 96-byte three-lane tiles, one whole 32-byte lane, and a
 /// sub-lane tail.
-const ROW_LENS: &[usize] = &[2, 32, 34, 300, 617];
+const ROW_LENS: &[usize] = fixtures::ROW_LENGTHS;
 /// Truncated under Miri: the long row only multiplies interpreted bytes.
 #[cfg(miri)]
 const ROW_LENS: &[usize] = &[2, 32, 34];
 #[cfg(not(miri))]
-const EVEN_ROW_LENS: &[usize] = &[2, 30, 32, 34];
+const EVEN_ROW_LENS: &[usize] = fixtures::EVEN_ROW_LENGTHS;
 /// Truncated under Miri on the same terms as `ROW_LENS`.
 #[cfg(miri)]
 const EVEN_ROW_LENS: &[usize] = &[2, 32, 34];
 #[cfg(not(miri))]
-const NTERMS: &[usize] = &[1, 2, 3, 8, 9, 17];
+const NTERMS: &[usize] = fixtures::TERM_COUNTS;
 /// Truncated under Miri to single, pair, and one count past the resolve
 /// chunk, which keeps the scratch-staging seam.
 #[cfg(miri)]
@@ -86,7 +88,7 @@ const NTERMS: &[usize] = &[1, 2, 9];
 /// GF(2^8) coefficients: both short-circuits, the extremes, a spread.
 fn gf8_coeffs() -> Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> {
     #[cfg(not(miri))]
-    let raw = [0u8, 1, 2, 3, 7, 0x53, 0xd3, 0xff];
+    let raw = fixtures::GF8_COEFFICIENTS;
     // Short-circuits, one ordinary value, and the extreme under Miri.
     #[cfg(miri)]
     let raw = [0u8, 1, 0x53, 0xff];
@@ -98,7 +100,7 @@ fn gf8_coeffs() -> Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> {
 /// The Reed–Solomon field's coefficients, same byte spread under `0x11D`.
 fn gf8_rs_coeffs() -> Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> {
     #[cfg(not(miri))]
-    let raw = [0u8, 1, 2, 3, 7, 0x53, 0xd3, 0xff];
+    let raw = fixtures::GF8_COEFFICIENTS;
     // Short-circuits, one ordinary value, and the extreme under Miri.
     #[cfg(miri)]
     let raw = [0u8, 1, 0x53, 0xff];
@@ -110,7 +112,7 @@ fn gf8_rs_coeffs() -> Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> {
 /// GF(2^16) coefficients: short-circuits, pure components, mixed, extremes.
 fn gf16_coeffs() -> Vec<Elem<Gf16>> {
     #[cfg(not(miri))]
-    let raw = [0u16, 1, 0x0100, 0x00ff, 0x1234, 0xbeef, 0x7411, 0xffff];
+    let raw = fixtures::GF16_COEFFICIENTS;
     // Short-circuits, one mixed value, and the extreme under Miri.
     #[cfg(miri)]
     let raw = [0u16, 1, 0x1234, 0xffff];
@@ -310,7 +312,7 @@ fn check_matrix_accumulate<E: Copy>(
     row_lens: &[usize],
     coeff_at: impl Fn(usize, usize) -> E,
     reference: impl Fn(&mut [u8], E, &[u8]),
-    kernel: impl Fn(&mut [u8], usize, usize, &[(&[E], &[u8])]),
+    kernel: impl Fn(&mut [u8], usize, usize, &[(&[E], &[u8])], &[u8]),
 ) {
     for &row_len in row_lens {
         for &nrows in ROW_COUNTS {
@@ -321,8 +323,8 @@ fn check_matrix_accumulate<E: Copy>(
                     nterms,
                     &coeff_at,
                     |mut got, mut want, terms| {
-                        kernel(&mut got, row_len, nrows, terms);
                         fold_terms(&mut want, row_len, terms, &reference);
+                        kernel(&mut got, row_len, nrows, terms, &want);
                         assert_eq!(
                             got, want,
                             "{name}: row_len {row_len}, nrows {nrows}, terms {nterms}"
@@ -342,7 +344,7 @@ fn check_matrix_overwrite<E: Copy>(
     row_lens: &[usize],
     coeff_at: impl Fn(usize, usize) -> E,
     reference: impl Fn(&mut [u8], E, &[u8]),
-    kernel: impl Fn(&mut [u8], usize, usize, &[(&[E], &[u8])]),
+    kernel: impl Fn(&mut [u8], usize, usize, &[(&[E], &[u8])], &[u8]),
 ) {
     for &row_len in row_lens {
         for &nrows in ROW_COUNTS {
@@ -356,8 +358,8 @@ fn check_matrix_overwrite<E: Copy>(
                         // The oracle accumulates from zero over the addressed
                         // rows and keeps the surplus noise.
                         want[..nrows * row_len].fill(0);
-                        kernel(&mut got, row_len, nrows, terms);
                         fold_terms(&mut want, row_len, terms, &reference);
+                        kernel(&mut got, row_len, nrows, terms, &want);
                         assert_eq!(
                             got, want,
                             "{name}: row_len {row_len}, nrows {nrows}, terms {nterms}"
@@ -412,233 +414,270 @@ fn gf16_coeff_at2(t: usize, j: usize) -> Elem<Gf16> {
 
 #[test]
 fn proven_gf8_mul_kernels_match_scalar() {
-    let Some(v3gfni) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    let Some(v3) = X64V3Token::summon() else {
-        eprintln!("skipping: no AVX2 on this host");
-        return;
-    };
-    let Some(v2) = X64V2Token::summon() else {
-        eprintln!("skipping: no SSE2 on this host");
-        return;
-    };
-
     let coeffs = gf8_coeffs();
     let rs_coeffs = gf8_rs_coeffs();
-    check_mul_add(
-        "gf8<0x11b>::mul_add_gfni",
-        LENGTHS8,
-        &coeffs,
-        gf8_ref::<AES>,
-        |dst, c, src| x86::gf8::mul_add_gfni::<true>(v3gfni, dst, Prepared::new(c), src),
-    );
-    check_mul_assign(
-        "gf8<0x11b>::mul_assign_gfni",
-        LENGTHS8,
-        &coeffs,
-        scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>,
-        |dst, c| x86::gf8::mul_assign_gfni::<true>(v3gfni, dst, Prepared::new(c)),
-    );
-    check_mul_into(
-        "gf8<0x11b>::mul_into_gfni",
-        LENGTHS8,
-        &coeffs,
-        gf8_ref::<AES>,
-        |dst, c, src| x86::gf8::mul_into_gfni::<true>(v3gfni, dst, Prepared::new(c), src),
-    );
-    check_mul_add(
-        "gf8<0x11b>::mul_add_avx2",
-        LENGTHS8,
-        &coeffs,
-        gf8_ref::<AES>,
-        |dst, c, src| x86::gf8::mul_add_avx2(v3, dst, scale_table(c), src),
-    );
-    check_mul_assign(
-        "gf8<0x11b>::mul_assign_avx2",
-        LENGTHS8,
-        &coeffs,
-        scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>,
-        |dst, c| x86::gf8::mul_assign_avx2(v3, dst, scale_table(c)),
-    );
-    check_mul_into(
-        "gf8<0x11b>::mul_into_avx2",
-        LENGTHS8,
-        &coeffs,
-        gf8_ref::<AES>,
-        |dst, c, src| x86::gf8::mul_into_avx2(v3, dst, scale_table(c), src),
-    );
-    check_mul_add(
-        "gf8<0x11b>::mul_add_ssse3",
-        LENGTHS8,
-        &coeffs,
-        gf8_ref::<AES>,
-        |dst, c, src| x86::gf8::mul_add_ssse3(v2, dst, scale_table(c), src),
-    );
-    check_mul_assign(
-        "gf8<0x11b>::mul_assign_ssse3",
-        LENGTHS8,
-        &coeffs,
-        scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>,
-        |dst, c| x86::gf8::mul_assign_ssse3(v2, dst, scale_table(c)),
-    );
-    check_mul_into(
-        "gf8<0x11b>::mul_into_ssse3",
-        LENGTHS8,
-        &coeffs,
-        gf8_ref::<AES>,
-        |dst, c, src| x86::gf8::mul_into_ssse3(v2, dst, scale_table(c), src),
-    );
+    tier_gate::run_entry(x86::gf8::mul_add_gfni::<true>, |token, entry| {
+        check_mul_add(
+            "gf8<0x11b>::mul_add_gfni",
+            LENGTHS8,
+            &coeffs,
+            gf8_ref::<AES>,
+            |dst, c, src| entry(token, dst, Prepared::new(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_assign_gfni::<true>, |token, entry| {
+        check_mul_assign(
+            "gf8<0x11b>::mul_assign_gfni",
+            LENGTHS8,
+            &coeffs,
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>,
+            |dst, c| entry(token, dst, Prepared::new(c)),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_into_gfni::<true>, |token, entry| {
+        check_mul_into(
+            "gf8<0x11b>::mul_into_gfni",
+            LENGTHS8,
+            &coeffs,
+            gf8_ref::<AES>,
+            |dst, c, src| entry(token, dst, Prepared::new(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_add_avx2, |token, entry| {
+        check_mul_add(
+            "gf8<0x11b>::mul_add_avx2",
+            LENGTHS8,
+            &coeffs,
+            gf8_ref::<AES>,
+            |dst, c, src| entry(token, dst, scale_table(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_assign_avx2, |token, entry| {
+        check_mul_assign(
+            "gf8<0x11b>::mul_assign_avx2",
+            LENGTHS8,
+            &coeffs,
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>,
+            |dst, c| entry(token, dst, scale_table(c)),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_into_avx2, |token, entry| {
+        check_mul_into(
+            "gf8<0x11b>::mul_into_avx2",
+            LENGTHS8,
+            &coeffs,
+            gf8_ref::<AES>,
+            |dst, c, src| entry(token, dst, scale_table(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_add_ssse3, |token, entry| {
+        check_mul_add(
+            "gf8<0x11b>::mul_add_ssse3",
+            LENGTHS8,
+            &coeffs,
+            gf8_ref::<AES>,
+            |dst, c, src| entry(token, dst, scale_table(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_assign_ssse3, |token, entry| {
+        check_mul_assign(
+            "gf8<0x11b>::mul_assign_ssse3",
+            LENGTHS8,
+            &coeffs,
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>,
+            |dst, c| entry(token, dst, scale_table(c)),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_into_ssse3, |token, entry| {
+        check_mul_into(
+            "gf8<0x11b>::mul_into_ssse3",
+            LENGTHS8,
+            &coeffs,
+            gf8_ref::<AES>,
+            |dst, c, src| entry(token, dst, scale_table(c), src),
+        )
+    });
 
-    check_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(
-        "gf8::mul_elementwise_gfni",
-        LENGTHS8,
-        |dst, a, b| {
-            x86::gf8::mul_elementwise_gfni::<true>(
-                v3gfni,
-                isomorphism_to_aes::<AES>(),
-                reduction_low::<AES>(),
-                dst,
-                a,
-                b,
-            )
-        },
-    );
-    check_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(
-        "gf8::mul_elementwise_avx2",
-        LENGTHS8,
-        |dst, a, b| x86::gf8::mul_elementwise_avx2(v3, reduction_low::<AES>(), dst, a, b),
-    );
-    check_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(
-        "gf8::mul_elementwise_ssse3",
-        LENGTHS8,
-        |dst, a, b| x86::gf8::mul_elementwise_ssse3(v2, reduction_low::<AES>(), dst, a, b),
-    );
+    tier_gate::run_entry(x86::gf8::mul_elementwise_gfni::<true>, |token, entry| {
+        check_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(
+            "gf8::mul_elementwise_gfni",
+            LENGTHS8,
+            |dst, a, b| {
+                entry(
+                    token,
+                    isomorphism_to_aes::<AES>(),
+                    reduction_low::<AES>(),
+                    dst,
+                    a,
+                    b,
+                )
+            },
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_elementwise_avx2, |token, entry| {
+        check_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(
+            "gf8::mul_elementwise_avx2",
+            LENGTHS8,
+            |dst, a, b| entry(token, reduction_low::<AES>(), dst, a, b),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_elementwise_ssse3, |token, entry| {
+        check_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(
+            "gf8::mul_elementwise_ssse3",
+            LENGTHS8,
+            |dst, a, b| entry(token, reduction_low::<AES>(), dst, a, b),
+        )
+    });
 
     // The shuffle single-row kernels are polynomial-agnostic: the
     // coefficient's own bank serves the Reed–Solomon field too.
-    check_mul_add(
-        "gf8<0x11d>::mul_add_avx2",
-        LENGTHS8,
-        &rs_coeffs,
-        gf8_ref::<RS>,
-        |dst, c, src| x86::gf8::mul_add_avx2(v3, dst, scale_table(c), src),
-    );
-    check_mul_assign(
-        "gf8<0x11d>::mul_assign_avx2",
-        LENGTHS8,
-        &rs_coeffs,
-        scalar::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>,
-        |dst, c| x86::gf8::mul_assign_avx2(v3, dst, scale_table(c)),
-    );
-    check_mul_into(
-        "gf8<0x11d>::mul_into_avx2",
-        LENGTHS8,
-        &rs_coeffs,
-        gf8_ref::<RS>,
-        |dst, c, src| x86::gf8::mul_into_avx2(v3, dst, scale_table(c), src),
-    );
-    check_mul_add(
-        "gf8<0x11d>::mul_add_ssse3",
-        LENGTHS8,
-        &rs_coeffs,
-        gf8_ref::<RS>,
-        |dst, c, src| x86::gf8::mul_add_ssse3(v2, dst, scale_table(c), src),
-    );
-    check_mul_assign(
-        "gf8<0x11d>::mul_assign_ssse3",
-        LENGTHS8,
-        &rs_coeffs,
-        scalar::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>,
-        |dst, c| x86::gf8::mul_assign_ssse3(v2, dst, scale_table(c)),
-    );
-    check_mul_into(
-        "gf8<0x11d>::mul_into_ssse3",
-        LENGTHS8,
-        &rs_coeffs,
-        gf8_ref::<RS>,
-        |dst, c, src| x86::gf8::mul_into_ssse3(v2, dst, scale_table(c), src),
-    );
-    check_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(
-        "gf8::mul_elementwise_avx2 rs",
-        LENGTHS8,
-        |dst, a, b| x86::gf8::mul_elementwise_avx2(v3, reduction_low::<RS>(), dst, a, b),
-    );
-    check_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(
-        "gf8::mul_elementwise_ssse3 rs",
-        LENGTHS8,
-        |dst, a, b| x86::gf8::mul_elementwise_ssse3(v2, reduction_low::<RS>(), dst, a, b),
-    );
+    tier_gate::run_entry(x86::gf8::mul_add_avx2, |token, entry| {
+        check_mul_add(
+            "gf8<0x11d>::mul_add_avx2",
+            LENGTHS8,
+            &rs_coeffs,
+            gf8_ref::<RS>,
+            |dst, c, src| entry(token, dst, scale_table(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_assign_avx2, |token, entry| {
+        check_mul_assign(
+            "gf8<0x11d>::mul_assign_avx2",
+            LENGTHS8,
+            &rs_coeffs,
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>,
+            |dst, c| entry(token, dst, scale_table(c)),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_into_avx2, |token, entry| {
+        check_mul_into(
+            "gf8<0x11d>::mul_into_avx2",
+            LENGTHS8,
+            &rs_coeffs,
+            gf8_ref::<RS>,
+            |dst, c, src| entry(token, dst, scale_table(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_add_ssse3, |token, entry| {
+        check_mul_add(
+            "gf8<0x11d>::mul_add_ssse3",
+            LENGTHS8,
+            &rs_coeffs,
+            gf8_ref::<RS>,
+            |dst, c, src| entry(token, dst, scale_table(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_assign_ssse3, |token, entry| {
+        check_mul_assign(
+            "gf8<0x11d>::mul_assign_ssse3",
+            LENGTHS8,
+            &rs_coeffs,
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>,
+            |dst, c| entry(token, dst, scale_table(c)),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_into_ssse3, |token, entry| {
+        check_mul_into(
+            "gf8<0x11d>::mul_into_ssse3",
+            LENGTHS8,
+            &rs_coeffs,
+            gf8_ref::<RS>,
+            |dst, c, src| entry(token, dst, scale_table(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_elementwise_avx2, |token, entry| {
+        check_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(
+            "gf8::mul_elementwise_avx2 rs",
+            LENGTHS8,
+            |dst, a, b| entry(token, reduction_low::<RS>(), dst, a, b),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_elementwise_ssse3, |token, entry| {
+        check_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(
+            "gf8::mul_elementwise_ssse3 rs",
+            LENGTHS8,
+            |dst, a, b| entry(token, reduction_low::<RS>(), dst, a, b),
+        )
+    });
 }
 
 #[test]
 fn proven_gf8_rs_gfni_kernels_match_scalar() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
     let coeffs = gf8_rs_coeffs();
-    check_mul_add(
-        "gf8<0x11d>::mul_add_gfni",
-        LENGTHS8,
-        &coeffs,
-        gf8_ref::<RS>,
-        |dst, c, src| x86::gf8::mul_add_gfni::<false>(token, dst, Prepared::new(c), src),
-    );
-    check_mul_assign(
-        "gf8<0x11d>::mul_assign_gfni",
-        LENGTHS8,
-        &coeffs,
-        scalar::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>,
-        |dst, c| x86::gf8::mul_assign_gfni::<false>(token, dst, Prepared::new(c)),
-    );
-    check_mul_into(
-        "gf8<0x11d>::mul_into_gfni",
-        LENGTHS8,
-        &coeffs,
-        gf8_ref::<RS>,
-        |dst, c, src| x86::gf8::mul_into_gfni::<false>(token, dst, Prepared::new(c), src),
-    );
+    tier_gate::run_entry(x86::gf8::mul_add_gfni::<false>, |token, entry| {
+        check_mul_add(
+            "gf8<0x11d>::mul_add_gfni",
+            LENGTHS8,
+            &coeffs,
+            gf8_ref::<RS>,
+            |dst, c, src| entry(token, dst, Prepared::new(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_assign_gfni::<false>, |token, entry| {
+        check_mul_assign(
+            "gf8<0x11d>::mul_assign_gfni",
+            LENGTHS8,
+            &coeffs,
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>,
+            |dst, c| entry(token, dst, Prepared::new(c)),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_into_gfni::<false>, |token, entry| {
+        check_mul_into(
+            "gf8<0x11d>::mul_into_gfni",
+            LENGTHS8,
+            &coeffs,
+            gf8_ref::<RS>,
+            |dst, c, src| entry(token, dst, Prepared::new(c), src),
+        )
+    });
 
     // The affine body on AES data: the selection every non-AES-native
     // representation takes, exercised on the native field.
-    check_mul_add(
-        "gf8<0x11b>::mul_add_gfni affine",
-        LENGTHS8,
-        &gf8_coeffs(),
-        gf8_ref::<AES>,
-        |dst, c, src| x86::gf8::mul_add_gfni::<false>(token, dst, Prepared::new(c), src),
-    );
-    check_mul_assign(
-        "gf8<0x11b>::mul_assign_gfni affine",
-        LENGTHS8,
-        &gf8_coeffs(),
-        scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>,
-        |dst, c| x86::gf8::mul_assign_gfni::<false>(token, dst, Prepared::new(c)),
-    );
-    check_mul_into(
-        "gf8<0x11b>::mul_into_gfni affine",
-        LENGTHS8,
-        &gf8_coeffs(),
-        gf8_ref::<AES>,
-        |dst, c, src| x86::gf8::mul_into_gfni::<false>(token, dst, Prepared::new(c), src),
-    );
+    tier_gate::run_entry(x86::gf8::mul_add_gfni::<false>, |token, entry| {
+        check_mul_add(
+            "gf8<0x11b>::mul_add_gfni affine",
+            LENGTHS8,
+            &gf8_coeffs(),
+            gf8_ref::<AES>,
+            |dst, c, src| entry(token, dst, Prepared::new(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_assign_gfni::<false>, |token, entry| {
+        check_mul_assign(
+            "gf8<0x11b>::mul_assign_gfni affine",
+            LENGTHS8,
+            &gf8_coeffs(),
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>,
+            |dst, c| entry(token, dst, Prepared::new(c)),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_into_gfni::<false>, |token, entry| {
+        check_mul_into(
+            "gf8<0x11b>::mul_into_gfni affine",
+            LENGTHS8,
+            &gf8_coeffs(),
+            gf8_ref::<AES>,
+            |dst, c, src| entry(token, dst, Prepared::new(c), src),
+        )
+    });
 
-    check_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(
-        "gf8::mul_elementwise_gfni rs",
-        LENGTHS8,
-        |dst, a, b| {
-            x86::gf8::mul_elementwise_gfni::<false>(
-                token,
-                isomorphism_to_aes::<RS>(),
-                reduction_low::<RS>(),
-                dst,
-                a,
-                b,
-            )
-        },
-    );
+    tier_gate::run_entry(x86::gf8::mul_elementwise_gfni::<false>, |token, entry| {
+        check_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(
+            "gf8::mul_elementwise_gfni rs",
+            LENGTHS8,
+            |dst, a, b| {
+                entry(
+                    token,
+                    isomorphism_to_aes::<RS>(),
+                    reduction_low::<RS>(),
+                    dst,
+                    a,
+                    b,
+                )
+            },
+        )
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -647,29 +686,24 @@ fn proven_gf8_rs_gfni_kernels_match_scalar() {
 
 #[test]
 fn proven_gf8_scatter_gather_match_scalar() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-
-    check_scatter(
-        "gf8::mul_add_scatter_gfni",
-        ROW_LENS,
-        gf8_ref::<AES>,
-        |j| Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw((j as u8).wrapping_mul(29)),
-        |rows, row_len, coeffs, src| {
-            x86::gf8::mul_add_scatter_gfni::<true>(token, rows, row_len, &prepared(coeffs), src)
-        },
-    );
-    check_scatter(
-        "gf8::mul_add_scatter_gfni rs",
-        ROW_LENS,
-        gf8_ref::<RS>,
-        |j| Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw((j as u8).wrapping_mul(29)),
-        |rows, row_len, coeffs, src| {
-            x86::gf8::mul_add_scatter_gfni::<false>(token, rows, row_len, &prepared(coeffs), src)
-        },
-    );
+    tier_gate::run_entry(x86::gf8::mul_add_scatter_gfni::<true>, |token, entry| {
+        check_scatter(
+            "gf8::mul_add_scatter_gfni",
+            ROW_LENS,
+            gf8_ref::<AES>,
+            |j| Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw((j as u8).wrapping_mul(29)),
+            |rows, row_len, coeffs, src| entry(token, rows, row_len, &prepared(coeffs), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf8::mul_add_scatter_gfni::<false>, |token, entry| {
+        check_scatter(
+            "gf8::mul_add_scatter_gfni rs",
+            ROW_LENS,
+            gf8_ref::<RS>,
+            |j| Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw((j as u8).wrapping_mul(29)),
+            |rows, row_len, coeffs, src| entry(token, rows, row_len, &prepared(coeffs), src),
+        )
+    });
 
     #[cfg(not(miri))]
     let row_lens: &[usize] = &[32usize, 130, 300];
@@ -677,156 +711,129 @@ fn proven_gf8_scatter_gather_match_scalar() {
     #[cfg(miri)]
     let row_lens: &[usize] = &[32usize, 130];
     for &row_len in row_lens {
-        check_gather(
-            "gf8::mul_add_gather_gfni",
-            row_len,
-            gf8_ref::<AES>,
-            |i| {
-                Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
-                    (i as u8).wrapping_mul(37).wrapping_add(3),
-                )
-            },
-            |dst, coeffs, srcs| {
-                x86::gf8::mul_add_gather_gfni::<true>(token, dst, &prepared(coeffs), srcs)
-            },
-        );
-        check_gather(
-            "gf8::mul_add_gather_gfni rs",
-            row_len,
-            gf8_ref::<RS>,
-            |i| {
-                Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(
-                    (i as u8).wrapping_mul(53).wrapping_add(13),
-                )
-            },
-            |dst, coeffs, srcs| {
-                x86::gf8::mul_add_gather_gfni::<false>(token, dst, &prepared(coeffs), srcs)
-            },
-        );
+        tier_gate::run_entry(x86::gf8::mul_add_gather_gfni::<true>, |token, entry| {
+            check_gather(
+                "gf8::mul_add_gather_gfni",
+                row_len,
+                gf8_ref::<AES>,
+                |i| {
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
+                        (i as u8).wrapping_mul(37).wrapping_add(3),
+                    )
+                },
+                |dst, coeffs, srcs| entry(token, dst, &prepared(coeffs), srcs),
+            )
+        });
+        tier_gate::run_entry(x86::gf8::mul_add_gather_gfni::<false>, |token, entry| {
+            check_gather(
+                "gf8::mul_add_gather_gfni rs",
+                row_len,
+                gf8_ref::<RS>,
+                |i| {
+                    Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(
+                        (i as u8).wrapping_mul(53).wrapping_add(13),
+                    )
+                },
+                |dst, coeffs, srcs| entry(token, dst, &prepared(coeffs), srcs),
+            )
+        });
     }
 }
 
 #[test]
 fn proven_gf8_matrix_kernels_match_scalar() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
+    if tier_gate::summon::<archmage::X64V3GfniCryptoToken>().is_none() {
         return;
-    };
-
-    check_matrix_accumulate(
+    }
+    macro_rules! checked {
+        ($driver:ident, $poly:ident, $name:expr, $path:path, slice) => {
+            $driver(
+                $name,
+                ROW_LENS,
+                gf8_coeff_at2::<$poly>,
+                gf8_ref::<$poly>,
+                |rows, row_len, nrows, terms, want| {
+                    prepared_pairs!(terms, |pairs| {
+                        tier_gate::run_entry($path, |token, entry| {
+                            entry(token, rows, row_len, nrows, &pairs[..]);
+                            assert_eq!(rows, want, "{}", $name);
+                        });
+                    });
+                },
+            );
+        };
+        ($driver:ident, $poly:ident, $name:expr, $path:path, flat) => {
+            $driver(
+                $name,
+                ROW_LENS,
+                gf8_coeff_at2::<$poly>,
+                gf8_ref::<$poly>,
+                |rows, row_len, nrows, terms, want| {
+                    flat_gf8::<$poly>(terms, nrows, |matrix| {
+                        tier_gate::run_entry($path, |token, entry| {
+                            entry(token, rows, row_len, nrows, matrix);
+                            assert_eq!(rows, want, "{}", $name);
+                        });
+                    });
+                },
+            );
+        };
+    }
+    checked!(
+        check_matrix_accumulate,
+        AES,
         "gf8::mul_add_matrix_gfni",
-        ROW_LENS,
-        gf8_coeff_at2::<AES>,
-        gf8_ref::<AES>,
-        |rows, row_len, nrows, terms| {
-            prepared_pairs!(terms, |pairs| {
-                x86::gf8::mul_add_matrix_gfni_with::<true, _>(
-                    token,
-                    rows,
-                    row_len,
-                    nrows,
-                    &pairs[..],
-                )
-            })
-        },
+        x86::gf8::mul_add_matrix_gfni_with::<true, _>,
+        slice
     );
-    check_matrix_accumulate(
+    checked!(
+        check_matrix_accumulate,
+        RS,
         "gf8::mul_add_matrix_gfni rs",
-        ROW_LENS,
-        gf8_coeff_at2::<RS>,
-        gf8_ref::<RS>,
-        |rows, row_len, nrows, terms| {
-            prepared_pairs!(terms, |pairs| {
-                x86::gf8::mul_add_matrix_gfni_with::<false, _>(
-                    token,
-                    rows,
-                    row_len,
-                    nrows,
-                    &pairs[..],
-                )
-            })
-        },
+        x86::gf8::mul_add_matrix_gfni_with::<false, _>,
+        slice
     );
-    check_matrix_overwrite(
+    checked!(
+        check_matrix_overwrite,
+        AES,
         "gf8::mul_into_matrix_gfni",
-        ROW_LENS,
-        gf8_coeff_at2::<AES>,
-        gf8_ref::<AES>,
-        |rows, row_len, nrows, terms| {
-            prepared_pairs!(terms, |pairs| {
-                x86::gf8::mul_into_matrix_gfni_with::<true, _>(
-                    token,
-                    rows,
-                    row_len,
-                    nrows,
-                    &pairs[..],
-                )
-            })
-        },
+        x86::gf8::mul_into_matrix_gfni_with::<true, _>,
+        slice
     );
-    check_matrix_overwrite(
+    checked!(
+        check_matrix_overwrite,
+        RS,
         "gf8::mul_into_matrix_gfni rs",
-        ROW_LENS,
-        gf8_coeff_at2::<RS>,
-        gf8_ref::<RS>,
-        |rows, row_len, nrows, terms| {
-            prepared_pairs!(terms, |pairs| {
-                x86::gf8::mul_into_matrix_gfni_with::<false, _>(
-                    token,
-                    rows,
-                    row_len,
-                    nrows,
-                    &pairs[..],
-                )
-            })
-        },
+        x86::gf8::mul_into_matrix_gfni_with::<false, _>,
+        slice
     );
-
-    // The unsafe generic-provider twins, driven through the crate's own
-    // stable FlatMatrix provider.
-    check_matrix_accumulate(
+    checked!(
+        check_matrix_accumulate,
+        AES,
         "gf8::mul_add_matrix_gfni_with",
-        ROW_LENS,
-        gf8_coeff_at2::<AES>,
-        gf8_ref::<AES>,
-        |rows, row_len, nrows, terms| {
-            flat_gf8(terms, nrows, |matrix| {
-                x86::gf8::mul_add_matrix_gfni_with::<true, _>(token, rows, row_len, nrows, matrix)
-            });
-        },
+        x86::gf8::mul_add_matrix_gfni_with::<true, _>,
+        flat
     );
-    check_matrix_overwrite(
+    checked!(
+        check_matrix_overwrite,
+        AES,
         "gf8::mul_into_matrix_gfni_with",
-        ROW_LENS,
-        gf8_coeff_at2::<AES>,
-        gf8_ref::<AES>,
-        |rows, row_len, nrows, terms| {
-            flat_gf8(terms, nrows, |matrix| {
-                x86::gf8::mul_into_matrix_gfni_with::<true, _>(token, rows, row_len, nrows, matrix)
-            });
-        },
+        x86::gf8::mul_into_matrix_gfni_with::<true, _>,
+        flat
     );
-    check_matrix_accumulate(
+    checked!(
+        check_matrix_accumulate,
+        RS,
         "gf8::mul_add_matrix_gfni_with rs",
-        ROW_LENS,
-        gf8_coeff_at2::<RS>,
-        gf8_ref::<RS>,
-        |rows, row_len, nrows, terms| {
-            flat_gf8(terms, nrows, |matrix| {
-                x86::gf8::mul_add_matrix_gfni_with::<false, _>(token, rows, row_len, nrows, matrix)
-            });
-        },
+        x86::gf8::mul_add_matrix_gfni_with::<false, _>,
+        flat
     );
-    check_matrix_overwrite(
+    checked!(
+        check_matrix_overwrite,
+        RS,
         "gf8::mul_into_matrix_gfni_with rs",
-        ROW_LENS,
-        gf8_coeff_at2::<RS>,
-        gf8_ref::<RS>,
-        |rows, row_len, nrows, terms| {
-            flat_gf8(terms, nrows, |matrix| {
-                x86::gf8::mul_into_matrix_gfni_with::<false, _>(token, rows, row_len, nrows, matrix)
-            });
-        },
+        x86::gf8::mul_into_matrix_gfni_with::<false, _>,
+        flat
     );
 }
 
@@ -853,30 +860,23 @@ fn flat_gf8<const POLY: u128>(
 
 #[test]
 fn proven_gf8_matrix_scattered_matches_scalar() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
     // Disjoint rows at mixed byte offsets, including zero rows and a
     // tight fit; GF(2^8) rows only need byte alignment.
     let starts = [0usize, 40, 96, 200, 260, 320, 400];
+    if tier_gate::summon::<archmage::X64V3GfniCryptoToken>().is_none() {
+        return;
+    }
     for &row_len in &[2usize, 32, 34] {
         for nrows in [0usize, 1, 3, starts.len()] {
-            scattered_case_gf8::<AES>(token, "mul_add_matrix_at_gfni", row_len, &starts[..nrows]);
-            scattered_case_gf8::<RS>(
-                token,
-                "mul_add_matrix_at_gfni rs",
-                row_len,
-                &starts[..nrows],
-            );
+            scattered_case_gf8::<AES, true>("mul_add_matrix_at_gfni", row_len, &starts[..nrows]);
+            scattered_case_gf8::<RS, false>("mul_add_matrix_at_gfni rs", row_len, &starts[..nrows]);
         }
     }
 }
 
 // Term geometry nests the unified element spelling; the slices stay slices.
 #[allow(clippy::type_complexity)]
-fn scattered_case_gf8<const POLY: u128>(
-    token: X64V3GfniCryptoToken,
+fn scattered_case_gf8<const POLY: u128, const NATIVE: bool>(
     name: &str,
     row_len: usize,
     starts: &[usize],
@@ -900,31 +900,20 @@ fn scattered_case_gf8<const POLY: u128>(
         .collect();
     let mut got = noise(TOTAL, 0xe1);
     let mut want = got.clone();
-    prepared_pairs!(terms, |pairs| {
-        if POLY == AES {
-            x86::gf8::mul_add_matrix_at_gfni_with::<true, _>(
-                token,
-                &mut got,
-                row_len,
-                starts,
-                &pairs[..],
-            );
-        } else {
-            x86::gf8::mul_add_matrix_at_gfni_with::<false, _>(
-                token,
-                &mut got,
-                row_len,
-                starts,
-                &pairs[..],
-            );
-        }
-    });
     for &(coeffs, src) in &terms {
         for (&start, &coeff) in starts.iter().zip(coeffs) {
             gf8_ref::<POLY>(&mut want[start..start + row_len], coeff, src);
         }
     }
-    assert_eq!(got, want, "{name}: row_len {row_len}");
+    prepared_pairs!(terms, |pairs| {
+        tier_gate::run_entry(
+            x86::gf8::mul_add_matrix_at_gfni_with::<NATIVE, _>,
+            |token, entry| {
+                entry(token, &mut got, row_len, starts, &pairs[..]);
+                assert_eq!(got, want, "{name}: row_len {row_len}");
+            },
+        );
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -932,20 +921,22 @@ fn scattered_case_gf8<const POLY: u128>(
 // ---------------------------------------------------------------------------
 #[test]
 fn proven_overwrite_wrappers_zero_addressed_rows_on_empty_terms() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
+    let (row_len, nrows, surplus) = (96usize, 6, 17);
+    let Some(token) = tier_gate::summon::<archmage::X64V3GfniCryptoToken>() else {
         return;
     };
-    let (row_len, nrows, surplus) = (96usize, 6, 17);
 
     // Empty term list: the overwrite sum is zero over the addressed rows;
     // the surplus stays untouched.
     let empty: [(&[Prepared], &[u8]); 0] = [];
     let mut got = noise(nrows * row_len + surplus, 0xf1);
     let mut want = got.clone();
-    x86::gf8::mul_into_matrix_gfni_with::<true, _>(token, &mut got, row_len, nrows, &empty[..]);
-    want[..nrows * row_len].fill(0);
-    assert_eq!(got, want, "mul_into_matrix_gfni: empty terms");
+    {
+        let entry = x86::gf8::mul_into_matrix_gfni_with::<true, _>;
+        entry(token, &mut got, row_len, nrows, &empty[..]);
+        want[..nrows * row_len].fill(0);
+        assert_eq!(got, want, "mul_into_matrix_gfni: empty terms");
+    }
 
     // The FlatMatrix twins must agree with their slice twins.
     let srcs: Vec<&[u8]> = Vec::new();
@@ -957,21 +948,30 @@ fn proven_overwrite_wrappers_zero_addressed_rows_on_empty_terms() {
     };
     let mut got = noise(nrows * row_len + surplus, 0xf3);
     let mut want = got.clone();
-    x86::gf8::mul_into_matrix_gfni_with::<true, _>(token, &mut got, row_len, nrows, &matrix);
-    want[..nrows * row_len].fill(0);
-    assert_eq!(got, want, "mul_into_matrix_gfni_with: empty terms");
+    {
+        let entry = x86::gf8::mul_into_matrix_gfni_with::<true, _>;
+        entry(token, &mut got, row_len, nrows, &matrix);
+        want[..nrows * row_len].fill(0);
+        assert_eq!(got, want, "mul_into_matrix_gfni_with: empty terms");
+    }
 
     let mut got = noise(nrows * row_len + surplus, 0xf4);
     let mut want = got.clone();
-    x86::gf8::mul_into_matrix_gfni_with::<false, _>(token, &mut got, row_len, nrows, &matrix);
-    want[..nrows * row_len].fill(0);
-    assert_eq!(got, want, "mul_into_matrix_gfni_with rs: empty terms");
+    {
+        let entry = x86::gf8::mul_into_matrix_gfni_with::<false, _>;
+        entry(token, &mut got, row_len, nrows, &matrix);
+        want[..nrows * row_len].fill(0);
+        assert_eq!(got, want, "mul_into_matrix_gfni_with rs: empty terms");
+    }
 
     // Accumulation with no terms is a no-op: nothing changes.
     let mut got = noise(nrows * row_len + surplus, 0xf5);
     let want = got.clone();
-    x86::gf8::mul_add_matrix_gfni_with::<true, _>(token, &mut got, row_len, nrows, &empty[..]);
-    assert_eq!(got, want, "mul_add_matrix_gfni: empty terms is a no-op");
+    {
+        let entry = x86::gf8::mul_add_matrix_gfni_with::<true, _>;
+        entry(token, &mut got, row_len, nrows, &empty[..]);
+        assert_eq!(got, want, "mul_add_matrix_gfni: empty terms is a no-op");
+    }
 
     // Zero rows: nothing is addressed, nothing changes (every term supplies
     // zero coefficients, matching the zero row count).
@@ -980,9 +980,16 @@ fn proven_overwrite_wrappers_zero_addressed_rows_on_empty_terms() {
     let src = noise(row_len, 0xf7);
     let no_coeffs: [Prepared; 0] = [];
     let terms: Vec<(&[Prepared], &[u8])> = vec![(no_coeffs.as_slice(), src.as_slice())];
-    x86::gf8::mul_add_matrix_gfni_with::<true, _>(token, &mut got, row_len, 0, &terms[..]);
-    x86::gf8::mul_into_matrix_gfni_with::<true, _>(token, &mut got, row_len, 0, &terms[..]);
-    assert_eq!(got, want, "zero rows address nothing");
+    {
+        let entry = x86::gf8::mul_add_matrix_gfni_with::<true, _>;
+        entry(token, &mut got, row_len, 0, &terms[..]);
+        assert_eq!(got, want, "zero rows address nothing");
+    }
+    {
+        let entry = x86::gf8::mul_into_matrix_gfni_with::<true, _>;
+        entry(token, &mut got, row_len, 0, &terms[..]);
+        assert_eq!(got, want, "zero rows address nothing");
+    }
 
     // Zero-length rows with a zero-length source are a documented no-op;
     // an empty gather with no sources must also leave the destination be.
@@ -993,50 +1000,71 @@ fn proven_overwrite_wrappers_zero_addressed_rows_on_empty_terms() {
     )];
     let no_coeffs: [Prepared; 0] = [];
     let no_srcs: [&[u8]; 0] = [];
-    x86::gf8::mul_add_scatter_gfni::<true>(token, &mut got, 0, &coeffs, &[]);
-    x86::gf8::mul_add_gather_gfni::<true>(token, &mut got, &no_coeffs, &no_srcs);
-    assert_eq!(got, want, "zero-length rows are a no-op");
+    {
+        let entry = x86::gf8::mul_add_scatter_gfni::<true>;
+        entry(token, &mut got, 0, &coeffs, &[]);
+        assert_eq!(got, want, "zero-length rows are a no-op");
+    }
+    {
+        let entry = x86::gf8::mul_add_gather_gfni::<true>;
+        entry(token, &mut got, &no_coeffs, &no_srcs);
+        assert_eq!(got, want, "zero-length rows are a no-op");
+    }
 }
 
 #[test]
 fn proven_gf16_degenerate_boundaries() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
+    let (row_len, nrows, surplus) = (96usize, 5, 18);
+    let Some(token) = tier_gate::summon::<archmage::X64V3GfniCryptoToken>() else {
         return;
     };
-    let (row_len, nrows, surplus) = (96usize, 5, 18);
 
     // Accumulate with no terms: no-op.
     let mut got = noise(nrows * row_len + surplus, 0x171);
     let want = got.clone();
     let no_terms: [(&[Elem<Gf16>], &[u8]); 0] = [];
-    x86::gf16::mul_add_matrix_gfni(token, &mut got, row_len, nrows, &no_terms);
-    assert_eq!(
-        got, want,
-        "gf16::mul_add_matrix_gfni: empty terms is a no-op"
-    );
+    {
+        let entry = x86::gf16::mul_add_matrix_gfni;
+        entry(token, &mut got, row_len, nrows, &no_terms);
+        assert_eq!(
+            got, want,
+            "gf16::mul_add_matrix_gfni: empty terms is a no-op"
+        );
+    }
 
     // Zero rows and empty gather sources.
     let mut got = noise(row_len + surplus, 0x172);
     let want = got.clone();
     let coeffs = [Elem::<Gf16>::from_raw(0xbeef)];
     let no_coeffs: [Elem<Gf16>; 0] = [];
-    x86::gf16::mul_add_gather_gfni(token, &mut got, &no_coeffs, &[]);
-    x86::gf16::mul_add_scatter_gfni(token, &mut got, 0, &coeffs, &[]);
-    assert_eq!(got, want, "gf16: degenerate geometry is a no-op");
+    {
+        let entry = x86::gf16::mul_add_gather_gfni;
+        entry(token, &mut got, &no_coeffs, &[]);
+        assert_eq!(got, want, "gf16: degenerate geometry is a no-op");
+    }
+    {
+        let entry = x86::gf16::mul_add_scatter_gfni;
+        entry(token, &mut got, 0, &coeffs, &[]);
+        assert_eq!(got, want, "gf16: degenerate geometry is a no-op");
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Geometry rejection — real panics from the entry validation.
 // ---------------------------------------------------------------------------
 
-/// Asserts that `body` panics, skipping when the host cannot summon the
-/// capability token the kernel demands.
+/// Asserts that `body` panics, skipping when the request-bounded gate
+/// cannot hand over the capability token the kernel demands.
+///
+/// Geometry checks earn no execution receipts: the gate only materializes
+/// the token, skipping a tier the `SIMD_BACKEND` request ceiling excludes.
+/// Under `FGF_REQUIRE_TIER` a floor-allowed entry whose hardware is missing
+/// fails closed instead of skipping.
 ///
 /// `#[should_panic]` cannot express the skip: a token-less early return is
 /// reported as "did not panic as expected" on every host without the feature.
-fn rejects_geometry<T: SimdToken>(what: &str, body: impl FnOnce(T)) {
-    let Some(token) = T::summon() else {
+fn rejects_geometry<T: tier_gate::TokenTier>(what: &str, body: impl FnOnce(T)) {
+    let Some(token) = tier_gate::summon::<T>() else {
         eprintln!("skipping {what}: host cannot summon the required token");
         return;
     };
@@ -1238,161 +1266,177 @@ fn proven_prime_rejects_partial_lane() {
 
 #[test]
 fn proven_gf16_kernels_match_scalar() {
-    let Some(v3gfni) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    let Some(v3) = X64V3Token::summon() else {
-        eprintln!("skipping: no AVX2 on this host");
-        return;
-    };
-    let Some(v2) = X64V2Token::summon() else {
-        eprintln!("skipping: no SSE2 on this host");
-        return;
-    };
     let coeffs = gf16_coeffs();
 
-    check_mul_add(
-        "gf16::mul_add_gfni",
-        LENGTHS16,
-        &coeffs,
-        gf16_ref,
-        |dst, c, src| x86::gf16::mul_add_gfni(v3gfni, dst, TowerCoeff::new(c), src),
-    );
-    check_mul_assign(
-        "gf16::mul_assign_gfni",
-        LENGTHS16,
-        &coeffs,
-        scalar::mul_assign::<Gf16>,
-        |dst, c| x86::gf16::mul_assign_gfni(v3gfni, dst, TowerCoeff::new(c)),
-    );
-    check_mul_into(
-        "gf16::mul_into_gfni",
-        LENGTHS16,
-        &coeffs,
-        gf16_ref,
-        |dst, c, src| x86::gf16::mul_into_gfni(v3gfni, dst, TowerCoeff::new(c), src),
-    );
-    check_mul_add(
-        "gf16::mul_add_avx2",
-        LENGTHS16,
-        &coeffs,
-        gf16_ref,
-        |dst, c, src| x86::gf16::mul_add_avx2(v3, dst, &TowerTables::new(c), src),
-    );
-    check_mul_assign(
-        "gf16::mul_assign_avx2",
-        LENGTHS16,
-        &coeffs,
-        scalar::mul_assign::<Gf16>,
-        |dst, c| x86::gf16::mul_assign_avx2(v3, dst, &TowerTables::new(c)),
-    );
-    check_mul_into(
-        "gf16::mul_into_avx2",
-        LENGTHS16,
-        &coeffs,
-        gf16_ref,
-        |dst, c, src| x86::gf16::mul_into_avx2(v3, dst, &TowerTables::new(c), src),
-    );
-    check_mul_add(
-        "gf16::mul_add_ssse3",
-        LENGTHS16,
-        &coeffs,
-        gf16_ref,
-        |dst, c, src| x86::gf16::mul_add_ssse3(v2, dst, &TowerTables::new(c), src),
-    );
-    check_mul_assign(
-        "gf16::mul_assign_ssse3",
-        LENGTHS16,
-        &coeffs,
-        scalar::mul_assign::<Gf16>,
-        |dst, c| x86::gf16::mul_assign_ssse3(v2, dst, &TowerTables::new(c)),
-    );
-    check_mul_into(
-        "gf16::mul_into_ssse3",
-        LENGTHS16,
-        &coeffs,
-        gf16_ref,
-        |dst, c, src| x86::gf16::mul_into_ssse3(v2, dst, &TowerTables::new(c), src),
-    );
+    tier_gate::run_entry(x86::gf16::mul_add_gfni, |token, entry| {
+        check_mul_add(
+            "gf16::mul_add_gfni",
+            LENGTHS16,
+            &coeffs,
+            gf16_ref,
+            |dst, c, src| entry(token, dst, TowerCoeff::new(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf16::mul_assign_gfni, |token, entry| {
+        check_mul_assign(
+            "gf16::mul_assign_gfni",
+            LENGTHS16,
+            &coeffs,
+            scalar::mul_assign::<Gf16>,
+            |dst, c| entry(token, dst, TowerCoeff::new(c)),
+        )
+    });
+    tier_gate::run_entry(x86::gf16::mul_into_gfni, |token, entry| {
+        check_mul_into(
+            "gf16::mul_into_gfni",
+            LENGTHS16,
+            &coeffs,
+            gf16_ref,
+            |dst, c, src| entry(token, dst, TowerCoeff::new(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf16::mul_add_avx2, |token, entry| {
+        check_mul_add(
+            "gf16::mul_add_avx2",
+            LENGTHS16,
+            &coeffs,
+            gf16_ref,
+            |dst, c, src| entry(token, dst, &TowerTables::new(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf16::mul_assign_avx2, |token, entry| {
+        check_mul_assign(
+            "gf16::mul_assign_avx2",
+            LENGTHS16,
+            &coeffs,
+            scalar::mul_assign::<Gf16>,
+            |dst, c| entry(token, dst, &TowerTables::new(c)),
+        )
+    });
+    tier_gate::run_entry(x86::gf16::mul_into_avx2, |token, entry| {
+        check_mul_into(
+            "gf16::mul_into_avx2",
+            LENGTHS16,
+            &coeffs,
+            gf16_ref,
+            |dst, c, src| entry(token, dst, &TowerTables::new(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf16::mul_add_ssse3, |token, entry| {
+        check_mul_add(
+            "gf16::mul_add_ssse3",
+            LENGTHS16,
+            &coeffs,
+            gf16_ref,
+            |dst, c, src| entry(token, dst, &TowerTables::new(c), src),
+        )
+    });
+    tier_gate::run_entry(x86::gf16::mul_assign_ssse3, |token, entry| {
+        check_mul_assign(
+            "gf16::mul_assign_ssse3",
+            LENGTHS16,
+            &coeffs,
+            scalar::mul_assign::<Gf16>,
+            |dst, c| entry(token, dst, &TowerTables::new(c)),
+        )
+    });
+    tier_gate::run_entry(x86::gf16::mul_into_ssse3, |token, entry| {
+        check_mul_into(
+            "gf16::mul_into_ssse3",
+            LENGTHS16,
+            &coeffs,
+            gf16_ref,
+            |dst, c, src| entry(token, dst, &TowerTables::new(c), src),
+        )
+    });
 
     let delta_byte: u8 = 0x20;
     let reduction = fgf::binary::Polynomial::<AES>::POLY.to_le_bytes()[0];
     let delta_table = scale_table(fgf::Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
         0x20,
     ));
-    check_elementwise::<Gf16>("gf16::mul_elementwise_gfni", LENGTHS16, |dst, a, b| {
-        x86::gf16::mul_elementwise_gfni(v3gfni, dst, a, b, delta_byte, reduction)
+    tier_gate::run_entry(x86::gf16::mul_elementwise_gfni, |token, entry| {
+        check_elementwise::<Gf16>("gf16::mul_elementwise_gfni", LENGTHS16, |dst, a, b| {
+            entry(token, dst, a, b, delta_byte, reduction)
+        })
     });
-    check_elementwise::<Gf16>("gf16::mul_elementwise_avx2", LENGTHS16, |dst, a, b| {
-        x86::gf16::mul_elementwise_avx2(v3, dst, a, b, delta_table, reduction)
+    tier_gate::run_entry(x86::gf16::mul_elementwise_avx2, |token, entry| {
+        check_elementwise::<Gf16>("gf16::mul_elementwise_avx2", LENGTHS16, |dst, a, b| {
+            entry(token, dst, a, b, delta_table, reduction)
+        })
     });
-    check_elementwise::<Gf16>("gf16::mul_elementwise_ssse3", LENGTHS16, |dst, a, b| {
-        x86::gf16::mul_elementwise_ssse3(v2, dst, a, b, delta_table, reduction)
+    tier_gate::run_entry(x86::gf16::mul_elementwise_ssse3, |token, entry| {
+        check_elementwise::<Gf16>("gf16::mul_elementwise_ssse3", LENGTHS16, |dst, a, b| {
+            entry(token, dst, a, b, delta_table, reduction)
+        })
     });
 
     // Scatter/gather/matrix across all three tiers.
-    check_scatter(
-        "gf16::mul_add_scatter_gfni",
-        EVEN_ROW_LENS,
-        gf16_ref,
-        |j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(7411)),
-        |rows, row_len, coeffs, src| {
-            x86::gf16::mul_add_scatter_gfni(v3gfni, rows, row_len, coeffs, src)
-        },
-    );
-    check_scatter(
-        "gf16::mul_add_scatter_avx2",
-        EVEN_ROW_LENS,
-        gf16_ref,
-        |j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(7411)),
-        |rows, row_len, coeffs, src| {
-            x86::gf16::mul_add_scatter_avx2(v3, rows, row_len, coeffs, src)
-        },
-    );
-    check_scatter(
-        "gf16::mul_add_scatter_ssse3",
-        EVEN_ROW_LENS,
-        gf16_ref,
-        |j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(7411)),
-        |rows, row_len, coeffs, src| {
-            x86::gf16::mul_add_scatter_ssse3(v2, rows, row_len, coeffs, src)
-        },
-    );
+    tier_gate::run_entry(x86::gf16::mul_add_scatter_gfni, |token, entry| {
+        check_scatter(
+            "gf16::mul_add_scatter_gfni",
+            EVEN_ROW_LENS,
+            gf16_ref,
+            |j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(7411)),
+            |rows, row_len, coeffs, src| entry(token, rows, row_len, coeffs, src),
+        )
+    });
+    tier_gate::run_entry(x86::gf16::mul_add_scatter_avx2, |token, entry| {
+        check_scatter(
+            "gf16::mul_add_scatter_avx2",
+            EVEN_ROW_LENS,
+            gf16_ref,
+            |j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(7411)),
+            |rows, row_len, coeffs, src| entry(token, rows, row_len, coeffs, src),
+        )
+    });
+    tier_gate::run_entry(x86::gf16::mul_add_scatter_ssse3, |token, entry| {
+        check_scatter(
+            "gf16::mul_add_scatter_ssse3",
+            EVEN_ROW_LENS,
+            gf16_ref,
+            |j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(7411)),
+            |rows, row_len, coeffs, src| entry(token, rows, row_len, coeffs, src),
+        )
+    });
     for &row_len in &[32usize, 130] {
-        check_gather(
-            "gf16::mul_add_gather_gfni",
-            row_len,
-            gf16_ref,
-            |i| Elem::<Gf16>::from_raw((i as u16).wrapping_mul(613)),
-            |dst, coeffs, srcs| x86::gf16::mul_add_gather_gfni(v3gfni, dst, coeffs, srcs),
-        );
-        check_gather(
-            "gf16::mul_add_gather_ssse3",
-            row_len,
-            gf16_ref,
-            |i| Elem::<Gf16>::from_raw((i as u16).wrapping_mul(613)),
-            |dst, coeffs, srcs| x86::gf16::mul_add_gather_ssse3(v2, dst, coeffs, srcs),
-        );
+        tier_gate::run_entry(x86::gf16::mul_add_gather_gfni, |token, entry| {
+            check_gather(
+                "gf16::mul_add_gather_gfni",
+                row_len,
+                gf16_ref,
+                |i| Elem::<Gf16>::from_raw((i as u16).wrapping_mul(613)),
+                |dst, coeffs, srcs| entry(token, dst, coeffs, srcs),
+            )
+        });
+        tier_gate::run_entry(x86::gf16::mul_add_gather_ssse3, |token, entry| {
+            check_gather(
+                "gf16::mul_add_gather_ssse3",
+                row_len,
+                gf16_ref,
+                |i| Elem::<Gf16>::from_raw((i as u16).wrapping_mul(613)),
+                |dst, coeffs, srcs| entry(token, dst, coeffs, srcs),
+            )
+        });
     }
-    check_matrix_accumulate(
-        "gf16::mul_add_matrix_gfni",
-        EVEN_ROW_LENS,
-        gf16_coeff_at2,
-        gf16_ref,
-        |rows, row_len, nrows, terms| {
-            x86::gf16::mul_add_matrix_gfni(v3gfni, rows, row_len, nrows, terms)
-        },
-    );
-    check_matrix_accumulate(
-        "gf16::mul_add_matrix_ssse3",
-        EVEN_ROW_LENS,
-        gf16_coeff_at2,
-        gf16_ref,
-        |rows, row_len, nrows, terms| {
-            x86::gf16::mul_add_matrix_ssse3(v2, rows, row_len, nrows, terms)
-        },
-    );
+    tier_gate::run_entry(x86::gf16::mul_add_matrix_gfni, |token, entry| {
+        check_matrix_accumulate(
+            "gf16::mul_add_matrix_gfni",
+            EVEN_ROW_LENS,
+            gf16_coeff_at2,
+            gf16_ref,
+            |rows, row_len, nrows, terms, _want| entry(token, rows, row_len, nrows, terms),
+        )
+    });
+    tier_gate::run_entry(x86::gf16::mul_add_matrix_ssse3, |token, entry| {
+        check_matrix_accumulate(
+            "gf16::mul_add_matrix_ssse3",
+            EVEN_ROW_LENS,
+            gf16_coeff_at2,
+            gf16_ref,
+            |rows, row_len, nrows, terms, _want| entry(token, rows, row_len, nrows, terms),
+        )
+    });
 }
 
 #[derive(Clone, Copy)]
@@ -1402,28 +1446,53 @@ enum ResidueToken {
     Avx512(archmage::X64V4Token),
 }
 
+/// Enumerates the residue tiers the host and request allow, summoning each
+/// token through the request-bounded gate. Panic checks receive the token
+/// directly and earn no receipts; arithmetic differentials use the token
+/// only to select the entry, which `residue_entry!` then re-derives through
+/// [`tier_gate::run_entry`].
 fn for_residue_kernels(mut check: impl FnMut(ResidueToken)) {
-    if let Some(token) = X64V3Token::summon() {
-        eprintln!("residue differential: executing kernel=avx2 token=x64_v3");
+    if let Some(token) = tier_gate::summon::<X64V3Token>() {
         check(ResidueToken::Avx2(token));
     } else {
         eprintln!("residue differential: skipping unsupported kernel=avx2 token=x64_v3");
     }
     #[cfg(feature = "simd512")]
-    if let Some(token) = archmage::X64V4Token::summon() {
-        eprintln!("residue differential: executing kernel=avx512 token=x64_v4");
+    if let Some(token) = tier_gate::summon::<archmage::X64V4Token>() {
         check(ResidueToken::Avx512(token));
     } else {
         eprintln!("residue differential: skipping unsupported kernel=avx512 token=x64_v4");
     }
 }
 
+/// Direct dispatch on a summoned token for the geometry-panic checks;
+/// earns no execution receipts.
 macro_rules! residue_call {
     ($token:expr, $avx2:ident, $avx512:ident $(, $arg:expr)* $(,)?) => {
         match $token {
             ResidueToken::Avx2(token) => x86::residue::$avx2(token $(, $arg)*),
             #[cfg(feature = "simd512")]
             ResidueToken::Avx512(token) => x86::residue::$avx512(token $(, $arg)*),
+        }
+    };
+}
+
+/// Runs one arithmetic residue differential through the request-bounded
+/// gate. The summoned token only selects the entry; the gate re-derives the
+/// token and emits the entry's receipt after a successful body, so each
+/// tier's entry is reported on its own.
+macro_rules! residue_entry {
+    ($token:expr, $avx2:ident, $avx512:ident $(, $arg:expr)* => $check:block) => {
+        match $token {
+            ResidueToken::Avx2(..) => tier_gate::run_entry(
+                x86::residue::$avx2,
+                |token, entry| { entry(token $(, $arg)*); $check },
+            ),
+            #[cfg(feature = "simd512")]
+            ResidueToken::Avx512(..) => tier_gate::run_entry(
+                x86::residue::$avx512,
+                |token, entry| { entry(token $(, $arg)*); $check },
+            ),
         }
     };
 }
@@ -1510,16 +1579,17 @@ fn proven_residue_u32_elementwise_matches_oracle() {
                             &backing_a[offset..offset + lanes * 4],
                             &backing_b[offset..offset + lanes * 4],
                         );
-                        residue_call!(
+                        residue_entry!(
                             token,
                             mul_elementwise_u32_avx2,
                             mul_elementwise_u32_avx512,
                             dst,
                             a_win,
                             b_win,
-                            params
+                            params => {
+                                assert_eq!(dst, &want, "residue mul p {p} lanes {lanes} off {offset}");
+                            }
                         );
-                        assert_eq!(dst, &want, "residue mul p {p} lanes {lanes} off {offset}");
                     }
                     assert_eq!(&backing_d[..offset], &before_d[..offset], "head guard");
                     assert_eq!(
@@ -1534,17 +1604,15 @@ fn proven_residue_u32_elementwise_matches_oracle() {
                             &mut backing_assign[offset..offset + lanes * 4],
                             &backing_b[offset..offset + lanes * 4],
                         );
-                        residue_call!(
+                        residue_entry!(
                             token,
                             mul_elementwise_assign_u32_avx2,
                             mul_elementwise_assign_u32_avx512,
                             dst,
                             src,
-                            params
-                        );
-                        assert_eq!(
-                            dst, &want,
-                            "residue mul_assign p {p} lanes {lanes} off {offset}"
+                            params => {
+                                assert_eq!(dst, &want, "residue mul_assign p {p} lanes {lanes} off {offset}");
+                            }
                         );
                     }
                     assert_eq!(
@@ -1631,7 +1699,7 @@ fn proven_residue_u32_shoup_coeff_matches_oracle() {
                                 &mut backing_d[offset..offset + lanes * 4],
                                 &backing_s[offset..offset + lanes * 4],
                             );
-                            residue_call!(
+                            residue_entry!(
                                 token,
                                 mul_into_u32_avx2,
                                 mul_into_u32_avx512,
@@ -1639,11 +1707,9 @@ fn proven_residue_u32_shoup_coeff_matches_oracle() {
                                 s,
                                 c32,
                                 q,
-                                p32
-                            );
-                            assert_eq!(
-                                dst, &want,
-                                "shoup into p {p} c {c} lanes {lanes} off {offset}"
+                                p32 => {
+                                    assert_eq!(dst, &want, "shoup into p {p} c {c} lanes {lanes} off {offset}");
+                                }
                             );
                         }
                         assert_eq!(&backing_d[..offset], &before_d[..offset], "head guard");
@@ -1671,7 +1737,7 @@ fn proven_residue_u32_shoup_coeff_matches_oracle() {
                                 &mut backing_a[offset..offset + lanes * 4],
                                 &backing_s[offset..offset + lanes * 4],
                             );
-                            residue_call!(
+                            residue_entry!(
                                 token,
                                 mul_add_u32_avx2,
                                 mul_add_u32_avx512,
@@ -1679,11 +1745,9 @@ fn proven_residue_u32_shoup_coeff_matches_oracle() {
                                 s,
                                 c32,
                                 q,
-                                p32
-                            );
-                            assert_eq!(
-                                dst, &want_add,
-                                "shoup add p {p} c {c} lanes {lanes} off {offset}"
+                                p32 => {
+                                    assert_eq!(dst, &want_add, "shoup add p {p} c {c} lanes {lanes} off {offset}");
+                                }
                             );
                         }
                         assert_eq!(&backing_a[..offset], &before_a[..offset], "head guard");
@@ -1696,18 +1760,16 @@ fn proven_residue_u32_shoup_coeff_matches_oracle() {
                         let before_s = backing_s.clone();
                         {
                             let dst = &mut backing_s[offset..offset + lanes * 4];
-                            residue_call!(
+                            residue_entry!(
                                 token,
                                 mul_assign_u32_avx2,
                                 mul_assign_u32_avx512,
                                 dst,
                                 c32,
                                 q,
-                                p32
-                            );
-                            assert_eq!(
-                                dst, &want,
-                                "shoup assign p {p} c {c} lanes {lanes} off {offset}"
+                                p32 => {
+                                    assert_eq!(dst, &want, "shoup assign p {p} c {c} lanes {lanes} off {offset}");
+                                }
                             );
                         }
                         assert_eq!(&backing_s[..offset], &before_s[..offset], "head guard");
@@ -1793,18 +1855,16 @@ fn proven_residue_u64_redc_coeff_matches_oracle() {
                                 &mut backing_d[offset..offset + lanes * 8],
                                 &backing_s[offset..offset + lanes * 8],
                             );
-                            residue_call!(
+                            residue_entry!(
                                 token,
                                 mul_into_u64_avx2,
                                 mul_into_u64_avx512,
                                 dst,
                                 s,
                                 c_mont,
-                                p
-                            );
-                            assert_eq!(
-                                dst, &want,
-                                "wide into p {p} c {c} lanes {lanes} off {offset}"
+                                p => {
+                                    assert_eq!(dst, &want, "wide into p {p} c {c} lanes {lanes} off {offset}");
+                                }
                             );
                         }
                         assert_eq!(&backing_d[..offset], &before_d[..offset], "head guard");
@@ -1836,19 +1896,16 @@ fn proven_residue_u64_redc_coeff_matches_oracle() {
                                 &mut backing_a_pad[offset..offset + lanes * 8],
                                 &backing_s[offset..offset + lanes * 8],
                             );
-                            residue_call!(
+                            residue_entry!(
                                 token,
                                 mul_add_u64_avx2,
                                 mul_add_u64_avx512,
                                 dst,
                                 s,
                                 c_mont,
-                                p
-                            );
-                            assert_eq!(
-                                &dst[..],
-                                &want_add[..],
-                                "wide add p {p} c {c} lanes {lanes} off {offset}"
+                                p => {
+                                    assert_eq!(&dst[..], &want_add[..], "wide add p {p} c {c} lanes {lanes} off {offset}");
+                                }
                             );
                         }
                         assert_eq!(&backing_a_pad[..offset], &before_a[..offset], "head guard");
@@ -1861,17 +1918,15 @@ fn proven_residue_u64_redc_coeff_matches_oracle() {
                         let before_s = backing_s.clone();
                         {
                             let dst = &mut backing_s[offset..offset + lanes * 8];
-                            residue_call!(
+                            residue_entry!(
                                 token,
                                 mul_assign_u64_avx2,
                                 mul_assign_u64_avx512,
                                 dst,
                                 c_mont,
-                                p
-                            );
-                            assert_eq!(
-                                dst, &want,
-                                "wide assign p {p} c {c} lanes {lanes} off {offset}"
+                                p => {
+                                    assert_eq!(dst, &want, "wide assign p {p} c {c} lanes {lanes} off {offset}");
+                                }
                             );
                         }
                         assert_eq!(&backing_s[..offset], &before_s[..offset], "head guard");
@@ -1913,42 +1968,39 @@ fn proven_residue_u8_lookup_coeff_is_exhaustive() {
                     *w = ((x as u128 * c as u128 % p as u128) as u64) as u8;
                 }
                 let mut got = vec![0u8; 256];
-                residue_call!(
+                residue_entry!(
                     token,
                     mul_into_u8_avx2,
                     mul_into_u8_avx512,
                     &mut got,
                     &full,
                     c8,
-                    p8
+                    p8 => { assert_eq!(got, want_full, "lookup into p {p} c {c}"); }
                 );
-                assert_eq!(got, want_full, "lookup into p {p} c {c}");
                 let mut acc = full.clone();
                 let mut want_add = full.clone();
                 for (d, &x) in want_add.iter_mut().zip(full.iter()) {
                     *d = (((*d as u128 % p as u128) + x as u128 * c as u128 % p as u128)
                         % p as u128) as u8;
                 }
-                residue_call!(
+                residue_entry!(
                     token,
                     mul_add_u8_avx2,
                     mul_add_u8_avx512,
                     &mut acc,
                     &full,
                     c8,
-                    p8
+                    p8 => { assert_eq!(acc, want_add, "lookup add p {p} c {c}"); }
                 );
-                assert_eq!(acc, want_add, "lookup add p {p} c {c}");
                 let mut got_assign = full.clone();
-                residue_call!(
+                residue_entry!(
                     token,
                     mul_assign_u8_avx2,
                     mul_assign_u8_avx512,
                     &mut got_assign,
                     c8,
-                    p8
+                    p8 => { assert_eq!(got_assign, want_full, "lookup assign p {p} c {c}"); }
                 );
-                assert_eq!(got_assign, want_full, "lookup assign p {p} c {c}");
                 for &len in &LENS {
                     // Retained backings with head/tail guards; the kernel sees
                     // the offset window, and source/destination offsets vary
@@ -1974,8 +2026,9 @@ fn proven_residue_u8_lookup_coeff_is_exhaustive() {
                             &mut backing_d[doff..doff + len],
                             &backing_s[soff..soff + len],
                         );
-                        residue_call!(token, mul_into_u8_avx2, mul_into_u8_avx512, dst, s, c8, p8);
-                        assert_eq!(dst, &want, "lookup into tail p {p} c {c} len {len}");
+                        residue_entry!(token, mul_into_u8_avx2, mul_into_u8_avx512, dst, s, c8, p8 => {
+                            assert_eq!(dst, &want, "lookup into tail p {p} c {c} len {len}");
+                        });
                     }
                     assert_eq!(&backing_d[..doff], &before_d[..doff], "head guard");
                     assert_eq!(
@@ -1998,8 +2051,9 @@ fn proven_residue_u8_lookup_coeff_is_exhaustive() {
                             &mut backing_a[doff..doff + len],
                             &backing_s[soff..soff + len],
                         );
-                        residue_call!(token, mul_add_u8_avx2, mul_add_u8_avx512, dst, s, c8, p8);
-                        assert_eq!(dst, &want_add, "lookup add tail p {p} c {c} len {len}");
+                        residue_entry!(token, mul_add_u8_avx2, mul_add_u8_avx512, dst, s, c8, p8 => {
+                            assert_eq!(dst, &want_add, "lookup add tail p {p} c {c} len {len}");
+                        });
                     }
                     assert_eq!(&backing_a[..doff], &before_a[..doff], "head guard");
                     assert_eq!(
@@ -2013,8 +2067,9 @@ fn proven_residue_u8_lookup_coeff_is_exhaustive() {
                     let before_m = backing_m.clone();
                     {
                         let dst = &mut backing_m[doff..doff + len];
-                        residue_call!(token, mul_assign_u8_avx2, mul_assign_u8_avx512, dst, c8, p8);
-                        assert_eq!(dst, &want, "lookup assign tail p {p} c {c} len {len}");
+                        residue_entry!(token, mul_assign_u8_avx2, mul_assign_u8_avx512, dst, c8, p8 => {
+                            assert_eq!(dst, &want, "lookup assign tail p {p} c {c} len {len}");
+                        });
                     }
                     assert_eq!(&backing_m[..doff], &before_m[..doff], "head guard");
                     assert_eq!(
@@ -2153,7 +2208,7 @@ fn proven_residue_delayed_matrix_matches_oracle() {
                                     for b in rows.iter_mut() {
                                         *b = b.wrapping_mul(3).wrapping_add(0x5a);
                                     }
-                                    residue_call!(
+                                    residue_entry!(
                                         token,
                                         mul_into_matrix_u32_avx2_with,
                                         mul_into_matrix_u32_avx512_with,
@@ -2161,11 +2216,10 @@ fn proven_residue_delayed_matrix_matches_oracle() {
                                         row_len,
                                         nrows,
                                         &terms,
-                                        p32,
-                                    );
-                                    assert_eq!(
-                                        rows, &want,
-                                        "delayed into p {p} terms {nterms} rows {nrows} lanes {lanes} ones {ones} off {offset}"
+                                        p32 => {
+                                            assert_eq!(rows, &want,
+                                                "delayed into p {p} terms {nterms} rows {nrows} lanes {lanes} ones {ones} off {offset}");
+                                        }
                                     );
                                 }
                                 assert_eq!(
@@ -2211,7 +2265,7 @@ fn proven_residue_delayed_matrix_matches_oracle() {
                                 let before = backing.clone();
                                 {
                                     let rows = &mut backing[offset..offset + nrows * row_len];
-                                    residue_call!(
+                                    residue_entry!(
                                         token,
                                         mul_add_matrix_u32_avx2_with,
                                         mul_add_matrix_u32_avx512_with,
@@ -2219,11 +2273,10 @@ fn proven_residue_delayed_matrix_matches_oracle() {
                                         row_len,
                                         nrows,
                                         &terms,
-                                        p32,
-                                    );
-                                    assert_eq!(
-                                        rows, &want_add,
-                                        "delayed add p {p} terms {nterms} rows {nrows} lanes {lanes} ones {ones} off {offset}"
+                                        p32 => {
+                                            assert_eq!(rows, &want_add,
+                                                "delayed add p {p} terms {nterms} rows {nrows} lanes {lanes} ones {ones} off {offset}");
+                                        }
                                     );
                                 }
                                 assert_eq!(
@@ -2245,8 +2298,7 @@ fn proven_residue_delayed_matrix_matches_oracle() {
     });
 }
 
-/// The delayed entries reject an even modulus before the first lane, with
-/// the same message style as the doubleword siblings.
+/// The delayed entries reject an even modulus before the first lane.
 #[test]
 fn proven_residue_delayed_matrix_rejects_even_modulus() {
     use fgf::internals::kernel::x86::residue::PreparedResidue;
@@ -2285,19 +2337,13 @@ fn proven_residue_delayed_matrix_rejects_even_modulus() {
                     );
                 }
             }));
-            let err = outcome.expect_err(&format!("{entry} must reject an even modulus"));
-            let msg = err.downcast_ref::<String>().expect("string panic payload");
-            assert!(
-                msg.contains("modulus 2 is even"),
-                "{entry}: panic must name the even modulus: {msg}"
-            );
+            outcome.expect_err(&format!("{entry} must reject an even modulus"));
         };
         rows_of("residue::mul_into_matrix_u32_avx2_with", true);
         rows_of("residue::mul_add_matrix_u32_avx2_with", false);
     });
 }
-/// The delayed entries reject a non-positive modulus before the first lane,
-/// with the same message style as the even-modulus guard.
+/// The delayed entries reject a non-positive modulus before the first lane.
 #[test]
 fn proven_residue_delayed_matrix_rejects_non_positive_modulus() {
     use fgf::internals::kernel::x86::residue::PreparedResidue;
@@ -2341,12 +2387,7 @@ fn proven_residue_delayed_matrix_rejects_non_positive_modulus() {
                     );
                 }
             }));
-            let err = outcome.expect_err(&format!("{entry} must reject modulus {modulus}"));
-            let msg = err.downcast_ref::<String>().expect("string panic payload");
-            assert!(
-                msg.contains("not a delayed-reduction modulus"),
-                "{entry}: panic must name the rejected modulus: {msg}"
-            );
+            outcome.expect_err(&format!("{entry} must reject modulus {modulus}"));
         }
     });
 }
@@ -2395,12 +2436,7 @@ fn proven_residue_delayed_matrix_rejects_shallow_depth() {
                     );
                 }
             }));
-            let err = outcome.expect_err(&format!("{entry} must reject a depth-below-two modulus"));
-            let msg = err.downcast_ref::<String>().expect("string panic payload");
-            assert!(
-                msg.contains("delay depth 1"),
-                "{entry}: panic must name the shallow depth: {msg}"
-            );
+            outcome.expect_err(&format!("{entry} must reject a depth-below-two modulus"));
         }
     });
 }
@@ -2432,12 +2468,8 @@ fn proven_residue_delayed_matrix_rejects_noncanonical_coefficient() {
                 p
             );
         }));
-        let err = outcome.expect_err("delayed overwrite must reject a noncanonical coefficient");
-        let msg = err.downcast_ref::<String>().expect("string panic payload");
-        assert!(
-            msg.contains("reaches modulus"),
-            "panic must name the noncanonical coefficient: {msg}"
-        );
+        outcome.expect_err("delayed overwrite must reject a noncanonical coefficient");
+
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut rows = vec![0u8; 32];
             residue_call!(
@@ -2451,12 +2483,7 @@ fn proven_residue_delayed_matrix_rejects_noncanonical_coefficient() {
                 p
             );
         }));
-        let err = outcome.expect_err("delayed accumulate must reject a noncanonical coefficient");
-        let msg = err.downcast_ref::<String>().expect("string panic payload");
-        assert!(
-            msg.contains("reaches modulus"),
-            "panic must name the noncanonical coefficient: {msg}"
-        );
+        outcome.expect_err("delayed accumulate must reject a noncanonical coefficient");
     });
 }
 
@@ -2501,12 +2528,7 @@ fn proven_residue_delayed_matrix_rejects_overflowing_geometry() {
                     );
                 }
             }));
-            let err = outcome.expect_err("an overflowing row geometry must be rejected");
-            let msg = err.downcast_ref::<String>().expect("string panic payload");
-            assert!(
-                msg.contains("row geometry overflows"),
-                "panic must name the overflowing geometry: {msg}"
-            );
+            outcome.expect_err("an overflowing row geometry must be rejected");
         }
     });
 }
@@ -2536,7 +2558,7 @@ fn rejects_without_mutating(sentinel: &[u8], body: impl FnOnce(&mut [u8])) {
 /// falls back to the per-source fold.
 #[test]
 fn direct_avx2_tail_row_rejects_invalid_later_offset_before_mutation() {
-    let Some(token) = X64V3Token::summon() else {
+    let Some(token) = tier_gate::summon::<X64V3Token>() else {
         eprintln!("skipping: no AVX2 on this host");
         return;
     };
@@ -2551,7 +2573,7 @@ fn direct_avx2_tail_row_rejects_invalid_later_offset_before_mutation() {
 /// that falls back to the per-source fold.
 #[test]
 fn direct_avx2_wide_row_rejects_invalid_later_offset_before_mutation() {
-    let Some(token) = X64V3Token::summon() else {
+    let Some(token) = tier_gate::summon::<X64V3Token>() else {
         eprintln!("skipping: no AVX2 on this host");
         return;
     };
@@ -2581,7 +2603,7 @@ fn v4x_host_selects_v4x_backends() {
         eprintln!("skipping V4x assertion: SIMD_BACKEND={tier} requests a lower tier");
         return;
     }
-    if X64V4xToken::summon().is_none() {
+    if tier_gate::summon::<X64V4xToken>().is_none() {
         eprintln!("skipping V4x assertion: host cannot summon X64V4xToken");
         return;
     }

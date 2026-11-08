@@ -1,0 +1,382 @@
+{
+  "exceptions": [
+    {
+      "item": "fgf::field::dispatch::KernelDispatch::mul_add_matrix_with",
+      "class": "unreachable",
+      "reason": "the trait method is gated `#[cfg(test)]`; the all-features bench build does not compile it, so no public route can execute it",
+      "key": "fgf::field::dispatch::KernelDispatch::mul_add_matrix_with"
+    },
+    {
+      "item": "fgf::kernel::has_vector_elementwise",
+      "class": "unreachable",
+      "reason": "internals-only capability query: it is re-exported through `fgf::internals` and is not part of the stable public surface",
+      "key": "fgf::kernel::has_vector_elementwise"
+    },
+    {
+      "item": "fgf::kernel::vector_elementwise_min_bytes",
+      "class": "unreachable",
+      "reason": "internals-only capability query: it is re-exported through `fgf::internals` and is not part of the stable public surface",
+      "key": "fgf::kernel::vector_elementwise_min_bytes"
+    },
+    {
+      "key": "src/kernel/x86.rs::HALF_LANE_PEEL_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
+        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86.rs::PREFETCH_AHEAD",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
+        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/bytes/avx512.rs::XOR_PEEL_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
+        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16.rs::TERM_TILE",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/16384x8x33/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/avx512.rs::fn matrix_group::TERM_BLOCK",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/16384x8x33/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/avx512.rs::fn mul_add_matrix_avx512_with::cmp:2<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/avx512.rs::fn mul_add_matrix_avx512_with::cmp:4<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/gfni/gather.rs::SOURCE_GROUP",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/gfni/matrix.rs::TERM_BLOCK",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/16384x8x33/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/gfni/matrix.rs::fn mul_add_matrix_gfni_with::cmp:2<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/gfni/matrix.rs::fn mul_add_matrix_gfni_with::cmp:4<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8.rs::RESOLVE_CHUNK",
+      "class": "unmapped_arcane",
+      "reason": "some sites have no compiler mapping; every mapped site passed",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/16384x8x33/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/gather.rs::GATHER_PEEL_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
+        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/matrix.rs::MATRIX_PEEL_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
+        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/matrix.rs::MATRIX_RESOLVE_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
+        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_at_block::cmp:2<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_at_block::cmp:4<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_block::cmp:2<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_block::cmp:4<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/scatter.rs::SCATTER_PEEL_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
+        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled==1:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled==3:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled==4:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled>=2:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/gather.rs::fn mul_add_gather_gfni::cmp:coeffs.count()>2:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/gather.rs::fn mul_add_gather_gfni::cmp:dst.len()<128:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
+        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/gather.rs::fn mul_add_gather_gfni::cmp:remainder.trailing_zeros()>=5:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/rows.rs::MATRIX_PREFETCH_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
+        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/rows.rs::MAX_GROUP_ROWS",
+      "class": "unmapped_arcane",
+      "reason": "some sites have no compiler mapping; every mapped site passed",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/scatter.rs::fn mul_add_scatter_impl::cmp:filled==1:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/scatter.rs::fn mul_add_scatter_impl::cmp:filled==3:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/scatter.rs::fn mul_add_scatter_impl::cmp:filled==4:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/scatter.rs::fn mul_add_scatter_impl::cmp:filled>=2:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/mersenne31/avx512.rs::SCREEN_LANES",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/quad_mersenne31/avx512.rs::SCREEN_LANES",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/residue/avx2/matrix.rs::TILE",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/residue/avx512/matrix.rs::TILE",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
+      ]
+    },
+    {
+      "key": "src/ops/recip.rs::CHUNK_ELEMS",
+      "class": "unmapped_arcane",
+      "reason": "some sites have no compiler mapping; every mapped site passed",
+      "straddling_cells": [
+        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "item": "src/kernel/residue.rs::fn mul_add_prepared::cmp:P<=127:right",
+      "key": "src/kernel/residue.rs::fn mul_add_prepared::cmp:P<=127:right",
+      "class": "unreachable",
+      "reason": "the comparison is the second conjunct of `BYTES == 1 && P <= 127` inside the `Backend::V3` arm, which `single_row_backend` selects for one-byte rows only when `routes_vector` already holds `P <= 127`; for every one-byte row that reaches it the conjunct is true, and wider rows short-circuit on `BYTES == 1`"
+    },
+    {
+      "item": "src/kernel/residue.rs::fn mul_assign_prepared::cmp:P<=127:right",
+      "key": "src/kernel/residue.rs::fn mul_assign_prepared::cmp:P<=127:right",
+      "class": "unreachable",
+      "reason": "the comparison is the second conjunct of `BYTES == 1 && P <= 127` inside the `Backend::V3` arm, which `single_row_backend` selects for one-byte rows only when `routes_vector` already holds `P <= 127`; for every one-byte row that reaches it the conjunct is true, and wider rows short-circuit on `BYTES == 1`"
+    },
+    {
+      "item": "src/kernel/residue.rs::fn mul_into_prepared::cmp:P<=127:right",
+      "key": "src/kernel/residue.rs::fn mul_into_prepared::cmp:P<=127:right",
+      "class": "unreachable",
+      "reason": "the comparison is the second conjunct of `BYTES == 1 && P <= 127` inside the `Backend::V3` arm, which `single_row_backend` selects for one-byte rows only when `routes_vector` already holds `P <= 127`; for every one-byte row that reaches it the conjunct is true, and wider rows short-circuit on `BYTES == 1`"
+    }
+  ]
+}

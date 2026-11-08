@@ -3,6 +3,12 @@
 #[path = "common/zero_alloc.rs"]
 mod common;
 
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+use fgf::internals::kernel::FGF_TIERS;
+#[path = "../src/kernel/tests/tier_gate.rs"]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+mod tier_gate;
+
 use common::{TEST_LOCK, count_allocations, noise};
 use fgf::ops;
 
@@ -20,13 +26,16 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
     use fgf::binary::Polynomial;
     use fgf::internals::kernel::gf8::Prepared;
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
-    use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken, x86};
+    use fgf::internals::kernel::{X64V3GfniCryptoToken, x86};
     use fgf::{Elem, FiniteField};
 
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
+    // An allocation check earns no execution receipt: the gate only
+    // materializes the token, skipping when the request ceiling excludes
+    // the tier.
+    let Some(token) = tier_gate::summon::<X64V3GfniCryptoToken>() else {
         eprintln!("skipping: no AVX2+GFNI on this host");
         return;
     };

@@ -74,6 +74,13 @@ harness = false
 required-features = ["std", "simd", "internals"]
 
 [[bench]]
+name = "operations"
+harness = false
+# The operations panels time the stable `ops` surface with `std` and measure
+# the prepared coefficient collections; no internal access is required.
+required-features = ["std", "simd"]
+
+[[bench]]
 name = "compare"
 harness = false
 required-features = ["std", "simd", "internals"]
@@ -88,7 +95,9 @@ required-features = ["std"]
 [[bench]]
 name = "surfaces"
 harness = false
-required-features = ["std", "simd", "internals"]
+# The surfaces panels time the stable public surface with `std`; no internal
+# access is required.
+required-features = ["std", "simd"]
 
 [[bench]]
 name = "prime_ntt"

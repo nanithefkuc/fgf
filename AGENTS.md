@@ -25,12 +25,18 @@ just doc                   # rustdoc with warnings denied
 just doc-stable            # default-feature rustdoc, the docs.rs configuration
 just unsafe-check-gfni     # owned-unsafe GFNI Miri cases
 just cover                 # merged per-tier coverage, 95% minimum
+just cover-native          # full native coverage and excluded-ISA group figures
 just validate              # shared correctness and coverage gate
 just release-accept        # crate-specific release checks, including native fixtures
 just test-gather-validation-32 # i686 release regression, overflow checks disabled
-just isa-accept TIER       # fail-closed native execution evidence and tier sweep
+just isa-accept TIER [REGISTRY] # fail-closed native execution evidence and tier sweep
+just kernel-registry-check # compiler-derived x86 entries and behavioral checker tests
 just benchmark-check       # portable fixtures and compiler-derived API coverage
 just benchmark-check-native # native GF16 fixtures on capable hosts
+just bench-baseline *ARGS  # standalone descriptive breadth or bulk measurement
+just bench-pair *ARGS      # paired acceptance, calibration, or threshold campaign
+just bench-coverage-map TIER # instrumented coverage map of the operations bench
+just bench-publish *ARGS   # render or verify the committed measurement record
 just api                   # stable API inventory matches api/, one-path gate
 just api-update            # rewrite api/; only inside an authorized API change
 just api-semver [BASELINE] # semver check of the stable feature sets
@@ -458,8 +464,13 @@ Tests must defend observable contracts, not implementation wiring.
   checks arithmetic against an independent in-test schoolbook and
   brute-force reference, exhaustively on small fields and sampled at full
   width.
-- `src/kernel/tests.rs`: direct scalar-versus-architecture differentials across
-  lane, tail, row, and source-count boundaries.
+- `src/kernel/tests.rs`: shared differential drivers; the children split direct
+  comparisons by field family and ISA across lane, tail, row, and source-count
+  boundaries, including the quadratic Mersenne kernels.
+- `src/kernel/tests/fixtures.rs`: shared raw geometry, coefficient words, and
+  frozen deterministic noise streams used by unit and integration tests.
+- `src/kernel/tests/tier_gate.rs`: request-bounded tokens and post-comparison
+  execution receipts shared by direct suites and allocation checks.
 - `tests/zero_alloc.rs`: allocation-free steady-state contracts.
 - `tests/internals.rs`: token-gated direct architecture kernels, direct
 gather-offset validation, and the tier capability queries.
@@ -469,6 +480,29 @@ nondeterministic randomness or duplicate oracle conventions. GF(2^16) byte
 lengths must be even. Unsupported direct-kernel tests report a skip and return;
 they are not marked ignored.
 
+Direct arithmetic comparisons pass a concrete function item to `run_entry`
+and call the supplied entry inside its body. The body completes its scalar
+comparison before the gate emits a compiler-definition-path receipt.
+`SIMD_BACKEND` limits execution to the resolved request and weaker tiers;
+`FGF_REQUIRE_TIER` independently requires the host and feature set to support
+its floor, including when the request is scalar. Geometry-panic and allocation
+checks use the token gate without earning receipts.
+
+`just kernel-registry-check` derives x86 entries from the pinned nightly's
+all-feature hidden and private rustdoc documents. The registry audits exact
+Archmage token types, public reachability, and explicit tokenless and private
+helper exceptions, and binds the artifact to the source tree, features, and
+generator. `just isa-accept TIER` generates it on the native host; supplying
+`REGISTRY` requires an existing identity-matching artifact instead. CI downloads
+that artifact from the registry job. Each initial and downgrade run audits its
+receipts against its actual resolved ceiling and required floor.
+
+The registry proves direct differential coverage per declaration, not per
+generic specialization or public route. Specialization fixtures remain
+independent obligations. Receipt identities use `std::any::type_name`, whose
+format is not guaranteed; a toolchain format change fails the identity check
+rather than weakening the registry match.
+
 A behavior fix should retain a regression test when a plausible future bug
 would fail it. Do not add tests that assert source text, field copies, forwarding,
 or exact panic prose.
@@ -477,126 +511,393 @@ or exact panic prose.
 may resolve to another supported tier; inspect reported backends before treating
 a green run as ISA coverage.
 
-Coverage excludes the complete x86 binary-field kernel subtrees
-(`gf8`, `gf16`, `gf32`, `gf64`) and the complete `kernel/gf8.rs` and
-`kernel/tower.rs` dispatch modules. These file-level exclusions also omit
-SSSE3/AVX2 kernels and portable dispatch branches; they are not a claim that
-every excluded line requires GFNI. The 95% gate applies to the remaining scope.
-`kernel/x86/quad_mersenne31/avx512.rs` and
-`kernel/x86/residue/avx512.rs` with its child subtree are also excluded because
-their AVX-512 instructions cannot execute on the hosted coverage runner.
-The V4x weight arm in `kernel/gf1.rs` cannot execute on the coverage runner
-either (documented, not excluded). The AVX2 residue kernels and the mixed-ISA
-prime dispatch modules remain included. Direct differentials, with positive
-execution markers and resolved-backend checks, provide separate acceptance
-evidence on capable hosts.
-Keep `COV_IGNORE` narrow and document every exclusion here.
+Hosted coverage excludes only the explicit file lists in `crate.just`; the
+hosted runner cannot guarantee GFNI or AVX-512.
+
+| Group | Files relative to `src/kernel/` | Why hosted runners cannot cover it |
+|---|---|---|
+| GFNI | `x86/gf8/gfni.rs`, `x86/gf8/gfni/{elementwise,gather,matrix,rows,scatter,single}.rs`; `x86/gf16/gfni.rs`, `x86/gf16/gfni/{elementwise,gather,matrix,scatter,single}.rs`; `x86/gf32.rs`, `x86/gf64.rs` | GFNI with the selected crypto tier |
+| AVX-512 | `x86/bytes/avx512.rs`; `x86/gf8/avx512.rs`, `x86/gf8/avx512/{elementwise,gather,matrix,scatter,single}.rs`; `x86/gf16/avx512.rs`; `x86/{goldilocks,mersenne31,quad_mersenne31}/avx512.rs`; `x86/residue/avx512.rs`, `x86/residue/avx512/{matrix,single}.rs`, `x86/residue/avx512/single/{u8,u32,u64}.rs` | AVX-512; the byte-field entries also require GFNI |
+| Dispatch | `gf8.rs`, `tower.rs` | Generic dispatch arms are selected per field type and per tier, so no single monomorphized instance executes every arm; `llvm-cov` line totals score each function by its best instance, and hosted runners additionally miss the GFNI and `V4x` arms |
+
+Portable bodies, narrower x86 kernels, and every other dispatch module remain
+in the hosted 95% gate. `just cover-native` requires `v4x`, runs on a host that
+executes every listed ISA, reports each group separately, and applies the 95%
+gate to the hosted scope. Its group figures are informational:
+`#[archmage::arcane]` kernel bodies carry almost no coverage mapping, so the
+GFNI and AVX-512 figures measure wrapper lines rather than kernel bodies, and
+the dispatch figure scores each generic function by its best monomorphized
+instance. Kernel-body execution evidence comes from the registry receipts,
+not from coverage. Adding an exclusion requires a per-file capability
+justification here.
 
 ## Benchmarks
 
-Use only the benchmark recipes, pinned to an identified core:
+`just bench-pair` is this crate's B1 instantiation for the public operations
+surface. A campaign checks out the base library revision and the candidate
+library revision, overlays one measurement snapshot (a revision or directory)
+on both — the snapshot's `benches/` tree (including the `operations` bench and
+this runner), `Cargo.toml`, `Cargo.lock`, and any `rust-toolchain` file, with
+`PAIR_FEATURES` and `PAIR_ALIGN` supplying the feature set and pinned flags —
+and executes only the snapshot's bench target. The snapshot digest, runner
+digest, method version `fgf-pair/3`, `drift_method`, both library SHAs, host
+facts, execution isolation, requested and reported tiers, effective
+configuration, per-run environment digests and argv lengths, unstable-cell
+entries, and every rejection are written to
+`bench-records/pair/<UTC stamp>-<host>/session.json` beside the raw logs. The
+runner rejects a snapshot whose `bench_pair.py` differs from the one running.
 
 ```sh
-FEC_GOLDEN_CORE=<cpu> just bench-comp gf          # binary tower fields
-FEC_GOLDEN_CORE=<cpu> just bench-comp gdl         # Goldilocks
-FEC_GOLDEN_CORE=<cpu> just bench-comp m31         # Mersenne31 and QuadMersenne31
-FEC_GOLDEN_CORE=<cpu> just bench-comp gf16 [ARGS] # native GF16 harness alone
+FEC_GOLDEN_CORE=<cpu> just bench-pair --base REV --candidate REV [--targets FILE]
+FEC_GOLDEN_CORE=<cpu> just bench-pair --mode calibration --base REV
+FEC_GOLDEN_CORE=<cpu> just bench-pair --mode calibration \
+    --calibration-mode base_vs_layout_control --base REV
+FEC_GOLDEN_CORE=<cpu> just bench-pair --mode threshold \
+    --base REV --candidate REV --threshold FILE --inventory FILE
+FEC_GOLDEN_CORE=<cpu> just bench-pair --reanalyze SESSION_JSON
+FEC_GOLDEN_CORE=<cpu> just bench-pair \
+    --write-unstable benches/unstable_cells.json --unstable-session SESSION_JSON
 ```
 
-`bench-comp` runs five complete rounds interleaving the family's self suite
-with every wired competitor harness, shuffling the unit order within each
-round and printing the realized order. Bit-packed GF(2) has no competitor
-harness. The granular self entry points stay available:
+### Descriptive baselines
 
-```sh
-FEC_GOLDEN_CORE=<cpu> just bench kernels [--gf|--gdl|--m31|--gf2|--prime]
-FEC_GOLDEN_CORE=<cpu> just bench compare
-just bench-build NAME # build a portable artifact without running it
-FEC_GOLDEN_CORE=<cpu> just bench prime_ntt
-```
+`FEC_GOLDEN_CORE=<cpu> just bench-baseline --revision REV` measures one
+library revision without a comparison arm or an acceptance claim. The default
+`surfaces` catalogue covers scalar arithmetic, binary bases, storage forms,
+generic extensions, maps, preparation, and bulk operations. Its recorded
+default scope selects every non-query case; controls bracket execution but
+never become measurement rows. `--bench operations` selects the page-aligned
+bulk catalogue instead. The harnesses retain separate measurement identities.
 
-`kernels` reports the public operation shapes and the self-comparison panels;
-the family flags select panels, and no flag runs every panel. The
-`--network-diagnostic` flag isolates matched base offsets and network row
-pitches for the byte-field payload operations.
-`compare` reports `fgf` self-numbers over the competitor-harness fixture
-family. Its `--peel-diagnostic` flag isolates matched source and destination
-offsets around the AVX-512 peel floors.
-`prime_ntt` interleaves the QuadMersenne31 scalar control against the AVX2
-kernels per row length; it measures the dispatch thresholds in
-`src/kernel/quad_mersenne31.rs`.
+The default uses `BASELINE_RUNS` standalone processes with
+`BASELINE_ROUNDS` rounds on the host's strongest resolved tier. `--tiers`
+selects an explicit tier list, and `--cells FILE` selects exact cases.
+`surfaces` permits only a single round per process. Publication requires
+at least three standalone processes. Run summaries produce a median and a
+minimum–maximum range, not a confidence interval. Drift is recorded rather
+than treated as paired acceptance evidence. Calibration and owner-signed
+unstable-cell entries are not prerequisites for descriptive measurement.
 
-`surfaces` covers the stable scalar, representation, packing, bit-buffer,
-prepared-coefficient, row-operation, capability-query, and map callables.
-Its inventory is checked against compiler-derived rustdoc JSON, not a second
-hand-maintained list of the same cases. `--check` exercises every fixture
-without timing; `--smoke` shortens sampling without removing cases.
-Metadata/query latencies include a timer-floor control. Representative
-presentations distinguish arithmetic, storage, and special routing classes;
-an infinite set of prime or relation parameters is not a finite case inventory.
+Both runners share build, snapshot, isolation, and campaign-lock policy.
+A descriptive session records one clean library revision, its harness
+snapshot, effective configuration, exact scope, actual process and field
+backends, full correctness preflight, and raw measurements under
+`bench-records/baseline/`. It cannot contain a candidate arm or acceptance
+decisions. A baseline runner must match its measurement snapshot; a
+working-tree snapshot is selected explicitly with `--snapshot .`.
 
+### Paired measurement scope
 
-Every external competitor harness lives in `external/`, one separate
-unpublished package per harness with its own `build.rs`, outside `src/` and
-`benches/` because linking the competitor needs a build script and `fgf`
-itself must never carry one; the package allowlist keeps `external/` out of
-`cargo package`. `external/bench-trio/` links the system Intel ISA-L and
-klauspost/reedsolomon as a Go C archive and interleaves all three arms —
-`fgf`, ISA-L, klauspost — over one GF(2^8)/`0x11D` fixture set, rotating
-through all six arm orders; the klauspost coding matrix arrives through
-`WithCustomMatrix`. It runs through `bench-comp gf` inside its shuffled
-rounds, validates every arm against the competitor's own output before
-timing, and opens with a control row that must read 1.00x. ISA-L needs
-`libisal` discoverable through pkg-config and the klauspost arm needs the
-Go toolchain in PATH; the build fails loudly when its toolchain is absent
-rather than dropping the arm.
+`bench-pair --cells FILE` restricts timing, never the full inventory or
+cross-arm correctness preflight. The declaration is an object with a
+`cells` array and a nonempty `rationale`; text or array selections supply
+the rationale through `--scope-rationale`. Selected cells retain inventory
+order. Empty, duplicate, unknown, or unexplained selections fail, as do
+superiority targets or threshold-declared cells outside the selected scope.
+Omitting the selection measures the full catalogue.
 
-`external/prime-bench/` is the prime-field competitor harness: it compares
-`fgf` against Plonky3 (`p3-goldilocks`, `p3-mersenne-31`, and the packed
-quadratic extension of `p3-mersenne-31`) over Mersenne31, Goldilocks, and
-QuadMersenne31 on each library's native layout. Every arm is validated
-against the other library's output before timing, and the table opens with
-a control row that must read 1.00x. Layout conversion is excluded from
-every timed region, so the comparison is between kernels rather than
-encodings, and throughput counts one operand pair per element. It runs
-through `bench-comp gdl` and `bench-comp m31` inside their shuffled rounds;
-a single rerun is `RUSTFLAGS="-C target-cpu=native" cargo run --release`
-from its directory with a `gdl` or `m31` family argument. The package
-builds with `-C target-cpu=native` because Plonky3 selects its packed
-kernels at compile time. The banner reports packing widths; the captured
-log states the flag and widths alongside the resolved `fgf` backends.
+The scope covers every measured specialization affected by the change,
+including shared kernels, prepared forms, relevant routing boundaries, and
+controls. `bench-coverage-map` supplies execution evidence where available;
+review records the reasoning where mappings cannot establish it. Changes to
+shared dispatch, validation, or allocation paths require a full scope.
+Paired bounds apply only to the declared scope. Calibrated run counts,
+rounds, margins, and same-session pairing remain unchanged. Calibration
+rejects selected scopes because its policy and unstable list cover the full
+inventory.
+
+Every requested tier is measured by executing each built arm under
+`SIMD_BACKEND=<tier>`, in the requested order, which defaults to strongest
+first. A reported process backend that differs from the requested tier rejects
+the session; the per-field backends of both arms are recorded, and their
+equality is part of the tier record. `v4x` requires the snapshot feature set to
+include `simd512` or `all`. The ladder is the x86 ladder: `scalar` executes the
+portable bodies and stands in for portable targets.
+
+Before any timing, both arms must expose the same cell inventory, their
+`--check` output digests must agree cell for cell, their normal dependency
+sets must match the snapshot's, and the effective flags must carry the
+required alignment tokens.
+
+The runners take one exclusive `bench-records/.campaign.lock` in the crate
+root for the whole session, regardless of capture destination, then re-probe
+the host before the preflight and before every
+measured run: `FEC_GOLDEN_CORE` must name an online CPU, that CPU must run
+under the `performance` scaling governor, and, where SMT is active, its
+siblings must stay below `PAIR_SMT_BUSY_THRESHOLD` over `PAIR_SMT_WINDOW`.
+`setarch` must be available; every check and timing process runs under
+`taskset` on the pinned core and under `setarch -R`, which disables ASLR for
+the child. Both arms of a run receive one identical environment block, and
+their argv lengths must match; a mismatch rejects the session. A failed
+precondition rejects the session and is recorded.
+
+Independent runs alternate arm order: base then candidate in one run,
+candidate then base in the next. An arm's run summary is the median of its
+rounds, and its session summary is the median of its run summaries. Every run
+is bracketed by the harness's start and end controls. In acceptance and
+threshold modes, the drift is `(p90 - p10) / median` of the start controls
+across every arm's start control in a tier, recorded as `drift_method`, and
+must not exceed the calibrated cap.
+
+The estimator is the per-run log ratio `log(candidate / base)` for every cell.
+Each cell's location estimate is the Hodges–Lehmann estimate of its ratios,
+and its upper bound is the one-sided 95% distribution-free Wilcoxon
+signed-rank bound, an order statistic of the Walsh averages. The exact null
+distribution supplies the order statistic up to the enumeration limit; larger
+run counts use a continuity-corrected normal approximation. A cell needs at
+least the estimator's minimum paired-run count before a bound is defined.
+Noninferiority holds when the upper bound is at most `log(1 + PAIR_DELTA)` for
+every cell. Superiority holds when, for every cell of a target set declared
+before measurement, the upper bound is below `log(1 - PAIR_GAMMA)`, and every
+cell outside the target set stays noninferior. The target declaration is
+digested into the session.
+
+Calibration is the same recipe in `--mode calibration`: base against base, or
+base against a layout control rebuilt from the same revision with a different
+Cargo metadata seed. A calibration session reports, per tier, every cell whose
+Hodges–Lehmann upper bound at the full calibration budget exceeds
+`log(1 + PAIR_DELTA / 2)` as unstable, and recommends a stable-cell run count:
+the smallest run count, at or above the estimator's minimum, that puts every
+stable cell's bound at or below that limit. Unstable cells do not make the
+session fail; a tier below the estimator's minimum run count is rejected as
+insufficient. The recommendation also emits a drift cap from the largest
+observed drift times `PAIR_DRIFT_SAFETY_FACTOR`; `PAIR_CALIBRATION_RUNS`
+bounds how many runs it collects. The recommendation binds the exact
+hostnames, measured tiers, toolchain identity, and effective flags, which the
+recipe carries as `PAIR_CALIBRATED_HOSTS`, `PAIR_CALIBRATED_TIERS`,
+`PAIR_CALIBRATED_TOOLCHAIN`, and `PAIR_CALIBRATED_FLAGS`. `PAIR_RUNS` and
+`PAIR_DRIFT_CAP` are per-host `host:value` bindings for the exact hostname; a
+single numeric value is accepted for a single-host campaign, and a host
+without an entry is refused. Acceptance and threshold sessions refuse an
+uncalibrated placeholder or a run count below the estimator's minimum, and
+refuse a binding that does not match the live host and tree. A calibration
+session is marked non-acceptance and is never reused as acceptance evidence.
+
+The signed unstable-cell list is `benches/unstable_cells.json`, the default
+`--unstable-file`. Each entry binds an exact host, tier, toolchain,
+effective flags, and measured inventory digest to its cell list, calibration
+sources, and owner signature. Acceptance and threshold sessions load the file,
+require exactly one matching signed entry for every measured host and tier,
+and reject a missing, stale, duplicate, or unsigned entry. A listed cell is
+measured and published with the Unstable marker, is excluded from
+noninferiority, and is excluded from the superiority rule's other-cell check.
+A listed cell declared as a superiority target is evaluated as a target only
+when the session runs at least a calibrated `PAIR_UNSTABLE_TARGET_RUNS`;
+otherwise the session is rejected as underpowered. Calibration sessions report
+their unstable cells per tier, and `--write-unstable FILE --unstable-session
+SESSION_JSON` merges one or more calibration sessions into the file; every
+updated entry loses its signature until the owner signs it again.
+
+Each signed entry's inventory is retained as ordered cell metadata in
+`benches/calibrated_inventories/<digest>.json`; its content must reproduce
+that digest. Selected cells present in that catalogue must retain identical
+metadata. New cells absent from it are recorded as uncalibrated and face the
+paired gate without an unstable-cell exclusion. Adding a target does not
+invalidate unrelated calibrated cells or require repeating calibration.
+`--write-unstable` exports the matching catalogue beside the list, under
+`calibrated_inventories/`. Recalibrating a host/tier/configuration replaces
+its older inventory binding; conflicting inventories in one import fail.
+
+`--layout-only` handles cells that fail noninferiority. It reads the largest
+layout-control Hodges–Lehmann upper bound from matching non-rejected
+calibration sessions with a defined bound and re-measures the failing cells
+against a fresh layout-control arm in the same session; the larger bound
+becomes the cell's spread. The record is
+`spread_unavailable`, `regression_exceeds_spread`, or
+`owner_exception_required`, and an owner signs the exception in the published
+layout table. The procedure never records a pass for a failed cell.
+
+`--mode threshold` measures threshold evidence. Its declaration names one
+inventory item, the old and new cutoff values, and the cells with their axis
+value and the routes the old and new gates select. The grid is in the cutoff's
+unit: the endpoints, the doublings of the low cutoff that stay inside the span
+for byte, lane, and element cutoffs (every integer for count, row, and term
+cutoffs), and the integral midpoints between adjacent grid values. A
+declaration with no cell strictly between the old and new cutoff is rejected,
+as is a declared route that disagrees with the cutoff comparison. The measured
+target set is every declared cell whose route changes.
+
+`--reanalyze SESSION_JSON` recomputes a stored session's rule outcomes from
+its per-run summaries under the current estimator and drift method, without
+measuring. It writes a sidecar `<source stem>.reanalysis-<UTC stamp>.json`
+beside the source, records the source method version, and marks the result
+non-publishable and non-acceptance.
+
+Policy values live in `crate.just` (`PAIR_DELTA`, `PAIR_GAMMA`, `PAIR_RUNS`,
+`PAIR_DRIFT_CAP`, `PAIR_ROUNDS`, `PAIR_CALIBRATION_RUNS`,
+`PAIR_DRIFT_SAFETY_FACTOR`, `PAIR_SMT_WINDOW`, `PAIR_SMT_BUSY_THRESHOLD`,
+`PAIR_CHRT`, `PAIR_UNSTABLE_TARGET_RUNS`). `PAIR_RUNS` and `PAIR_DRIFT_CAP`
+are per-host `host:value` bindings; `PAIR_CHRT` optionally prepends `chrt`
+arguments to every harness invocation; `PAIR_UNSTABLE_TARGET_RUNS` is the
+minimum session run count when a listed unstable cell is declared as a
+superiority target. `--policy-json` carries the recipe's snapshot of the
+acceptance policy values, and acceptance rejects an argument that differs;
+`--exploratory` allows the override for a run that is not publishable.
+
+### The operations bench
+
+The `operations` bench is the stable-API measurement `bench-pair` drives. A
+cell is one public `fgf::ops` or `fgf::ops::bits` call shape over deterministic
+fixtures; the target names no `fgf::internals`, and every cell is checked
+against an independent element-wise oracle before it is timed. A cell id is
+`{field}/{operation}/{prep}/{row_len}x{rows}x{sources}/{alignment}`, where
+`alignment` is `aligned` or `offsetN`. Registration order is fixed, so the
+inventory is byte-identical across runs, hosts, and arms. Fixture storage is
+page-aligned: destination, first source, second source, and the gather region
+take fixed, distinct intra-page offsets; buffers at or above the
+streaming-store size use huge-page alignment, and library-owned prepared
+coefficient tables start at the page origin. `offsetN` shifts the destination
+only.
+
+The harness prints `BACKEND`, one `FIELD_BACKEND` line per registered field
+label, and then `CELL` records for `--inventory`, `OUTPUT` digests for
+`--check`, or a `CONTROL`-bracketed stream of `ROUND` records for
+`--time --rounds N`. `--cells FILE` restricts a run to named cells; `--family`
+selects one family panel, and omitting it runs every family. Setup, allocation,
+and coefficient construction stay outside the timed region; a round is the
+median of an adaptive inner batch.
+
+### Coverage map
+
+`just bench-coverage-map TIER` rebuilds the `operations` bench on the pinned
+nightly with branch coverage, runs `--check` once per cell under
+`SIMD_BACKEND=<TIER>`, and merges the per-cell profiles into one map. The map
+relates every kernel-registry entry and threshold-inventory branch to the
+cells that execute it, and it exits non-zero for an unexecuted required entry
+or a one-sided required branch unless `benches/coverage_exceptions.json`
+records the item with a reason. Exception classes are `unreachable`,
+`unmapped_arcane`, and `ambiguous`; a stale exception is itself a failure. The
+recipe needs `FGF_THRESHOLD_INVENTORY`, reads `scan.py` beside the inventory,
+and regenerates the kernel registry when its identity does not match the tree.
+The pinned compiler emits little or no mapping for `#[archmage::arcane]` kernel
+bodies, so entry evidence is the wrapper's count or the nearest mapped caller
+region, and an `unmapped_arcane` exception names the cells that straddle both
+sides of the unmapped site.
+
+### Publication
+
+`just bench-publish` renders the committed record; `--verify` regenerates every
+page in memory and fails on a manifest digest or byte mismatch without writing.
+`benchmarks/sessions.json` is the committed manifest: it fixes the host order
+and availability, lists every published `session.json` with its SHA-256 digest,
+and lists the captured competitor logs. Operations rows retain their
+`{host}/{tier}/{cell id}` anchors; surface rows use a separate harness-qualified
+namespace and table. History appends in publication order. Latest measurements
+retain the latest row per anchor with its measured revision and session, not
+an assertion that every row describes the newest release. Descriptive rows
+identify their standalone method, scope, repetition budget, and observed
+range. Accepted sessions publish the candidate arm; same-revision paired
+sessions retain their `baseline` label, and layout-control arms retain
+`layout_control`. Calibration, threshold, layout exceptions, and competitor
+captures have dedicated tables. Feature sets and effective flags must agree
+within each published harness record.
+
+The B6 digit rule applies to every generated table: the table uses the fewest
+digits that give its smallest value three significant figures, capped at the
+harness's recorded resolution; trailing zeros are printed, integer parts are
+never rounded, and values never use scientific notation. Ratios keep five
+digits. Rounding is half-up from the unrounded recorded values. Unavailable
+numbers are `-`, units live in the table header, and caveats below a table
+state host context, aggregation, and warm-up.
+
+A publication refreshes only the anchors it measures. Other rows retain
+their original provenance; they are neither relabelled nor compared across
+sessions. Speedup, regression, crossover, and competitor claims require
+matched same-session measurements of the relevant cases and implementations,
+not a refresh of unrelated panels. Broad audits are explicit campaigns for
+milestones or shared changes, not a prerequisite for every new number.
+Raw captures remain in git-ignored `bench-records/`; only public-API timings
+and the competitor matrix publish.
+
+### Competitor campaigns
+
+Competitor campaigns run `FEC_GOLDEN_CORE=<cpu> just bench-comp FAMILY`: `gf`
+for the binary tower fields, `gdl` for Goldilocks, `m31` for Mersenne31 and
+QuadMersenne31, and `gf16` for the native GF16 harness alone. A campaign runs
+five complete rounds and shuffles the unit order within each round, printing
+the realized order. The `self` unit runs the matching `operations` family
+panel, plus `compare` for `gf`; the other units run the family's external
+harness. Bit-packed GF(2) has no competitor harness. `gf16` runs under
+`chrt --idle 0` in addition to the core pin.
+
+Every external competitor harness is a separate unpublished package under
+`external/`, outside `src/` and `benches/`; the package allowlist keeps the
+directory out of `cargo package`. `external/bench-trio/` and
+`external/gf16-bench/` carry a `build.rs` because they link native competitor
+code; `external/prime-bench/` has no build script and builds with
+`-C target-cpu=native`, which is how Plonky3 selects its packed kernels.
+
+`external/bench-trio/` links the system Intel ISA-L and klauspost/reedsolomon
+as a Go C archive and interleaves `fgf`, ISA-L, and klauspost over one
+GF(2^8)/`0x11D` fixture set, rotating through all six arm orders. The
+klauspost coding matrix arrives through `WithCustomMatrix`. Every arm is
+validated against the competitor's own output before timing, and the control
+row reports the harness's noise floor. ISA-L needs `libisal` through
+pkg-config and the klauspost arm needs the Go toolchain in `PATH`; the build
+fails rather than dropping an arm.
+
+`external/prime-bench/` compares `fgf` against Plonky3 (`p3-goldilocks`,
+`p3-mersenne-31`, and the packed quadratic extension of `p3-mersenne-31`) over
+Mersenne31, Goldilocks, and QuadMersenne31 on each library's native layout.
+Every arm is validated against the other library's output before timing, and
+the control row reports the harness's noise floor. Layout conversion is
+excluded from every timed region, and throughput counts one operand pair per
+element. It runs through `bench-comp gdl` and `bench-comp m31`; a single rerun
+is `RUSTFLAGS="-C target-cpu=native" cargo run --release -- [gdl|m31]` from
+its directory. The banner reports packing widths; the captured log states the
+flag and widths beside the resolved `fgf` backends.
 
 `external/gf16-bench/` compares native GF16 field operations against pinned
-GF-Complete, reed-solomon-erasure, reed-solomon-simd and Leopard-RS 1.x
-(pre-Leopard2). Leopard2 exposes no public field-region primitive, only codec
-operations, so the harness pins the 1.x field kernels.
-Its representation maps are bijective and preserve every basis product;
-independent scalar arithmetic validates every native scalar and timed region.
-Single-row cases cover fixed and cycling coefficients. Multi-row competitors
-compose native region operations; unsupported primitives remain absent.
-The duplicate fgf arm in every case measures bias. Arm orders follow a
-Williams balanced Latin square: within one cycle every arm takes every
-position and directly follows every other arm equally often. Each arm warms
-immediately before its timed batch, and sampling stops only at a cycle
-boundary.
-`bench-comp gf16` runs the targeted five-round campaign; `bench-comp gf`
-includes the same harness in its shuffled binary-field rounds.
-`benchmark-check-native` validates every geometry without timing. The native
-build requires Git, C/C++ compilers and an x86-64 AVX2/GFNI/crypto host;
-missing inputs fail rather than remove an arm.
+GF-Complete, reed-solomon-erasure, reed-solomon-simd, and Leopard-RS 1.x
+(pre-Leopard2); Leopard2 exposes no public field-region primitive, only codec
+operations, so the harness pins the 1.x field kernels. Its representation maps
+are bijective and preserve every basis product, and independent scalar
+arithmetic validates every native scalar and timed region. Single-row cases
+cover fixed and cycling coefficients; multi-row competitors compose native
+region operations, and unsupported primitives remain absent. The duplicate
+`fgf` arm measures bias. Arm orders follow a Williams balanced Latin square:
+within one cycle every arm takes every position and directly follows every
+other arm equally often. Each arm warms immediately before its timed batch,
+and sampling stops only at a cycle boundary. `bench-comp gf16` runs the
+targeted campaign; `bench-comp gf` includes the same harness in its shuffled
+binary-field rounds. `benchmark-check-native` validates every geometry without
+timing. The native build requires Git, C/C++ compilers, and an x86-64
+AVX2/GFNI/crypto host; missing inputs fail rather than remove an arm.
+
+### Other bench targets
+
+`just bench-save NAME` and `just bench NAME` add Criterion's baseline flags
+and apply only to the Criterion harness `prime_ntt`; every other bench target
+is a `harness = false` binary with its own argument parser and ignores those
+flags. `prime_ntt` is also declared `harness = false` and drives Criterion
+through `criterion_main`. It interleaves the public QuadMersenne31 scalar
+control, a duplicate control, and the direct AVX2 kernels per row length,
+validates every output byte for byte before timing, and reports the process
+and field backends. `just bench-build NAME` builds a named bench target
+without running it for interleaved remote comparisons.
+
+`just bench kernels` runs the internals-only direct prime-kernel panels;
+`--blocked-diagnostic` replaces them with the blocked-versus-AXPY probe.
+`just bench compare` reports `fgf` self-numbers over the competitor-harness
+fixture family, and `--peel-diagnostic` isolates matched source and
+destination offsets around the AVX-512 peel floors. `just bench field_maps`
+measures the compact-map surface. `surfaces` covers the stable scalar,
+representation, packing, bit-buffer, prepared-coefficient, row-operation,
+capability-query, and map callables; `benchmark-check` checks its inventory
+against compiler-derived rustdoc JSON, `--check` exercises every fixture
+without timing, and `--smoke` shortens sampling without removing cases.
+`--cases FILE` filters execution while retaining full inventory output and
+automatic entry/exit controls. Selected checks use a distinct completion
+marker; only an unfiltered check earns full-check completion.
+The standalone baseline measures `surfaces` by default; paired campaigns
+measure `operations`.
 
 Benchmark setup, allocation, coefficient construction, and input generation
-must stay outside the timed region. Record the CPU, OS, Rust version, selected
-backend, geometry, command, and aggregation rule in the captured output. Never
-reuse an old number or claim a performance change from an unpinned run.
-
-Measured thresholds cite the 3.0.2 record by its `v3.0.2` tag URL; new
-measurements are kept in git-ignored `bench-records/` until a public record
-exists.
-
-A performance change requires an unchanged callable control, differential
-correctness, and interleaved before/after measurements in one session. Do not
-change dispatch or a crossover from reasoning alone.
+stay outside the timed region. Captured output records the CPU, OS, Rust
+version, selected backend, geometry, command, and aggregation rule. A
+performance change requires an unchanged callable control, differential
+correctness, and a paired campaign in one session over its declared scope;
+dispatch and crossover changes are never made from reasoning alone.
 
 ## Documentation and review
 

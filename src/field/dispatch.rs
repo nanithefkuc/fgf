@@ -409,11 +409,8 @@ pub(crate) trait KernelDispatch: Field {
 
     /// `dst[i] = a[i] * b[i]`, elementwise over two full vectors.
     ///
-    /// Both operands vary per lane, so there is no coefficient to broadcast
-    /// and no table to index. GFNI multiplies vectors directly; `AArch64`,
-    /// Wasm, and the shuffle-only x86 backends use a branchless
-    /// shift/reduce vector multiply. The wider fields run the reference
-    /// path.
+    /// Both operands vary per lane; no prepared coefficient is consumed.
+    /// Non-x86 targets use scalar field operations.
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]);
 
     /// `dst[i] *= src[i]`, elementwise, in place.

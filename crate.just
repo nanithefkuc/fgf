@@ -31,11 +31,22 @@ TIERS := 'v4x v3_gfni_crypto v3 v2 scalar'
 # Owned-unsafe coverage is provided by the promoted GFNI recipe below.
 MIRI := ''
 
-# Coverage excludes the full x86 binary-field kernel subtrees and the complete
-# gf8/tower dispatch files, including their portable and narrower-ISA branches.
-# AVX-512 QuadMersenne31 and residue bodies are also excluded. AVX2 residue
-# kernels and mixed-ISA prime dispatch modules remain included.
-COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512(/|\.rs$)|kernel/(gf8|tower)\.rs$"'
+# Coverage exclusions, classified by the capability a file's lines need.
+# Hosted runners cannot rely on GFNI or AVX-512, so exactly those file lists,
+# plus the two binary-field dispatch modules whose V4x and GFNI arms
+# dominate their bodies, are excluded from the hosted gate; every other
+# kernel file, including the portable and narrower-ISA branches, stays
+# included. Each list is explicit per file: a new GFNI, AVX-512, or dispatch
+# exclusion must be added here with a T4 justification in the crate's
+# `AGENTS.md`, never silently. The acceptance-host recipe `cover-native`
+# excludes nothing and reports each list separately.
+# GFNI-only bodies: GF2P8MULB lanes and their coefficient-map helpers.
+COV_IGNORE_GFNI := 'kernel/x86/gf8/gfni\.rs$|kernel/x86/gf8/gfni/elementwise\.rs$|kernel/x86/gf8/gfni/gather\.rs$|kernel/x86/gf8/gfni/matrix\.rs$|kernel/x86/gf8/gfni/rows\.rs$|kernel/x86/gf8/gfni/scatter\.rs$|kernel/x86/gf8/gfni/single\.rs$|kernel/x86/gf16/gfni\.rs$|kernel/x86/gf16/gfni/elementwise\.rs$|kernel/x86/gf16/gfni/gather\.rs$|kernel/x86/gf16/gfni/matrix\.rs$|kernel/x86/gf16/gfni/scatter\.rs$|kernel/x86/gf16/gfni/single\.rs$|kernel/x86/gf32\.rs$|kernel/x86/gf64\.rs$'
+# AVX-512 bodies: 64-byte lanes, masked and streaming stores, V4x kernels.
+COV_IGNORE_AVX512 := 'kernel/x86/bytes/avx512\.rs$|kernel/x86/gf8/avx512\.rs$|kernel/x86/gf8/avx512/elementwise\.rs$|kernel/x86/gf8/avx512/gather\.rs$|kernel/x86/gf8/avx512/matrix\.rs$|kernel/x86/gf8/avx512/scatter\.rs$|kernel/x86/gf8/avx512/single\.rs$|kernel/x86/gf16/avx512\.rs$|kernel/x86/goldilocks/avx512\.rs$|kernel/x86/mersenne31/avx512\.rs$|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512\.rs$|kernel/x86/residue/avx512/matrix\.rs$|kernel/x86/residue/avx512/single\.rs$|kernel/x86/residue/avx512/single/u8\.rs$|kernel/x86/residue/avx512/single/u32\.rs$|kernel/x86/residue/avx512/single/u64\.rs$'
+# Dispatch modules whose generic arms are selected per field type and tier.
+COV_IGNORE_DISPATCH := 'kernel/gf8\.rs$|kernel/tower\.rs$'
+COV_IGNORE := '"' + COV_IGNORE_GFNI + '|' + COV_IGNORE_AVX512 + '|' + COV_IGNORE_DISPATCH + '"'
 
 # Export the existing merged profiles, including after a failed coverage gate.
 # CI uploads the export; run `just cover` first.
@@ -43,6 +54,54 @@ COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenn
 [group('cover')]
 cover-lcov:
     cargo llvm-cov report --lcov --output-path coverage.lcov --ignore-filename-regex {{COV_IGNORE}}
+
+# Native coverage on an acceptance host that executes every declared ISA
+# (AVX-512 and GFNI included): the same per-tier walk as the hosted `cover`,
+# a report of every file, and a separate extraction of the GFNI, AVX-512,
+# and dispatch lists, so a PR touching those files reports figures for
+# exactly what it changed. The figures are informational: `#[arcane]` kernel
+# bodies carry almost no coverage mapping, so the ISA lists measure their
+# wrapper lines, and the dispatch totals score each generic function by its
+# best monomorphized instance. The 95% gate applies to the hosted scope. The
+# extraction fails when a list matches no file or two lists match one file.
+[group('cover')]
+cover-native:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export FGF_REQUIRE_TIER=v4x
+    just _cover-runs
+    report=target/coverage-native.lcov
+    cargo llvm-cov report --lcov --output-path "$report"
+    cargo llvm-cov report --summary-only
+    python3 - "$report" gfni '{{COV_IGNORE_GFNI}}' avx512 '{{COV_IGNORE_AVX512}}' dispatch '{{COV_IGNORE_DISPATCH}}' <<'PY'
+    import re
+    import sys
+
+    report = sys.argv[1]
+    groups = {name: re.compile(pattern) for name, pattern in zip(sys.argv[2::2], sys.argv[3::2])}
+    lines = {name: [0, 0] for name in groups}
+    matched = {name: 0 for name in groups}
+    current = None
+    for raw in open(report, encoding="utf-8"):
+        if raw.startswith("SF:"):
+            path = raw[3:].strip()
+            hits = [name for name, pattern in groups.items() if pattern.search(path)]
+            if len(hits) > 1:
+                sys.exit(f"cover-native: {path} matches lists {hits}; keep the lists disjoint")
+            current = hits[0] if hits else None
+            if current:
+                matched[current] += 1
+        elif current and raw.startswith("LF:"):
+            lines[current][0] += int(raw[3:])
+        elif current and raw.startswith("LH:"):
+            lines[current][1] += int(raw[3:])
+    for name, (found, hit) in lines.items():
+        if matched[name] == 0:
+            sys.exit(f"cover-native: the {name} file list matched no report file")
+        pct = 100.0 * hit / found if found else 100.0
+        print(f"cover-native: {name} files {matched[name]}: lines {hit}/{found} ({pct:.2f}%)")
+    PY
+    cargo llvm-cov report --ignore-filename-regex {{COV_IGNORE}} --fail-under-lines {{COV_MIN}}
 
 
 # Run one educational example, passing additional Cargo options through.
@@ -135,13 +194,83 @@ external-check:
         cargo check --manifest-path "${manifest}" --all-targets
     done
 
-# Require an actual tier and positive direct-kernel execution evidence before
-# sweeping downgrade requests. Dedicated acceptance hosts supply their real tier.
+# Kernel registry identity, documents, and artifact. Generation runs the
+# static checks: every public `kernel::x86` function takes a mapped
+# capability token first (or sits on the audited tokenless list), every
+# mapped token family has entries, and every token-first function under
+# `kernel::x86` is reachable through `internals` (or sits on the private
+# helper allowlist). CI runs this recipe, uploads the registry, and the
+# CI `isa-accept` job downloads and verifies the artifact instead of
+# regenerating it.
+KR_TARGET := 'x86_64-unknown-linux-gnu'
+KR_DIR := 'target/kernel-registry'
+
+# Behavioral Python tests, then generation from the pinned nightly's
+# all-features x86_64 rustdoc documents (one with --document-hidden-items,
+# one with --document-private-items). Needs the pinned API_NIGHTLY.
 [group('gate')]
-isa-accept EXPECTED:
+kernel-registry-check:
+    API_NIGHTLY="{{API_NIGHTLY}}" API_FORMAT="{{API_FORMAT}}" python3 -m unittest -q api/test_kernel_registry.py
+    just _kernel-registry-generate
+
+[private]
+_kernel-registry-generate:
     #!/usr/bin/env bash
     set -euo pipefail
+    rm -rf {{KR_DIR}}
+    mkdir -p {{KR_DIR}}
+    export RUSTDOCFLAGS="-Z unstable-options --document-hidden-items"
+    cargo +{{API_NIGHTLY}} rustdoc --lib --all-features --target {{KR_TARGET}} \
+        --target-dir {{KR_DIR}}/doc-public \
+        -- -Z unstable-options --output-format json --document-hidden-items
+    doc={{KR_DIR}}/doc-public/{{KR_TARGET}}/doc/fgf.json
+    [[ -f "$doc" ]] || { printf 'kernel-registry: public rustdoc JSON missing after the run\n' >&2; exit 1; }
+    mv "$doc" {{KR_DIR}}/public.json
+    export RUSTDOCFLAGS="-Z unstable-options --document-private-items"
+    cargo +{{API_NIGHTLY}} rustdoc --lib --all-features --target {{KR_TARGET}} \
+        --target-dir {{KR_DIR}}/doc-private \
+        -- -Z unstable-options --output-format json --document-private-items
+    doc={{KR_DIR}}/doc-private/{{KR_TARGET}}/doc/fgf.json
+    [[ -f "$doc" ]] || { printf 'kernel-registry: private rustdoc JSON missing after the run\n' >&2; exit 1; }
+    mv "$doc" {{KR_DIR}}/private.json
+    API_NIGHTLY="{{API_NIGHTLY}}" API_FORMAT="{{API_FORMAT}}" python3 api/kernel_registry.py generate \
+        --public-doc {{KR_DIR}}/public.json \
+        --private-doc {{KR_DIR}}/private.json \
+        --format {{API_FORMAT}} --channel {{API_NIGHTLY}} \
+        --target {{KR_TARGET}} --features all-features \
+        --out {{KR_DIR}}/registry.json
+
+# Require an actual tier and positive direct-kernel execution evidence before
+# sweeping downgrade requests. Dedicated acceptance hosts supply their real
+# tier. Every run — the initial request and each downgrade iteration — is
+# audited per entry against the kernel registry at `min(required floor,
+# resolved request ceiling)`, with markers above the ceiling rejected.
+# REGISTRY (as in CI) uses a downloaded artifact, which is verified against
+# the tested tree and never regenerated; without it the run regenerates the
+# registry first, so a native host always audits its own tree.
+[group('gate')]
+isa-accept EXPECTED REGISTRY="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{EXPECTED}}" in
+        v4x|v3_gfni_crypto|v3|v2|scalar) ;;
+        *) printf 'unsupported_acceptance_tier tier=%s\n' "{{EXPECTED}}" >&2; exit 2 ;;
+    esac
+    registry="{{REGISTRY}}"
+    if [[ -n "${registry}" ]]; then
+        [[ -f "${registry}" ]] || {
+            printf 'isa-accept: registry artifact %s is missing\n' "${registry}" >&2
+            exit 1
+        }
+        API_NIGHTLY="{{API_NIGHTLY}}" API_FORMAT="{{API_FORMAT}}" \
+            python3 api/kernel_registry.py check-identity "${registry}" --target {{KR_TARGET}}
+        echo "isa-accept: registry artifact identity verified"
+    else
+        just kernel-registry-check
+        registry={{KR_DIR}}/registry.json
+    fi
     export SIMD_BACKEND="{{EXPECTED}}"
+    export FGF_REQUIRE_TIER="{{EXPECTED}}"
     bin=$(cargo build --all-features --example backend_report --message-format=json-render-diagnostics | jq -rs '[.[] | select(.executable != null) | .executable] | last')
     reported=$("${bin}" "{{EXPECTED}}")
     printf '%s\n' "${reported}"
@@ -151,39 +280,27 @@ isa-accept EXPECTED:
             exit 1
         }
     done
+    audit() {
+        local resolved
+        resolved=$(sed -n 's/^actual=//p' <<<"${1}")
+        [[ -n "${resolved}" ]] || {
+            printf 'isa_accept_unresolved_backend report:\n%s\n' "${1}" >&2
+            exit 1
+        }
+        API_NIGHTLY="{{API_NIGHTLY}}" API_FORMAT="{{API_FORMAT}}" \
+            python3 api/kernel_registry.py audit "${registry}" \
+            --floor "{{EXPECTED}}" --actual "${resolved}" --log "${2}"
+    }
     log=$(mktemp)
     trap 'rm -f "$log"' EXIT
     cargo test --all-features -- --nocapture 2>&1 | tee "$log"
-    case "{{EXPECTED}}" in
-        v4x) required=(v4x v3_gfni_crypto v3 v2) ;;
-        v3_gfni_crypto) required=(v3_gfni_crypto v3 v2) ;;
-        v3) required=(v3 v2) ;;
-        v2) required=(v2) ;;
-        scalar) required=() ;;
-        *) printf 'unsupported_acceptance_tier tier=%s\n' "{{EXPECTED}}" >&2; exit 2 ;;
-    esac
-    for tier in "${required[@]}"; do
-        grep -Fq "kernel_differential executing tier=${tier} " "$log" || {
-            printf 'isa_execution_missing expected=%s\n' "$tier" >&2
-            exit 1
-        }
-    done
-    if [[ "{{EXPECTED}}" == v4x ]]; then
-        grep -Fq 'executing kernel=avx512' "$log" || {
-            printf 'isa_execution_missing kernel=avx512\n' >&2
-            exit 1
-        }
-        for case in gf8_avx512_kernels_match_reference gf16_wide_kernels_match_reference prime_avx512_kernels_match_reference; do
-            grep -Fq "kernel_differential executing tier=v4x case=kernel::tests::x86::$case" "$log" || {
-                printf 'isa_execution_missing case=%s\n' "$case" >&2
-                exit 1
-            }
-        done
-    fi
+    audit "${reported}" "$log"
     for tier in {{TIERS}}; do
         printf 'ISA_REQUEST\t%s\n' "${tier}"
-        SIMD_BACKEND="${tier}" "${bin}"
-        SIMD_BACKEND="${tier}" cargo test --all-features -- --nocapture
+        iter_report=$(SIMD_BACKEND="${tier}" "${bin}")
+        printf '%s\n' "${iter_report}"
+        SIMD_BACKEND="${tier}" cargo test --all-features -- --nocapture 2>&1 | tee "$log"
+        audit "${iter_report}" "$log"
     done
 
 # Negative consumer snippets under `tests/compile_fail/`: each must fail to
@@ -377,6 +494,132 @@ package-api:
     )
     printf 'package-api: %s exposes the committed inventory\n' "$(basename "${archives[0]}")"
 
+# Paired measurement configuration for `bench-pair`. The runner overlays the
+# snapshot's bench target, manifests, toolchain, features, and flags onto
+# checkouts of both library revisions, so `PAIR_FEATURES` and `PAIR_ALIGN`
+# describe the measurement snapshot rather than the caller's tree. `PAIR_RUNS`
+# and `PAIR_DRIFT_CAP` are per-host values using exact hostnames, written
+# 'host:value host:value'; a single numeric value is accepted for a
+# single-host campaign. Hosts without an entry are refused by acceptance. The
+# values below are the native calibration recommendations; acceptance is still
+# gated by the host, tier, toolchain, and flag bindings.
+# The calibrated host, tier, toolchain, and flag bindings are checked against
+# the live host before any acceptance measurement; `PAIR_CALIBRATED_FLAGS` must
+# equal `PAIR_ALIGN` for the host it was calibrated on.
+PAIR_RUNS := 'Comet:24 zbox:24'
+PAIR_DRIFT_CAP := 'Comet:0.0857 zbox:0.0012'
+PAIR_ROUNDS := '7'
+PAIR_DELTA := '0.03'
+PAIR_GAMMA := '0.03'
+PAIR_FEATURES := 'simd512'
+PAIR_ALIGN := '-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6'
+# Exact hostnames; no substring match. Tiers are per host, written
+# 'host1:t1,t2 host2:t3,t4' (for example
+# 'willow-cove:v4x,v3,scalar golden-cove:v3_gfni_crypto,v3,scalar').
+PAIR_CALIBRATED_HOSTS := 'Comet zbox'
+PAIR_CALIBRATED_TIERS := 'Comet:v3_gfni_crypto,v3,v2,scalar zbox:v4x,v3,v2,scalar'
+PAIR_CALIBRATED_TOOLCHAIN := '1.98.1/48a229ceaefd4985c50990b14116b6d856af0985'
+PAIR_CALIBRATED_FLAGS := '-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6'
+PAIR_SNAPSHOT := 'HEAD'
+# Calibration collects its own budget; PAIR_RUNS never caps it. The native
+# calibration sessions collected 24 runs, so the budget must be at least the
+# recommended run count above.
+PAIR_CALIBRATION_RUNS := '24'
+# Recommended drift cap = observed maximum across calibration sessions times
+# this stated safety factor.
+PAIR_DRIFT_SAFETY_FACTOR := '1.25'
+# SMT sampling is fixed here: a window below 200 ms is too short to resolve
+# load, and a busy threshold above 0.05 admits a loaded sibling.
+PAIR_SMT_WINDOW := '0.2'
+PAIR_SMT_BUSY_THRESHOLD := '0.05'
+# Empty means taskset-only pinning. Setting this to e.g. '--idle 0' adds chrt.
+PAIR_CHRT := ''
+# Runs required when a signed unstable cell is also a superiority target;
+# uncalibrated until an owner sets it from native evidence.
+PAIR_UNSTABLE_TARGET_RUNS := 'uncalibrated'
+
+# Standalone processes are the repetition axis for descriptive snapshots.
+# This budget describes spread; it never supplies a paired acceptance bound.
+BASELINE_RUNS := '5'
+BASELINE_ROUNDS := '1'
+
+# Public scalar, storage, map, and bulk breadth, without a duplicated pair.
+[group('bench')]
+bench-baseline *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
+    exec python3 benches/bench_baseline.py \
+        --snapshot '{{PAIR_SNAPSHOT}}' \
+        --runs '{{BASELINE_RUNS}}' \
+        --rounds '{{BASELINE_ROUNDS}}' \
+        --features '{{PAIR_FEATURES}}' \
+        --rustflags '{{PAIR_ALIGN}}' \
+        --smt-window '{{PAIR_SMT_WINDOW}}' \
+        --smt-busy-threshold '{{PAIR_SMT_BUSY_THRESHOLD}}' \
+        --chrt '{{PAIR_CHRT}}' \
+        {{ARGS}}
+
+# Paired before/after measurement of the public operations bench. Calibration,
+# threshold, and layout-only campaigns are the same recipe with `--mode` and
+# their declaration arguments; further arguments pass through to the runner.
+# See `python3 benches/bench_pair.py --help` for the full surface.
+[group('bench')]
+bench-pair *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
+    exec python3 benches/bench_pair.py \
+        --snapshot '{{PAIR_SNAPSHOT}}' \
+        --runs '{{PAIR_RUNS}}' \
+        --drift-cap '{{PAIR_DRIFT_CAP}}' \
+        --rounds '{{PAIR_ROUNDS}}' \
+        --delta '{{PAIR_DELTA}}' \
+        --gamma '{{PAIR_GAMMA}}' \
+        --features '{{PAIR_FEATURES}}' \
+        --rustflags '{{PAIR_ALIGN}}' \
+        --calibrated-hosts '{{PAIR_CALIBRATED_HOSTS}}' \
+        --calibrated-tiers '{{PAIR_CALIBRATED_TIERS}}' \
+        --calibrated-toolchain '{{PAIR_CALIBRATED_TOOLCHAIN}}' \
+        --calibrated-flags '{{PAIR_CALIBRATED_FLAGS}}' \
+        --calibration-runs '{{PAIR_CALIBRATION_RUNS}}' \
+        --drift-safety-factor '{{PAIR_DRIFT_SAFETY_FACTOR}}' \
+        --smt-window '{{PAIR_SMT_WINDOW}}' \
+        --smt-busy-threshold '{{PAIR_SMT_BUSY_THRESHOLD}}' \
+        --chrt '{{PAIR_CHRT}}' \
+        --unstable-target-runs '{{PAIR_UNSTABLE_TARGET_RUNS}}' \
+        --policy-json '{"runs":"{{PAIR_RUNS}}","drift_cap":"{{PAIR_DRIFT_CAP}}","rounds":"{{PAIR_ROUNDS}}","delta":"{{PAIR_DELTA}}","gamma":"{{PAIR_GAMMA}}","calibrated_hosts":"{{PAIR_CALIBRATED_HOSTS}}","calibrated_tiers":"{{PAIR_CALIBRATED_TIERS}}","calibrated_toolchain":"{{PAIR_CALIBRATED_TOOLCHAIN}}","calibrated_flags":"{{PAIR_CALIBRATED_FLAGS}}","smt_window":"{{PAIR_SMT_WINDOW}}","smt_busy_threshold":"{{PAIR_SMT_BUSY_THRESHOLD}}","chrt":"{{PAIR_CHRT}}","unstable_target_runs":"{{PAIR_UNSTABLE_TARGET_RUNS}}"}' \
+        {{ARGS}}
+
+# Instrumented coverage map of the public operations bench at one tier. The
+# bench is rebuilt on the pinned nightly with branch coverage, `--check` runs
+# once per cell with its own profile, and the merged map relates every
+# kernel-registry entry and threshold branch to the cells that reached it.
+# The threshold inventory path comes from `FGF_THRESHOLD_INVENTORY`; the
+# scanner is read beside it.
+[group('bench')]
+bench-coverage-map TIER *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    inventory="${FGF_THRESHOLD_INVENTORY:-}"
+    [[ -n "${inventory}" ]] || {
+        printf 'bench-coverage-map: set FGF_THRESHOLD_INVENTORY to the threshold inventory.json\n' >&2
+        exit 2
+    }
+    registry=target/kernel-registry/registry.json
+    private=target/kernel-registry/private.json
+    if [[ ! -f "${registry}" || ! -f "${private}" ]] || \
+       ! API_NIGHTLY="{{API_NIGHTLY}}" API_FORMAT="{{API_FORMAT}}" \
+         python3 api/kernel_registry.py check-identity "${registry}" --target {{KR_TARGET}}; then
+        just kernel-registry-check
+    fi
+    exec python3 benches/coverage_map.py \
+        --tier {{TIER}} \
+        --inventory "${inventory}" \
+        --scan "$(dirname "${inventory}")/scan.py" \
+        --toolchain {{API_NIGHTLY}} \
+        {{ARGS}}
+
 # Build a portable benchmark artifact for interleaved remote comparisons.
 [group('bench')]
 bench-build NAME:
@@ -409,8 +652,9 @@ unsafe-check-gfni:
         cargo +nightly miri test ${args}
     done <<< "{{MIRI_GFNI}}"
 
-# `cargo miri test` argument sets for `unsafe-check-gfni`, one per line. The
-# CI `miri-gfni` job mirrors this list; keep the two in sync.
+# `cargo miri test` argument sets for `unsafe-check-gfni`, one per line. CI's
+# `miri-gfni` job invokes that recipe, so this variable is the single source
+# of the list.
 MIRI_GFNI := '''--test ops gf8_matrix_scattered_matches_contiguous -- --exact
 --test ops gf16_mul_into_matrix_overwrites -- --exact
 --features internals --test internals proven_gf8_mul_kernels_match_scalar -- --exact
@@ -471,7 +715,7 @@ bench-comp FAMILY *ARGS:
             echo "-- round ${run} unit ${unit}"
             case "${unit}" in
                 self)
-                    just bench kernels --{{FAMILY}}
+                    just bench operations --time --rounds 1 --family "{{FAMILY}}"
                     if [[ "{{FAMILY}}" == gf ]]; then
                         just bench compare
                     fi
@@ -505,7 +749,7 @@ gf16-check *ARGS: gf16-build
 benchmark-check:
     #!/usr/bin/env bash
     set -euo pipefail
-    python3 -m unittest discover -s benches -p 'test_surfaces.py'
+    python3 -m unittest discover -s benches -p 'test_*.py'
     bin=$(cargo build --profile test --all-features --bench surfaces --message-format=json-render-diagnostics | jq -rs '[.[] | select(.executable != null) | .executable] | last')
     scratch=$(mktemp -d)
     trap 'rm -rf "$scratch"' EXIT
@@ -525,6 +769,11 @@ benchmark-api-json:
 benchmark-check-native: gf16-build
     external/gf16-bench/target/release/fgf-gf16-bench --presentations --check
     just gf16-check
+
+# Render the committed measurement record, or verify it without writing.
+[group('bench')]
+bench-publish *ARGS:
+    python3 benches/publish.py {{ARGS}}
 
 # Documentation in the published default-feature configuration, the one
 # docs.rs builds.
@@ -557,6 +806,7 @@ release-accept:
     just benchmark-check-native
     just package-check
     just api
+    just kernel-registry-check
     just package-api
     just api-semver-release
 

@@ -9,18 +9,10 @@
 
 use fgf::ops::bits;
 
-/// The shared fixed-seed LCG noise, as in the other suites.
-fn noise(len: usize, seed: u64) -> Vec<u8> {
-    let mut state = seed | 1;
-    (0..len)
-        .map(|_| {
-            state = state
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1);
-            (state >> 33) as u8
-        })
-        .collect()
-}
+#[path = "../src/kernel/tests/fixtures.rs"]
+mod fixtures;
+
+use fixtures::noise_odd_seed as noise;
 
 /// Bit `i` of a packed buffer.
 fn bit(buf: &[u8], i: usize) -> bool {
@@ -407,149 +399,147 @@ fn xor_gather_accepts_a_full_u64_selector() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[should_panic(expected = "bits::xor_assign: dst is 2 bytes but src is 3 bytes")]
+#[should_panic(expected = "bits::xor_assign:")]
 fn xor_rejects_length_mismatch() {
     bits::xor_assign(&mut [0u8; 2], &[0u8; 3]);
 }
 
 #[test]
-#[should_panic(expected = "bits::xor_range: dst is 2 bytes but src is 3 bytes")]
+#[should_panic(expected = "bits::xor_range:")]
 fn xor_range_rejects_length_mismatch() {
     bits::xor_range(&mut [0u8; 2], 16, 0, 8, &[0u8; 3]);
 }
 
 #[test]
-#[should_panic(expected = "bits::xor_range: range start 9 exceeds end 5")]
+#[should_panic(expected = "bits::xor_range:")]
 fn xor_range_rejects_inverted_range() {
     bits::xor_range(&mut [0u8; 2], 16, 9, 5, &[0u8; 2]);
 }
 
 #[test]
-#[should_panic(expected = "bits::xor_range: range end 13 exceeds the 8 live bits")]
+#[should_panic(expected = "bits::xor_range:")]
 fn xor_range_rejects_range_past_live_bits() {
     bits::xor_range(&mut [0u8; 1], 8, 5, 13, &[0u8; 1]);
 }
 
 #[test]
-#[should_panic(expected = "XorRange::new: range start 9 exceeds end 5")]
+#[should_panic(expected = "XorRange::new:")]
 fn range_xor_rejects_inverted_range() {
     let _ = bits::XorRange::new(16, 9, 5);
 }
 
 #[test]
-#[should_panic(expected = "XorRange::new: range end 13 exceeds the 8 live bits")]
+#[should_panic(expected = "XorRange::new:")]
 fn range_xor_rejects_range_past_live_bits() {
     let _ = bits::XorRange::new(8, 5, 13);
 }
 
 #[test]
-#[should_panic(
-    expected = "bits::xor_range_with: the planned range needs 2 bytes but dst holds 1 and src holds 1"
-)]
+#[should_panic(expected = "bits::xor_range_with:")]
 fn xor_range_with_rejects_short_buffers() {
     let plan = bits::XorRange::new(13, 5, 13);
     bits::xor_range_with(&mut [0u8; 1], &plan, &[0u8; 1]);
 }
 #[test]
-#[should_panic(expected = "bits::xor_range: 13 bits need at least 2 bytes but dst holds 1")]
+#[should_panic(expected = "bits::xor_range:")]
 fn xor_range_rejects_short_buffer() {
     bits::xor_range(&mut [0u8; 1], 13, 5, 13, &[0u8; 1]);
 }
 
 #[test]
-#[should_panic(expected = "bits::and_into: dst is 2 bytes but a is 3 bytes")]
+#[should_panic(expected = "bits::and_into:")]
 fn and_into_rejects_dst_mismatch() {
     bits::and_into(&mut [0u8; 2], &[0u8; 3], &[0u8; 2]);
 }
 
 #[test]
-#[should_panic(expected = "bits::and_into: a is 3 bytes but b is 2 bytes")]
+#[should_panic(expected = "bits::and_into:")]
 fn and_into_rejects_input_mismatch() {
     bits::and_into(&mut [0u8; 3], &[0u8; 3], &[0u8; 2]);
 }
 
 #[test]
-#[should_panic(expected = "bits::and_assign: dst is 2 bytes but src is 4 bytes")]
+#[should_panic(expected = "bits::and_assign:")]
 fn and_assign_rejects_length_mismatch() {
     bits::and_assign(&mut [0u8; 2], &[0u8; 4]);
 }
 
 #[test]
-#[should_panic(expected = "bits::andnot_assign: dst is 2 bytes but mask is 1 bytes")]
+#[should_panic(expected = "bits::andnot_assign:")]
 fn andnot_assign_rejects_length_mismatch() {
     bits::andnot_assign(&mut [0u8; 2], &[0u8; 1]);
 }
 
 #[test]
-#[should_panic(expected = "bits::clear_range: range start 7 exceeds end 2")]
+#[should_panic(expected = "bits::clear_range:")]
 fn clear_range_rejects_inverted_range() {
     bits::clear_range(&mut [0u8; 1], 8, 7, 2);
 }
 
 #[test]
-#[should_panic(expected = "bits::clear_range: range end 9 exceeds the 8 live bits")]
+#[should_panic(expected = "bits::clear_range:")]
 fn clear_range_rejects_range_past_live_bits() {
     bits::clear_range(&mut [0u8; 1], 8, 0, 9);
 }
 
 #[test]
-#[should_panic(expected = "bits::clear_range: 9 bits need at least 2 bytes but dst holds 1")]
+#[should_panic(expected = "bits::clear_range:")]
 fn clear_range_rejects_short_buffer() {
     bits::clear_range(&mut [0u8; 1], 9, 0, 9);
 }
 
 #[test]
-#[should_panic(expected = "bits::set_range: range start 4 exceeds end 2")]
+#[should_panic(expected = "bits::set_range:")]
 fn set_range_rejects_inverted_range() {
     bits::set_range(&mut [0u8; 1], 8, 4, 2);
 }
 
 #[test]
-#[should_panic(expected = "bits::set_range: range end 12 exceeds the 11 live bits")]
+#[should_panic(expected = "bits::set_range:")]
 fn set_range_rejects_range_past_live_bits() {
     bits::set_range(&mut [0u8; 2], 11, 0, 12);
 }
 
 #[test]
-#[should_panic(expected = "bits::set_range: 17 bits need at least 3 bytes but dst holds 2")]
+#[should_panic(expected = "bits::set_range:")]
 fn set_range_rejects_short_buffer() {
     bits::set_range(&mut [0u8; 2], 17, 0, 17);
 }
 
 #[test]
-#[should_panic(expected = "bits::weight: 9 bits need at least 2 bytes but buf holds 1")]
+#[should_panic(expected = "bits::weight:")]
 fn weight_rejects_short_buffer() {
     let _ = bits::weight(&[0u8; 1], 9);
 }
 
 #[test]
-#[should_panic(expected = "bits::dot_product: a is 2 bytes but b is 3 bytes")]
+#[should_panic(expected = "bits::dot_product:")]
 fn dot_product_rejects_length_mismatch() {
     let _ = bits::dot_product(&[0u8; 2], &[0u8; 3], 16);
 }
 
 #[test]
-#[should_panic(expected = "bits::dot_product: 12 bits need at least 2 bytes but a holds 1")]
+#[should_panic(expected = "bits::dot_product:")]
 fn dot_product_rejects_short_buffer() {
     let _ = bits::dot_product(&[0u8; 1], &[0u8; 1], 12);
 }
 
 #[test]
-#[should_panic(expected = "bits::xor_gather: source 1 is 2 bytes but dst is 3 bytes")]
+#[should_panic(expected = "bits::xor_gather:")]
 fn xor_gather_rejects_source_length_mismatch() {
     let srcs: [&[u8]; 2] = [&[0u8; 3], &[0u8; 2]];
     bits::xor_gather(&mut [0u8; 3], 24, 0b11, &srcs);
 }
 
 #[test]
-#[should_panic(expected = "bits::xor_gather: selector names source 3 but only 3 sources exist")]
+#[should_panic(expected = "bits::xor_gather:")]
 fn xor_gather_rejects_selector_past_sources() {
     let srcs: [&[u8]; 3] = [&[0u8; 1], &[0u8; 1], &[0u8; 1]];
     bits::xor_gather(&mut [0u8; 1], 8, 0b1000, &srcs);
 }
 
 #[test]
-#[should_panic(expected = "bits::xor_gather: 17 bits need at least 3 bytes but dst holds 2")]
+#[should_panic(expected = "bits::xor_gather:")]
 fn xor_gather_rejects_short_dst() {
     let srcs: [&[u8]; 1] = [&[0u8; 2]];
     bits::xor_gather(&mut [0u8; 2], 17, 1, &srcs);

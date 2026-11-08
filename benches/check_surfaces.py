@@ -12,7 +12,9 @@ fails closed on a case whose ``api`` paths do not resolve against the crate's
 declared stable public API (plus the manifest's explicit additions), on a
 compiler-declared callable that no case covers, on duplicate case strings or
 duplicate identities, and on a capture whose mode or completion markers do
-not prove a full ``--check`` execution.
+not prove a full ``--check`` execution. A selected ``--cases`` check capture
+carries the distinct ``SURFACES_SELECTED_CHECK_COMPLETE`` marker and is
+rejected: it does not prove full execution.
 
 The public callable universe comes from pinned nightly rustdoc JSON, including
 macro-generated methods and reachable re-exports. The supplemental manifest
@@ -101,9 +103,10 @@ BENCHMARK_MODES = ("full", "smoke", "check")
 SURFACES_ONLY_MODES = ("inventory",)
 
 SURFACES_BANNER_RE = re.compile(r"fgf surfaces benchmark — backend: (\S+)")
-SURFACES_PROCESS_RECORD_RE = re.compile(
-    r"FIELD_BACKEND\tprocess\t(\S+)\tnative_mul=(true|false)"
-    r"\tblocked_rows=(true|false)")
+SURFACES_PROCESS_RECORD_RE = re.compile(r"FIELD_BACKEND\tprocess\t(\S+)")
+# A selected --cases check capture carries its own completion marker; it does
+# not prove full execution and this tool rejects it.
+SURFACES_SELECTED_COMPLETE_PREFIX = "SURFACES_SELECTED_CHECK_COMPLETE\tcases="
 PRESENTATIONS_HEADER_RE = re.compile(
     r"^GF16 presentations; fgf=(\S+) process_backend=(\S+); "
     r"rss=([\d.]+) AVX2; rse=([\d.]+) scalar GF16; "
@@ -320,6 +323,7 @@ class SurfacesLog:
         self.presentations_complete: tuple[int, int, bool] | None = None
         self.checked_cases: list[str] = []
         self.checked_complete: int | None = None
+        self.selected_complete: int | None = None
         self.check_lines: list[str] = []
         self._banner_fields: dict[str, list[str]] = {section: []
                                                      for section in SURFACE_SECTIONS}
@@ -349,6 +353,14 @@ class SurfacesLog:
                 self.checked_complete = int(raw.split("=", 1)[1])
             except ValueError:
                 self.error(f"malformed check completion: {raw!r}")
+            return
+        if raw.startswith(SURFACES_SELECTED_COMPLETE_PREFIX):
+            if self.selected_complete is not None:
+                self.error("duplicate selected check completion marker")
+            try:
+                self.selected_complete = int(raw.split("=", 1)[1])
+            except ValueError:
+                self.error(f"malformed selected check completion: {raw!r}")
             return
         for prefix, handler in (
             ("BENCHMARK_MODE\t", self.mode_line),
@@ -574,6 +586,9 @@ class SurfacesLog:
 
     def validate_check_capture(self) -> None:
         """A --check capture: the full inventory, no timing records."""
+        if self.selected_complete is not None:
+            self.error("a selected --cases check capture does not prove a "
+                       "full --check execution; run an unfiltered --check")
         for section in self.sections:
             if self.modes.get(section) != "check":
                 self.error(f"section {section!r} must run in check mode for a "

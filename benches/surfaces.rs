@@ -3,10 +3,11 @@
 //! case string, and a machine record.
 //!
 //! ```sh
-//! cargo bench --features std,simd,internals --bench surfaces
-//! cargo bench --features std,simd,internals --bench surfaces -- --inventory
-//! cargo bench --features std,simd,internals --bench surfaces -- --check
-//! cargo bench --features std,simd,internals --bench surfaces -- --smoke
+//! cargo bench --features std,simd --bench surfaces
+//! cargo bench --features std,simd --bench surfaces -- --inventory
+//! cargo bench --features std,simd --bench surfaces -- --check
+//! cargo bench --features std,simd --bench surfaces -- --smoke
+//! cargo bench --features std,simd --bench surfaces -- --cases selected.txt
 //! ```
 //!
 //! Every mode prints the same `SURFACE_INVENTORY\t{...}` stream — one JSON
@@ -20,7 +21,18 @@
 //! every case and shortens repetition only. The process times an unchanged
 //! byte-XOR control at entry and exit (`control: true`, `phase` entry/exit)
 //! so campaign drift is separable from field work, and prints
-//! `FIELD_BACKEND` routing lines for every registered field.
+//! `FIELD_BACKEND` routing lines for every registered field plus the
+//! process backend.
+//!
+//! `--cases FILE` is an execution-only filter: the file names one exact case
+//! id per line, blank lines and `#` comments are ignored, and the full
+//! inventory still prints. The controls run unconditionally, so a duplicate,
+//! unknown, control, or empty selection exits nonzero. Every mode still
+//! prints the full inventory; only the measured or checked case set is
+//! filtered. An unfiltered `--check` ends with
+//! `SURFACES_CHECK_COMPLETE\tcases=N`; a selected `--check` ends with the
+//! distinct `SURFACES_SELECTED_CHECK_COMPLETE\tcases=N` so a partial
+//! execution cannot read as a full check.
 
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
@@ -158,11 +170,77 @@ fn build_registry() {
     registry::add(control_case("exit"));
 }
 
+/// Exit with a usage or selection error: a filtered run must fail closed.
+fn usage_error(message: &str) -> ! {
+    eprintln!("surfaces: {message}");
+    std::process::exit(2);
+}
+
+/// The file argument of a `--cases FILE` or `--cases=FILE` flag, if given.
+///
+/// Unknown arguments stay tolerated so wrapper flags pass through; a
+/// malformed `--cases` flag is a usage error. The first `--cases` flag wins.
+fn cases_path(args: &[String]) -> Option<String> {
+    for (index, arg) in args.iter().enumerate() {
+        if let Some(path) = arg.strip_prefix("--cases=") {
+            if path.is_empty() {
+                usage_error("--cases= requires a file path");
+            }
+            return Some(path.to_string());
+        }
+        if arg == "--cases" {
+            return match args.get(index + 1) {
+                Some(path) if !path.starts_with('-') => Some(path.clone()),
+                _ => usage_error("--cases requires a file path argument"),
+            };
+        }
+    }
+    None
+}
+
+/// Read one `--cases` selection file: an exact case id per line, with blank
+/// lines and `#` comments ignored.
+///
+/// The selection is execution-only: the controls always run regardless, so
+/// naming a control id is rejected, as are duplicate ids, unknown ids, and a
+/// file that names no ordinary case. Returns the selected ids in file order.
+fn read_selection(path: &str, cases: &[Case]) -> Vec<String> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) => usage_error(&format!("cannot read --cases file {path}: {error}")),
+    };
+    let mut ids: Vec<String> = Vec::new();
+    for (number, raw) in text.lines().enumerate() {
+        let id = raw.split_once('#').map_or(raw, |(head, _)| head).trim();
+        if id.is_empty() {
+            continue;
+        }
+        if ids.iter().any(|known| known == id) {
+            usage_error(&format!("{path}:{}: duplicate case id {id:?}", number + 1));
+        }
+        let Some(case) = cases.iter().find(|case| case.case == id) else {
+            usage_error(&format!("{path}:{}: unknown case id {id:?}", number + 1));
+        };
+        if case.control {
+            usage_error(&format!(
+                "{path}:{}: {id:?} is a control; controls always run and cannot be selected",
+                number + 1
+            ));
+        }
+        ids.push(id.to_string());
+    }
+    if ids.is_empty() {
+        usage_error(&format!("{path}: the selection names no case"));
+    }
+    ids
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let inventory_only = args.iter().any(|arg| arg == "--inventory");
     let check = args.iter().any(|arg| arg == "--check");
     let smoke = args.iter().any(|arg| arg == "--smoke");
+    let selection_path = cases_path(&args);
 
     println!(
         "fgf surfaces benchmark — backend: {}",
@@ -183,6 +261,9 @@ fn main() {
     build_registry();
 
     let cases = registry::cases();
+    let selected = selection_path
+        .as_deref()
+        .map(|path| read_selection(path, &cases));
     for case in &cases {
         registry::print_inventory(case);
     }
@@ -198,18 +279,28 @@ fn main() {
         println!("TIMER_FLOOR\t{{\"ns\":{ns:.9},\"samples\":{samples}}}");
     }
     let started = Instant::now();
-    for case in &cases {
+    let mut exercised_count = 0;
+    for case in cases.iter().filter(|case| {
+        selected
+            .as_ref()
+            .is_none_or(|ids| case.control || ids.iter().any(|id| id == &case.case))
+    }) {
+        exercised_count += 1;
         (case.run)(case, &ctx);
         if check {
             println!("SURFACE_CHECKED\t{}", case.case);
         }
     }
     if check {
-        println!("SURFACES_CHECK_COMPLETE\tcases={}", cases.len());
+        if selected.is_some() {
+            println!("SURFACES_SELECTED_CHECK_COMPLETE\tcases={exercised_count}");
+        } else {
+            println!("SURFACES_CHECK_COMPLETE\tcases={exercised_count}");
+        }
     } else {
         println!(
             "SURFACES\tcases={}\telapsed_s={:.3}",
-            cases.len(),
+            exercised_count,
             started.elapsed().as_secs_f32()
         );
     }
