@@ -1,13 +1,14 @@
 {
   "exceptions": [
     {
-      "key": "src/kernel/x86.rs::HALF_LANE_PEEL_MIN",
+      "key": "src/kernel/routing.rs::HALF_LANE_PEEL_MIN",
       "class": "unmapped_arcane",
       "reason": "the pinned compiler emitted no mapping for any site",
       "straddling_cells": [
         "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
         "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ]
+      ],
+      "item": "src/kernel/routing.rs::HALF_LANE_PEEL_MIN"
     },
     {
       "key": "src/kernel/x86.rs::PREFETCH_AHEAD",
@@ -19,13 +20,14 @@
       ]
     },
     {
-      "key": "src/kernel/x86/bytes/avx512.rs::XOR_PEEL_MIN",
+      "key": "src/kernel/routing.rs::XOR_PEEL_MIN",
       "class": "unmapped_arcane",
       "reason": "the pinned compiler emitted no mapping for any site",
       "straddling_cells": [
         "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
         "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ]
+      ],
+      "item": "src/kernel/routing.rs::XOR_PEEL_MIN"
     },
     {
       "key": "src/kernel/x86/gf16.rs::TERM_TILE",
@@ -109,31 +111,34 @@
       ]
     },
     {
-      "key": "src/kernel/x86/gf8/avx512/gather.rs::GATHER_PEEL_MIN",
+      "key": "src/kernel/routing.rs::GATHER_PEEL_MIN",
       "class": "unmapped_arcane",
       "reason": "the pinned compiler emitted no mapping for any site",
       "straddling_cells": [
         "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
         "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ]
+      ],
+      "item": "src/kernel/routing.rs::GATHER_PEEL_MIN"
     },
     {
-      "key": "src/kernel/x86/gf8/avx512/matrix.rs::MATRIX_PEEL_MIN",
+      "key": "src/kernel/routing.rs::MATRIX_PEEL_MIN",
       "class": "unmapped_arcane",
       "reason": "the pinned compiler emitted no mapping for any site",
       "straddling_cells": [
         "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
         "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ]
+      ],
+      "item": "src/kernel/routing.rs::MATRIX_PEEL_MIN"
     },
     {
-      "key": "src/kernel/x86/gf8/avx512/matrix.rs::MATRIX_RESOLVE_MIN",
+      "key": "src/kernel/routing.rs::MATRIX_RESOLVE_MIN",
       "class": "unmapped_arcane",
       "reason": "the pinned compiler emitted no mapping for any site",
       "straddling_cells": [
         "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
         "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ]
+      ],
+      "item": "src/kernel/routing.rs::MATRIX_RESOLVE_MIN"
     },
     {
       "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_at_block::cmp:2<=nrows:left",
@@ -172,13 +177,14 @@
       ]
     },
     {
-      "key": "src/kernel/x86/gf8/avx512/scatter.rs::SCATTER_PEEL_MIN",
+      "key": "src/kernel/routing.rs::SCATTER_PEEL_MIN",
       "class": "unmapped_arcane",
       "reason": "the pinned compiler emitted no mapping for any site",
       "straddling_cells": [
         "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
         "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ]
+      ],
+      "item": "src/kernel/routing.rs::SCATTER_PEEL_MIN"
     },
     {
       "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled==1:right",
@@ -343,22 +349,38 @@
       ]
     },
     {
-      "item": "src/kernel/residue.rs::fn mul_add_prepared::cmp:P<=127:right",
-      "key": "src/kernel/residue.rs::fn mul_add_prepared::cmp:P<=127:right",
-      "class": "unreachable",
-      "reason": "the comparison is the second conjunct of `BYTES == 1 && P <= 127` inside the AVX2 arm, which `single_row_backend` selects for one-byte rows only when `routes_vector` already holds `P <= 127`; for every one-byte row that reaches it the conjunct is true, and wider rows short-circuit on `BYTES == 1`"
+      "item": "src/kernel/routing.rs::DELAYED_MIN_SOURCES",
+      "key": "src/kernel/routing.rs::DELAYED_MIN_SOURCES",
+      "class": "unmapped_branch",
+      "reason": "the comparison is the last conjunct of the multi-term `&&` return in the `const fn routes_delayed` (`src/kernel/routing.rs:373-389`, comparison at `:388`); the containing position is mapped at every tier but the pinned compiler emitted no branch record at that span, so `branch_evidence` cannot attribute either side. The straddling cells execute `routes_delayed` with 7 sources (below) and 9 sources (above) on prepared 4x256-byte matrices",
+      "straddling_cells": [
+        "residue-1000000007/mul_add_matrix/prepared/256x4x7/aligned",
+        "residue-1000000007/mul_add_matrix/prepared/256x4x9/aligned"
+      ]
     },
     {
-      "item": "src/kernel/residue.rs::fn mul_assign_prepared::cmp:P<=127:right",
-      "key": "src/kernel/residue.rs::fn mul_assign_prepared::cmp:P<=127:right",
-      "class": "unreachable",
-      "reason": "the comparison is the second conjunct of `BYTES == 1 && P <= 127` inside the AVX2 arm, which `single_row_backend` selects for one-byte rows only when `routes_vector` already holds `P <= 127`; for every one-byte row that reaches it the conjunct is true, and wider rows short-circuit on `BYTES == 1`"
+      "item": "src/kernel/x86.rs::PREFETCH_MIN",
+      "key": "src/kernel/x86.rs::PREFETCH_MIN",
+      "class": "unmapped_branch",
+      "reason": "the comparison is in the `#[inline] fn prefetch_dst` (`src/kernel/x86.rs:69-72`, comparison at `:71`) and is reached only from the gf8/gf16 vector `mul_into` bodies (`x86/gf8/avx2.rs:108`, `x86/gf8/gfni/single.rs:236`, `x86/gf8/avx512/single.rs:165`, `x86/gf16/gfni/single.rs:343`); the pinned compiler emitted no branch record at the helper's span though the containing position is mapped. The straddling cells execute a 4096-byte destination (below the 24 KiB floor) and a 65536-byte destination (above it)",
+      "straddling_cells": [
+        "gf8-aes/mul_into/unprepared/4096x1x1/aligned",
+        "gf8-aes/mul_into/unprepared/65536x1x1/aligned"
+      ]
     },
     {
-      "item": "src/kernel/residue.rs::fn mul_into_prepared::cmp:P<=127:right",
-      "key": "src/kernel/residue.rs::fn mul_into_prepared::cmp:P<=127:right",
-      "class": "unreachable",
-      "reason": "the comparison is the second conjunct of `BYTES == 1 && P <= 127` inside the AVX2 arm, which `single_row_backend` selects for one-byte rows only when `routes_vector` already holds `P <= 127`; for every one-byte row that reaches it the conjunct is true, and wider rows short-circuit on `BYTES == 1`"
+      "item": "src/kernel/x86/gf8/gfni/rows.rs::THREE_LANE_MAX_ROW",
+      "key": "src/kernel/x86/gf8/gfni/rows.rs::THREE_LANE_MAX_ROW",
+      "class": "unmapped_branch",
+      "reason": "the comparison is the last conjunct of `const fn three_lanes` (`src/kernel/x86/gf8/gfni/rows.rs:354-360`, comparison at `:358`), called only from the `#[archmage::rite(v3_gfni_crypto)] matrix_group` ritual body at `:400`; the pinned compiler emitted no branch record inside that mapped ritual body. The straddling cells execute 3-row matrix groups at 65536-byte rows (below the 128 KiB bound) and 131136-byte rows (above it)",
+      "straddling_cells": [
+        "gf8-aes/mul_add_matrix/unprepared/65536x8x8/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/131136x3x6/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto",
+        "v4x"
+      ]
     }
   ]
 }

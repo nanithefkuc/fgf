@@ -172,6 +172,42 @@ class AttributionTests(unittest.TestCase):
         with self.assertRaises(coverage_map.CoverageMapError):
             coverage_map.validate_exceptions(bad, [], [row], cells, "v3")
 
+    def test_unmapped_branch_exception_requires_unexecuted_and_straddling(self) -> None:
+        row = {
+            "key": "src/a.rs::CUTOFF",
+            "class": "routing_threshold",
+            "required": True,
+            "value": 64,
+            "unit": "bytes",
+            "status": "unexecuted",
+            "reason": "no branch record",
+            "sites": [],
+        }
+        cells = [
+            {"id": "small", "row_len": 32, "rows": 1, "sources": 1, "bytes": 32},
+            {"id": "large", "row_len": 128, "rows": 1, "sources": 1, "bytes": 128},
+        ]
+        exceptions = {
+            row["key"]: {
+                "key": row["key"],
+                "class": "unmapped_branch",
+                "reason": "the compiler emitted no branch record",
+                "straddling_cells": ["small", "large"],
+            }
+        }
+        self.assertEqual(
+            coverage_map.validate_exceptions(exceptions, [], [row], cells, "v3"), []
+        )
+        coverage_map.apply_exceptions(exceptions, [row], "v3")
+        self.assertEqual(row["status"], "excused")
+
+        row["status"] = "both_ways"
+        diagnostics = coverage_map.validate_exceptions(
+            exceptions, [], [row], cells, "v3"
+        )
+        self.assertEqual(len(diagnostics), 1)
+        self.assertIn("stale", diagnostics[0]["reason"])
+
     def test_stale_exception_keys_fail(self) -> None:
         cell = {"id": "c", "row_len": 64, "rows": 1, "sources": 1, "bytes": 64}
         exceptions = {

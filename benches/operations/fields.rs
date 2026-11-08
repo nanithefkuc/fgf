@@ -6,7 +6,10 @@
 //! relation, or storage differ.
 
 use fgf::FiniteField;
-use fgf::binary::{AES, FanPaar16, Polynomial, RS, Rijndael16, Rijndael32, Rijndael64};
+use fgf::binary::{
+    AES, FanPaar16, FanPaar32 as FanPaar32Spec, FanPaar64 as FanPaar64Spec, Polynomial, RS,
+    Rijndael16, Rijndael32, Rijndael64,
+};
 use fgf::extension::{Components, Extension, ExtensionSpec, Packed, QuadMersenne31, Relation};
 use fgf::prime::{Goldilocks, Mersenne31};
 use fgf::{FieldBuffer, backend_for};
@@ -19,6 +22,8 @@ pub type Gf16Rijndael = FiniteField<2, 16, Extension<Rijndael16, 2>>;
 pub type Gf32Rijndael = FiniteField<2, 32, Extension<Rijndael32, 2>>;
 pub type Gf64Rijndael = FiniteField<2, 64, Extension<Rijndael64, 2>>;
 pub type Gf16FanPaar = FiniteField<2, 16, Extension<FanPaar16, 2>>;
+pub type FanPaar32 = FiniteField<2, 32, Extension<FanPaar32Spec, 2>>;
+pub type FanPaar64 = FiniteField<2, 64, Extension<FanPaar64Spec, 2>>;
 
 /// The largest `u64` prime.
 pub const MAX_PRIME: u64 = 18_446_744_073_709_551_557;
@@ -77,6 +82,8 @@ pub const GF16_RIJNDAEL: &str = "gf16-rijndael";
 pub const GF32_RIJNDAEL: &str = "gf32-rijndael";
 pub const GF64_RIJNDAEL: &str = "gf64-rijndael";
 pub const FANPAAR16: &str = "fanpaar16";
+pub const FANPAAR32: &str = "fanpaar32";
+pub const FANPAAR64: &str = "fanpaar64";
 pub const RESIDUE_101: &str = "residue-101";
 pub const RESIDUE_251: &str = "residue-251";
 pub const RESIDUE_1E9P7: &str = "residue-1000000007";
@@ -110,6 +117,8 @@ pub fn print_backends() {
     row::<Gf32Rijndael>(GF32_RIJNDAEL);
     row::<Gf64Rijndael>(GF64_RIJNDAEL);
     row::<Gf16FanPaar>(FANPAAR16);
+    row::<FanPaar32>(FANPAAR32);
+    row::<FanPaar64>(FANPAAR64);
     row::<ResidueU8>(RESIDUE_101);
     row::<ResidueU8High>(RESIDUE_251);
     row::<ResidueU32>(RESIDUE_1E9P7);

@@ -648,6 +648,31 @@ fn add_qm31_thresholds(cells: &mut Vec<Cell>) {
     }
 }
 
+fn add_fanpaar_wide(cells: &mut Vec<Cell>) {
+    // The AVX2 Fan-Paar 32/64 kernels are the prepared-`Fp` multiply path;
+    // one mid-size row per public multiply op executes each entry at v3.
+    for operation in ["mul_add", "mul_assign", "mul_into"] {
+        push_single::<fields::FanPaar32>(
+            cells,
+            fields::FANPAAR32,
+            fields::FAMILY_GF,
+            operation,
+            "unprepared",
+            MID,
+            0,
+        );
+        push_single::<fields::FanPaar64>(
+            cells,
+            fields::FANPAAR64,
+            fields::FAMILY_GF,
+            operation,
+            "unprepared",
+            MID,
+            0,
+        );
+    }
+}
+
 fn add_residue_delayed<F: FieldBuffer>(cells: &mut Vec<Cell>, field: &'static str) {
     for (operation, row_len, rows, sources) in [
         ("mul_add_matrix", 256, 4, 8),
@@ -1034,6 +1059,7 @@ pub fn registry() -> Vec<Cell> {
     add_field::<fields::Gf8Rs>(&mut cells, fields::GF8_RS, fields::FAMILY_GF);
     add_field::<fields::Gf16Rijndael>(&mut cells, fields::GF16_RIJNDAEL, fields::FAMILY_GF);
     add_field::<fields::Gf16FanPaar>(&mut cells, fields::FANPAAR16, fields::FAMILY_GF);
+    add_fanpaar_wide(&mut cells);
     add_field::<fields::Gf32Rijndael>(&mut cells, fields::GF32_RIJNDAEL, fields::FAMILY_GF);
     add_field::<fields::Gf64Rijndael>(&mut cells, fields::GF64_RIJNDAEL, fields::FAMILY_GF);
     add_field::<fields::ResidueU8>(&mut cells, fields::RESIDUE_101, fields::FAMILY_PRIME);

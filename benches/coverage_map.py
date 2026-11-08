@@ -390,7 +390,12 @@ def load_inventory(path: Path) -> list[dict]:
     return data
 
 
-EXCEPTION_CLASSES = {"unreachable", "unmapped_arcane", "ambiguous"}
+EXCEPTION_CLASSES = {
+    "unreachable",
+    "unmapped_arcane",
+    "unmapped_branch",
+    "ambiguous",
+}
 KNOWN_UNREACHABLE = set()
 
 
@@ -426,18 +431,19 @@ def load_exceptions(path: Path) -> dict[str, dict]:
         ):
             raise CoverageMapError(f"{path}: {key}: `tiers` must be a non-empty tier list")
         straddling = entry.get("straddling_cells")
-        if item_class == "unmapped_arcane":
+        if item_class in {"unmapped_arcane", "unmapped_branch"}:
             if (
                 not isinstance(straddling, list)
                 or not straddling
                 or not all(isinstance(cell, str) and cell for cell in straddling)
             ):
                 raise CoverageMapError(
-                    f"{path}: {key}: unmapped_arcane needs a non-empty `straddling_cells`"
+                    f"{path}: {key}: {item_class} needs a non-empty `straddling_cells`"
                 )
         elif straddling is not None:
             raise CoverageMapError(
-                f"{path}: {key}: `straddling_cells` is only valid for unmapped_arcane"
+                f"{path}: {key}: `straddling_cells` is only valid for "
+                "unmapped_arcane and unmapped_branch"
             )
         if key in result:
             raise CoverageMapError(f"{path}: duplicate exception for {key}")
@@ -1106,16 +1112,40 @@ def validate_exceptions(
                         f"of the {cutoff}-{row['unit']} cutoff"
                     )
             continue
-        if item_class == "ambiguous":
-            if row["status"] != "ambiguous":
+        if item_class == "unmapped_branch":
+            if row["status"] != "unexecuted":
                 diagnostics.append(
                     {
                         "key": key,
                         "class": item_class,
                         "status": row["status"],
-                        "reason": "stale at this tier: item is not ambiguous",
+                        "reason": "stale at this tier: no missing branch record",
                     }
                 )
+                continue
+            ids = entry["straddling_cells"]
+            missing = [cell for cell in ids if cell not in cell_ids]
+            if missing:
+                raise CoverageMapError(
+                    f"exceptions: {key}: unknown bench cells {missing[:4]}"
+                )
+            if row["unit"] in {"bytes", "rows", "terms", "sources"} and isinstance(
+                row["value"], int
+            ):
+                values = [
+                    _axis_value(row["unit"], cell)
+                    for cell in cells
+                    if cell["id"] in set(ids)
+                ]
+                numeric = [value for value in values if isinstance(value, int)]
+                cutoff = row["value"]
+                if not any(value < cutoff for value in numeric) or not any(
+                    value > cutoff for value in numeric
+                ):
+                    raise CoverageMapError(
+                        f"exceptions: {key}: straddling_cells do not cover both sides "
+                        f"of the {cutoff}-{row['unit']} cutoff"
+                    )
             continue
         raise CoverageMapError(f"exceptions: {key}: unknown class {item_class}")
     return diagnostics
@@ -1143,6 +1173,10 @@ def apply_exceptions(
             row["reason"] = entry["reason"]
             row["exception_class"] = entry["class"]
         elif entry["class"] == "ambiguous" and row["status"] == "ambiguous":
+            row["status"] = "excused"
+            row["reason"] = entry["reason"]
+            row["exception_class"] = entry["class"]
+        elif entry["class"] == "unmapped_branch" and row["status"] == "unexecuted":
             row["status"] = "excused"
             row["reason"] = entry["reason"]
             row["exception_class"] = entry["class"]
