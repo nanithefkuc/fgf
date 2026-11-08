@@ -12,7 +12,7 @@ use crate::kernel::x86::gf32::{SWAP2, load_mask};
 use core::arch::x86_64::*;
 
 /// The three fp16 sub-coefficients of one fp32 scale, in broadcast-ready form.
-pub(in crate::kernel::x86::fan_paar) struct Fp32Lanes {
+pub(in crate::kernel::x86::fan_paar) struct FanPaar32LanesAvx2 {
     /// `[c0, c0 ^ mul_alpha(c1), c1]` — `a` scales the even fp16 lanes of the
     /// source, `b` the odd, `c` (uniform) the half-swapped source.
     a: crate::kernel::x86::gf16::NibbleAvx2,
@@ -25,12 +25,14 @@ pub(in crate::kernel::x86::fan_paar) struct Fp32Lanes {
 }
 
 #[archmage::rite(v3)]
-pub(in crate::kernel::x86::fan_paar) fn fp32_lanes(coeff: Elem<FanPaar32Field>) -> Fp32Lanes {
+pub(in crate::kernel::x86::fan_paar) fn fan_paar32_lanes_avx2(
+    coeff: Elem<FanPaar32Field>,
+) -> FanPaar32LanesAvx2 {
     let [c0, c1] = coeff.to_components();
     let a_coeff = c0;
     let b_coeff = c0.add(c1.mul_alpha());
     let c_coeff = c1;
-    Fp32Lanes {
+    FanPaar32LanesAvx2 {
         a: nibble_avx2(&FpTowerTables::new(a_coeff)),
         b: nibble_avx2(&FpTowerTables::new(b_coeff)),
         c: nibble_avx2(&FpTowerTables::new(c_coeff)),
@@ -41,7 +43,10 @@ pub(in crate::kernel::x86::fan_paar) fn fp32_lanes(coeff: Elem<FanPaar32Field>) 
 
 /// `coeff * src` for one 32-byte lane, given the precomputed fp16 lane tables.
 #[archmage::rite(v3)]
-pub(in crate::kernel::x86::fan_paar) fn scale_fp32(x: __m256i, lanes: &Fp32Lanes) -> __m256i {
+pub(in crate::kernel::x86::fan_paar) fn scale_fan_paar32_avx2(
+    x: __m256i,
+    lanes: &FanPaar32LanesAvx2,
+) -> __m256i {
     // even fp16 lanes ← a·x, odd fp16 lanes ← b·x.
     let xa = scale_avx2(x, &lanes.a);
     let xb = scale_avx2(x, &lanes.b);
@@ -79,13 +84,13 @@ pub fn mul_add_avx2(
         dst.len(),
     );
     align_spill_slots();
-    let l = fp32_lanes(coeff);
+    let l = fan_paar32_lanes_avx2(coeff);
     let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in lanes.iter_mut().zip(src_lanes) {
         let x = _mm256_loadu_si256(src_lane);
         let d = _mm256_loadu_si256(&*dst_lane);
-        let r = scale_fp32(x, &l);
+        let r = scale_fan_paar32_avx2(x, &l);
         _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, r));
     }
     // Every 32-byte lane is a whole number of 4-byte elements, so the tail
@@ -106,11 +111,11 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem
         dst.len(),
     );
     align_spill_slots();
-    let l = fp32_lanes(coeff);
+    let l = fan_paar32_lanes_avx2(coeff);
     let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
     for dst_lane in lanes.iter_mut() {
         let x = _mm256_loadu_si256(&*dst_lane);
-        _mm256_storeu_si256(dst_lane, scale_fp32(x, &l));
+        _mm256_storeu_si256(dst_lane, scale_fan_paar32_avx2(x, &l));
     }
     scalar::mul_assign::<FanPaar32Field>(dst_tail, coeff);
 }
@@ -140,12 +145,12 @@ pub fn mul_into_avx2(
         dst.len(),
     );
     align_spill_slots();
-    let l = fp32_lanes(coeff);
+    let l = fan_paar32_lanes_avx2(coeff);
     let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in lanes.iter_mut().zip(src_lanes) {
         let x = _mm256_loadu_si256(src_lane);
-        _mm256_storeu_si256(dst_lane, scale_fp32(x, &l));
+        _mm256_storeu_si256(dst_lane, scale_fan_paar32_avx2(x, &l));
     }
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.

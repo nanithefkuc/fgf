@@ -1,6 +1,6 @@
 //! Fan–Paar GF(2^64) AVX2 kernels.
 
-use super::super::gf32::avx2::{Fp32Lanes, fp32_lanes, scale_fp32};
+use super::super::gf32::avx2::{FanPaar32LanesAvx2, fan_paar32_lanes_avx2, scale_fan_paar32_avx2};
 use crate::field::Elem;
 use crate::field::binary::tower::FanPaar64Field;
 use crate::kernel::scalar;
@@ -14,9 +14,9 @@ use core::arch::x86_64::*;
 struct Fp64Lanes {
     /// `[c0, c0 ^ mul_alpha(c1), c1]` as fp32 sub-scales — `a` even fp32
     /// lanes, `b` odd, `c` (uniform) the half-swapped source.
-    a: Fp32Lanes,
-    b: Fp32Lanes,
-    c: Fp32Lanes,
+    a: FanPaar32LanesAvx2,
+    b: FanPaar32LanesAvx2,
+    c: FanPaar32LanesAvx2,
     /// `0x00000000ffffffff`: keeps each 8-byte group's low (even) fp32 lane.
     even: __m256i,
     /// `SWAP4`: exchanges the two fp32 halves of every fp64 element.
@@ -30,9 +30,9 @@ fn fp64_lanes(coeff: Elem<FanPaar64Field>) -> Fp64Lanes {
     let b_coeff = c0.add(c1.mul_alpha());
     let c_coeff = c1;
     Fp64Lanes {
-        a: fp32_lanes(a_coeff),
-        b: fp32_lanes(b_coeff),
-        c: fp32_lanes(c_coeff),
+        a: fan_paar32_lanes_avx2(a_coeff),
+        b: fan_paar32_lanes_avx2(b_coeff),
+        c: fan_paar32_lanes_avx2(c_coeff),
         even: _mm256_set1_epi64x(i64::from_ne_bytes(0x0000_0000_ffff_ffffu64.to_ne_bytes())),
         swap4: load_mask(&SWAP4),
     }
@@ -42,14 +42,14 @@ fn fp64_lanes(coeff: Elem<FanPaar64Field>) -> Fp64Lanes {
 #[archmage::rite(v3)]
 fn scale_fp64(x: __m256i, lanes: &Fp64Lanes) -> __m256i {
     // even fp32 lanes ← a·x, odd fp32 lanes ← b·x.
-    let xa = scale_fp32(x, &lanes.a);
-    let xb = scale_fp32(x, &lanes.b);
+    let xa = scale_fan_paar32_avx2(x, &lanes.a);
+    let xb = scale_fan_paar32_avx2(x, &lanes.b);
     let same = _mm256_xor_si256(
         _mm256_and_si256(xa, lanes.even),
         _mm256_andnot_si256(lanes.even, xb),
     );
     // uniform c on the half-swapped source.
-    let cross = scale_fp32(_mm256_shuffle_epi8(x, lanes.swap4), &lanes.c);
+    let cross = scale_fan_paar32_avx2(_mm256_shuffle_epi8(x, lanes.swap4), &lanes.c);
     _mm256_xor_si256(same, cross)
 }
 
