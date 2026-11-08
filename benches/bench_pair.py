@@ -80,8 +80,13 @@ import time
 import tomllib
 from pathlib import Path
 
-METHOD_VERSION = "fgf-pair/4"
-DRIFT_METHOD = "p90_minus_p10_over_median"
+METHOD_VERSION = "fgf-pair/5"
+DRIFT_METHOD = "iqr_over_median"
+METHOD_DRIFT = {
+    "fgf-pair/3": "p90_minus_p10_over_median",
+    "fgf-pair/4": "p90_minus_p10_over_median",
+    METHOD_VERSION: DRIFT_METHOD,
+}
 SUPPORTED_TIERS = ("v4x", "v3_gfni_crypto", "v3", "v2", "scalar")
 DEFAULT_TIERS = " ".join(SUPPORTED_TIERS)
 REQUIRED_ALIGN_TOKENS = (
@@ -565,7 +570,7 @@ def percentile(values, fraction: float) -> float | None:
 
 
 def drift_stats(samples) -> dict:
-    """Drift = (p90 - p10) / median of the start controls.
+    """Drift = interquartile range / median of the start controls.
 
     The max/min spread is retained for diagnosis but does not drive the cap.
     """
@@ -578,6 +583,8 @@ def drift_stats(samples) -> dict:
             "median": None,
             "p10": None,
             "p90": None,
+            "p25": None,
+            "p75": None,
             "min": None,
             "max": None,
             "spread": None,
@@ -587,8 +594,10 @@ def drift_stats(samples) -> dict:
     median = statistics.median(ordered)
     p10 = percentile(ordered, 0.10)
     p90 = percentile(ordered, 0.90)
+    p25 = percentile(ordered, 0.25)
+    p75 = percentile(ordered, 0.75)
     spread = ordered[-1] - ordered[0]
-    ratio = (p90 - p10) / median if median > 0 and p90 is not None and p10 is not None else None
+    ratio = (p75 - p25) / median if median > 0 else None
     return {
         "n": len(ordered),
         "drift": ratio,
@@ -596,6 +605,8 @@ def drift_stats(samples) -> dict:
         "median": median,
         "p10": p10,
         "p90": p90,
+        "p25": p25,
+        "p75": p75,
         "min": ordered[0],
         "max": ordered[-1],
         "spread": spread,
@@ -5134,6 +5145,16 @@ def reanalyze_session(path: Path, args) -> int:
     if not isinstance(source, dict):
         print(f"bench_pair: {path} is not a session object", file=sys.stderr)
         return 2
+    source_method = source.get("method_version")
+    if source_method in METHOD_DRIFT:
+        expected_drift = METHOD_DRIFT[source_method]
+        if source.get("drift_method") != expected_drift:
+            print(
+                f"bench_pair: {path} drift_method must be {expected_drift} "
+                f"for {source_method}",
+                file=sys.stderr,
+            )
+            return 2
     kind = source.get("kind")
     if kind not in ("acceptance", "calibration", "threshold"):
         print(f"bench_pair: {path} has unsupported kind {kind!r}", file=sys.stderr)
@@ -5211,6 +5232,7 @@ def reanalyze_session(path: Path, args) -> int:
         "source_session": str(path),
         "source_session_id": source.get("session_id"),
         "source_method_version": source.get("method_version"),
+        "source_drift_method": source.get("drift_method"),
         "created_utc": datetime.datetime.now(datetime.UTC).isoformat(),
         "host": source.get("host"),
         "snapshot": {

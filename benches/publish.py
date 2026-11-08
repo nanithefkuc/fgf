@@ -44,9 +44,9 @@ from typing import Any, Iterable
 import bench_baseline
 import bench_pair
 
-METHOD_VERSION = "fgf-pair/4"
-SUPPORTED_METHODS = ("fgf-pair/3", METHOD_VERSION)
-DRIFT_METHOD = "p90_minus_p10_over_median"
+METHOD_VERSION = bench_pair.METHOD_VERSION
+SUPPORTED_METHODS = tuple(bench_pair.METHOD_DRIFT)
+STAGED_METHODS = ("fgf-pair/4", METHOD_VERSION)
 SOURCE_DECIMALS = 9
 KINDS = ("acceptance", "calibration", "threshold", "descriptive")
 ARM_ORDER = ("base", "layout_control", "candidate")
@@ -415,7 +415,7 @@ def _check_decisions(decisions: dict, where: str, *,
     failed = _failed_cells_by_tier(decisions)
     confirmed = (
         session is not None
-        and session.get("method_version") == METHOD_VERSION
+        and session.get("method_version") in STAGED_METHODS
         and bool(failed)
         and all(
             cells and set(cells) == set(
@@ -457,8 +457,9 @@ def validate_session(session: dict, where: str) -> None:
     _require_keys(session, SESSION_KEYS, where)
     if session["method_version"] not in SUPPORTED_METHODS:
         fail(f"{where}.method_version must be one of {', '.join(SUPPORTED_METHODS)}")
-    if session["drift_method"] != DRIFT_METHOD:
-        fail(f"{where}.drift_method must be {DRIFT_METHOD}")
+    expected_drift = bench_pair.METHOD_DRIFT[session["method_version"]]
+    if session["drift_method"] != expected_drift:
+        fail(f"{where}.drift_method must be {expected_drift}")
     _require_string(session["session_id"], f"{where}.session_id")
     _require_string(session["created_utc"], f"{where}.created_utc")
     kind = _require_string(session["kind"], f"{where}.kind")
@@ -528,7 +529,7 @@ def validate_session(session: dict, where: str) -> None:
     for index, run in enumerate(runs):
         item = _require_mapping(run, f"{where}.runs[{index}]")
         _require_keys(item, RUN_KEYS, f"{where}.runs[{index}]")
-        if session["method_version"] == METHOD_VERSION:
+        if session["method_version"] in STAGED_METHODS:
             if item.get("stage") not in ("main", "confirmation"):
                 fail(f"{where}.runs[{index}].stage is invalid")
 
@@ -633,7 +634,7 @@ def validate_session(session: dict, where: str) -> None:
                     excluded = superiority.get("excluded_unstable")
                     if excluded is not None:
                         _require_mapping(excluded, f"{where}.decisions.{tier}.superiority.excluded_unstable")
-    if session["method_version"] == METHOD_VERSION:
+    if session["method_version"] in STAGED_METHODS:
         if config.get("confirmation") is not (kind != "calibration"):
             fail(f"{where}.config.confirmation disagrees with kind")
         if kind != "calibration":
@@ -1238,7 +1239,7 @@ def _digits_for(rows: list[PublishedRow]) -> int | None:
 
 def _measurement_record(row: PublishedRow) -> str:
     session = row.session.data
-    if session.get("method_version") == METHOD_VERSION:
+    if session.get("method_version") in STAGED_METHODS:
         decision = ((session.get("decisions") or {}).get("per_tier") or {}).get(row.tier, {})
         noninferiority = decision.get("noninferiority") or {}
         if row.cell in noninferiority.get("confirmed_failures", []):
@@ -1480,7 +1481,7 @@ def render_thresholds(hosts: list[HostSpec], sessions: list[PublishedSession],
                       tiers: list[str]) -> str:
     ordered = _ordered_rows(rows, host_index, tiers, history=True)
     digits = _digits_for(ordered)
-    staged = any(row.session.data["method_version"] == METHOD_VERSION for row in ordered)
+    staged = any(row.session.data["method_version"] in STAGED_METHODS for row in ordered)
     measurements = []
     for row in ordered:
         value = "-" if digits is None else fmt_value(row.summary_ns, digits)

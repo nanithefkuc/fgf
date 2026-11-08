@@ -247,7 +247,7 @@ class DriftTests(unittest.TestCase):
         ]
         self.assertEqual(pair.start_controls(runs), [10.0, 12.0, 14.0, 16.0])
 
-    def test_drift_is_p90_p10_relative_to_median(self):
+    def test_drift_is_interquartile_range_relative_to_median(self):
         stats = pair.drift_stats([100.0, 102.0, 101.0])
         self.assertEqual(stats["n"], 3)
         self.assertEqual(stats["drift_method"], pair.DRIFT_METHOD)
@@ -255,9 +255,9 @@ class DriftTests(unittest.TestCase):
         self.assertAlmostEqual(stats["min"], 100.0)
         self.assertAlmostEqual(stats["max"], 102.0)
         self.assertAlmostEqual(stats["median"], 101.0)
-        self.assertAlmostEqual(stats["p10"], 100.2)
-        self.assertAlmostEqual(stats["p90"], 101.8)
-        self.assertAlmostEqual(stats["drift"], 1.6 / 101.0)
+        self.assertAlmostEqual(stats["p25"], 100.5)
+        self.assertAlmostEqual(stats["p75"], 101.5)
+        self.assertAlmostEqual(stats["drift"], 1.0 / 101.0)
 
     def test_drift_does_not_use_the_max_min_spread(self):
         samples = [100.0 + (index % 5) * 0.1 for index in range(100)]
@@ -266,6 +266,17 @@ class DriftTests(unittest.TestCase):
         self.assertGreater(stats["spread"] / stats["median"], 3.0)
         self.assertLess(stats["drift"], 0.01)
         self.assertEqual(stats["max"], 500.0)
+
+    def test_minority_slow_level_does_not_move_drift(self):
+        stats, rejection = pair.check_drift([100.0] * 40 + [120.0] * 8, 0.01)
+        self.assertIsNone(rejection)
+        self.assertEqual(stats["drift"], 0.0)
+        self.assertEqual(stats["spread"], 20.0)
+
+    def test_sustained_slow_level_breaches_drift_cap(self):
+        stats, rejection = pair.check_drift([100.0] * 32 + [120.0] * 16, 0.01)
+        self.assertEqual(stats["drift"], 0.2)
+        self.assertEqual(rejection.code, "drift_cap")
 
     def test_drift_cap_breach_rejects(self):
         stats, rejection = pair.check_drift([100.0, 103.0, 101.0], 0.01)
@@ -1058,9 +1069,9 @@ class ReanalysisTests(unittest.TestCase):
     def test_calibration_reanalysis_reports_recommendation(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "session.json"
-            source.write_text(
-                json.dumps(self.source_session("calibration")), encoding="utf-8"
-            )
+            session = self.source_session("calibration")
+            session["method_version"] = "fgf-pair/2"
+            source.write_text(json.dumps(session), encoding="utf-8")
             self.assertEqual(pair.reanalyze_session(source, self.args()), 0)
             output = next(Path(directory).glob("session.reanalysis-*.json"))
             analysis = json.loads(output.read_text(encoding="utf-8"))
@@ -1068,6 +1079,43 @@ class ReanalysisTests(unittest.TestCase):
             self.assertFalse(analysis["publishable"])
             self.assertIsNotNone(analysis["calibration"]["recommendation"]["runs"])
             self.assertIn("cells", analysis["calibration"]["recommendation"]["per_tier"]["v4x"])
+
+    def test_reanalysis_reads_v4_under_its_recorded_drift_method(self):
+        session = self.source_session()
+        session["method_version"] = "fgf-pair/4"
+        session["drift_method"] = "p90_minus_p10_over_median"
+        session["config"].update(confirmation=True, runs=5)
+        for index, run in enumerate(session["runs"]):
+            run["stage"] = "main"
+            run["controls"] = {
+                arm: {"start_ns": 120.0 if index == 4 else 100.0}
+                for arm in ("base", "candidate")
+            }
+        session["drift"] = {"v4x": {"drift": 0.2}}
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "session.json"
+            source.write_text(json.dumps(session), encoding="utf-8")
+            self.assertEqual(pair.reanalyze_session(source, self.args()), 0)
+            output = next(Path(directory).glob("session.reanalysis-*.json"))
+            analysis = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(analysis["source_method_version"], "fgf-pair/4")
+            self.assertEqual(
+                analysis["source_drift_method"], "p90_minus_p10_over_median"
+            )
+            self.assertEqual(analysis["method_version"], "fgf-pair/5")
+            self.assertEqual(analysis["drift_method"], "iqr_over_median")
+            self.assertEqual(analysis["drift"]["v4x"]["drift"], 0.0)
+            self.assertEqual(json.loads(source.read_text(encoding="utf-8")), session)
+
+    def test_reanalysis_rejects_mislabelled_historical_drift(self):
+        session = self.source_session()
+        session["method_version"] = "fgf-pair/4"
+        session["drift_method"] = "iqr_over_median"
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "session.json"
+            source.write_text(json.dumps(session), encoding="utf-8")
+            self.assertEqual(pair.reanalyze_session(source, self.args()), 2)
+            self.assertFalse(list(Path(directory).glob("session.reanalysis-*.json")))
 
     def scoped_source_session(self, measured, selected, missing=()):
         """A session whose runs measure `measured` and whose scope selects `selected`."""

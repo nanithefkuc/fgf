@@ -507,7 +507,10 @@ package-api:
 # the live host before any acceptance measurement; `PAIR_CALIBRATED_FLAGS` must
 # equal `PAIR_ALIGN` for the host it was calibrated on.
 PAIR_RUNS := 'Comet:24 zbox:24'
-PAIR_DRIFT_CAP := 'Comet:0.0857 zbox:0.0012'
+# Start-control IQR drift caps are half the noninferiority margin
+# (PAIR_DELTA / 2) on every host: drift below that cannot create or hide a
+# decision. The calibration recommendation's cap remains a diagnostic.
+PAIR_DRIFT_CAP := 'Comet:0.015 zbox:0.015'
 PAIR_ROUNDS := '7'
 PAIR_DELTA := '0.03'
 PAIR_GAMMA := '0.03'

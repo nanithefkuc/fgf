@@ -89,7 +89,7 @@ def make_session(session_id: str = "20261107T000000Z-willow", *,
                               else candidate_sha)
     session = {
         "method_version": "fgf-pair/3",
-        "drift_method": publish.DRIFT_METHOD,
+        "drift_method": "p90_minus_p10_over_median",
         "session_id": session_id,
         "created_utc": "2026-11-07T00:00:00Z",
         "kind": kind,
@@ -590,6 +590,24 @@ class PublisherTests(unittest.TestCase):
         with self.assertRaises(publish.PublishError):
             publish.validate_session(session, "wrong drift")
 
+    def test_drift_method_must_match_record_version(self) -> None:
+        for version, method in (
+            ("fgf-pair/3", "p90_minus_p10_over_median"),
+            ("fgf-pair/4", "p90_minus_p10_over_median"),
+            ("fgf-pair/5", "iqr_over_median"),
+        ):
+            with self.subTest(version=version):
+                session = make_session() if version.endswith("/3") else make_runner_session()
+                session["method_version"] = version
+                session["drift_method"] = method
+                publish.validate_session(session, version)
+                session["drift_method"] = (
+                    "p90_minus_p10_over_median"
+                    if method == "iqr_over_median" else "iqr_over_median"
+                )
+                with self.assertRaises(publish.PublishError):
+                    publish.validate_session(session, "mislabelled drift")
+
     def test_failed_decision_is_rejected(self) -> None:
         decisions = {
             "noninferiority": {
@@ -715,6 +733,8 @@ class PublisherTests(unittest.TestCase):
 
     def test_publishes_runner_written_session(self) -> None:
         session = make_runner_session()
+        self.assertEqual(session["method_version"], "fgf-pair/5")
+        self.assertEqual(session["drift_method"], "iqr_over_median")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             manifest = write_manifest(root, [session])
@@ -737,6 +757,8 @@ class PublisherTests(unittest.TestCase):
             "unconfirmed", cell=CELL_A, base_ns=100.0,
             candidate_ns=108.0, confirmation_ns=100.0,
         )
+        unconfirmed["method_version"] = "fgf-pair/4"
+        unconfirmed["drift_method"] = "p90_minus_p10_over_median"
         confirmed = make_runner_session(
             "confirmed", cell=CELL_B, base_ns=100.0,
             candidate_ns=108.0, confirmation_ns=108.0,
@@ -759,18 +781,25 @@ class PublisherTests(unittest.TestCase):
             self.assertEqual(run_publish(root, manifest, "--verify")[0], 0)
 
     def test_staged_failure_cannot_be_published_without_confirmation_evidence(self):
-        session = make_runner_session(
-            base_ns=100.0, candidate_ns=108.0, confirmation_ns=108.0,
-        )
-        session["runs"].pop()
-        with self.assertRaises(publish.PublishError):
-            publish.validate_session(session, "incomplete confirmation")
-        session = make_runner_session(
-            base_ns=100.0, candidate_ns=108.0, confirmation_ns=100.0,
-        )
-        session["confirmed_failures"]["v4x"] = [CELL_A]
-        with self.assertRaises(publish.PublishError):
-            publish.validate_session(session, "mislabelled confirmation")
+        for version, method in (
+            ("fgf-pair/4", "p90_minus_p10_over_median"),
+            ("fgf-pair/5", "iqr_over_median"),
+        ):
+            with self.subTest(version=version):
+                session = make_runner_session(
+                    base_ns=100.0, candidate_ns=108.0, confirmation_ns=108.0,
+                )
+                session["method_version"], session["drift_method"] = version, method
+                session["runs"].pop()
+                with self.assertRaises(publish.PublishError):
+                    publish.validate_session(session, "incomplete confirmation")
+                session = make_runner_session(
+                    base_ns=100.0, candidate_ns=108.0, confirmation_ns=100.0,
+                )
+                session["method_version"], session["drift_method"] = version, method
+                session["confirmed_failures"]["v4x"] = [CELL_A]
+                with self.assertRaises(publish.PublishError):
+                    publish.validate_session(session, "mislabelled confirmation")
 
     def test_competitor_logs_render_separate_table(self) -> None:
         log = "\n".join([

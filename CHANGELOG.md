@@ -27,8 +27,8 @@ All notable changes to this project are documented here. The format follows
   revision under one measurement snapshot, with pinned-core and host
   preconditions, counterbalanced runs, Hodges–Lehmann location estimates and
   one-sided Wilcoxon signed-rank bounds against `PAIR_DELTA` and `PAIR_GAMMA`,
-  per-host `PAIR_RUNS` and `PAIR_DRIFT_CAP` bindings, `(p90 - p10) / median`
-  drift, per-tier unstable-cell reporting and stable-cell run counts,
+  per-host `PAIR_RUNS` and `PAIR_DRIFT_CAP` bindings, interquartile-range drift
+  relative to the median, per-tier unstable-cell reporting and stable-cell run counts,
   calibration, threshold, and layout-only modes, `--reanalyze` of a stored
   session, and `--write-unstable` merging of calibration sessions.
 - `benches/unstable_cells.json` records owner-signed unstable cells per host,
@@ -50,6 +50,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Paired drift gating uses the start-control interquartile range relative to
+  the median within each tier and stage. Host caps derive from stored
+  calibration controls with the configured safety factor. Record validation
+  uses the drift metric associated with each method version.
 - Paired acceptance and threshold campaigns confirm eligible noninferiority
   failures in fresh same-session processes without pooling stages. Session
   records and reanalysis retain both stage outcomes; publication distinguishes
@@ -96,8 +100,7 @@ All notable changes to this project are documented here. The format follows
   measurements have dedicated tables.
 - `bench-comp` drives the stable-API `operations` family panel as its self
   arm; the `kernels` bench retains the internals-only direct-kernel panels.
-- Paired measurement records `fgf-pair/3` sessions, computes drift as
-  `(p90 - p10) / median` of start controls, resolves `PAIR_RUNS` and
+- Paired measurement resolves `PAIR_RUNS` and
   `PAIR_DRIFT_CAP` per hostname, disables ASLR for every check and timing
   child, gives both arms one identical environment block and equal argv
   lengths, and excludes signed unstable cells from the decision rules.

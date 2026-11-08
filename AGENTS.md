@@ -540,7 +540,7 @@ on both — the snapshot's `benches/` tree (including the `operations` bench and
 this runner), `Cargo.toml`, `Cargo.lock`, and any `rust-toolchain` file, with
 `PAIR_FEATURES` and `PAIR_ALIGN` supplying the feature set and pinned flags —
 and executes only the snapshot's bench target. The snapshot digest, runner
-digest, method version `fgf-pair/4`, `drift_method`, both library SHAs, host
+digest, method version `fgf-pair/5`, `drift_method`, both library SHAs, host
 facts, execution isolation, requested and reported tiers, effective
 configuration, per-run environment digests and argv lengths, unstable-cell
 entries, and every rejection are written to
@@ -635,9 +635,9 @@ Independent runs alternate arm order: base then candidate in one run,
 candidate then base in the next. An arm's run summary is the median of its
 rounds, and its session summary is the median of main-stage run summaries.
 Every run is bracketed by the harness's start and end controls. In acceptance and
-threshold modes, the drift is `(p90 - p10) / median` of the start controls
-across every arm's start control in a tier and stage, recorded as
-`drift_method`, and must not exceed the calibrated cap.
+threshold modes, drift is the interquartile range divided by the median of
+every arm's start control within each tier and stage. The recorded
+`drift_method` is `iqr_over_median`; drift must not exceed the calibrated cap.
 
 The estimator is the per-run log ratio `log(candidate / base)` for every cell.
 Each cell's location estimate is the Hodges–Lehmann estimate of its ratios,
@@ -676,9 +676,11 @@ Hodges–Lehmann upper bound at the full calibration budget exceeds
 the smallest run count, at or above the estimator's minimum, that puts every
 stable cell's bound at or below that limit. Unstable cells do not make the
 session fail; a tier below the estimator's minimum run count is rejected as
-insufficient. The recommendation also emits a drift cap from the largest
-observed drift times `PAIR_DRIFT_SAFETY_FACTOR`; `PAIR_CALIBRATION_RUNS`
-bounds how many runs it collects. The recommendation binds the exact
+insufficient. The recommendation also reports the largest observed drift
+times `PAIR_DRIFT_SAFETY_FACTOR` as a diagnostic; the configured
+`PAIR_DRIFT_CAP` is half the noninferiority margin (`PAIR_DELTA / 2`) on every
+host, so admitted drift cannot create or hide a decision.
+`PAIR_CALIBRATION_RUNS` bounds how many runs it collects. The recommendation binds the exact
 hostnames, measured tiers, toolchain identity, and effective flags, which the
 recipe carries as `PAIR_CALIBRATED_HOSTS`, `PAIR_CALIBRATED_TIERS`,
 `PAIR_CALIBRATED_TOOLCHAIN`, and `PAIR_CALIBRATED_FLAGS`. `PAIR_RUNS` and
@@ -736,8 +738,9 @@ target set is every declared cell whose route changes.
 `--reanalyze SESSION_JSON` recomputes a stored session's rule outcomes from
 its per-run summaries under the current estimator and drift method, without
 measuring. It writes a sidecar `<source stem>.reanalysis-<UTC stamp>.json`
-beside the source, records the source method version, and marks the result
-non-publishable and non-acceptance.
+beside the source, records the source method version and drift method, and
+marks the result non-publishable and non-acceptance. Source validation and
+publication use the drift method associated with each record's method version.
 
 Policy values live in `crate.just` (`PAIR_DELTA`, `PAIR_GAMMA`, `PAIR_RUNS`,
 `PAIR_DRIFT_CAP`, `PAIR_ROUNDS`, `PAIR_CALIBRATION_RUNS`,
