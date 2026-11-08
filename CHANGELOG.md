@@ -51,8 +51,9 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - Paired drift gating uses the start-control interquartile range relative to
-  the median within each tier and stage. Host caps derive from stored
-  calibration controls with the configured safety factor. Record validation
+  the median within each tier and stage. Every host's cap is half the
+  noninferiority margin; the calibration-derived cap remains a reported
+  diagnostic. Record validation
   uses the drift metric associated with each method version.
 - Paired acceptance and threshold campaigns confirm eligible noninferiority
   failures in fresh same-session processes without pooling stages. Session

@@ -500,8 +500,8 @@ package-api:
 # describe the measurement snapshot rather than the caller's tree. `PAIR_RUNS`
 # and `PAIR_DRIFT_CAP` are per-host values using exact hostnames, written
 # 'host:value host:value'; a single numeric value is accepted for a
-# single-host campaign. Hosts without an entry are refused by acceptance. The
-# values below are the native calibration recommendations; acceptance is still
+# single-host campaign. Hosts without an entry are refused by acceptance.
+# `PAIR_RUNS` is the native calibration recommendation; acceptance is still
 # gated by the host, tier, toolchain, and flag bindings.
 # The calibrated host, tier, toolchain, and flag bindings are checked against
 # the live host before any acceptance measurement; `PAIR_CALIBRATED_FLAGS` must
