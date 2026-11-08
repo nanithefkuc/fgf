@@ -1651,7 +1651,13 @@ def check_tiers(tiers) -> Rejection | None:
 
 
 def check_snapshot_runner(snapshot_digest: str | None, self_digest: str) -> Rejection | None:
-    if snapshot_digest is not None and snapshot_digest != self_digest:
+    if snapshot_digest is None:
+        return reject(
+            "snapshot_runner_missing",
+            "the snapshot does not supply benches/bench_pair.py; the pinned "
+            "measurement snapshot must carry the runner that performs the campaign",
+        )
+    if snapshot_digest != self_digest:
         return reject(
             "snapshot_runner_mismatch",
             "the snapshot supplies a different bench_pair.py; run the snapshot's "
@@ -1756,6 +1762,14 @@ def compare_outputs(
 
 
 def normal_dependency_set(metadata: dict) -> set[str]:
+    """Identity of every direct normal dependency of the fgf package.
+
+    The identity covers package name, version requirement, source (registry
+    URL or git URL with its revision), features (order-insensitive),
+    default-feature flag, optionality, target, rename, and local path, so a
+    candidate manifest change in any dimension survives the snapshot overlay
+    comparison.  Dev and build dependencies are excluded.
+    """
     packages = metadata.get("packages") or []
     package = next(
         (
@@ -1776,12 +1790,19 @@ def normal_dependency_set(metadata: dict) -> set[str]:
         kind = dependency.get("kind")
         if kind not in (None, "normal"):
             continue
+        features = sorted(str(feature) for feature in dependency.get("features") or [])
         dependencies.add(
             "|".join(
                 (
                     str(dependency.get("name")),
                     str(dependency.get("req")),
+                    str(dependency.get("source") or ""),
+                    ",".join(features),
+                    str(bool(dependency.get("uses_default_features", True))),
+                    str(bool(dependency.get("optional", False))),
                     str(dependency.get("target") or ""),
+                    str(dependency.get("rename") or ""),
+                    str(dependency.get("path") or ""),
                 )
             )
         )
@@ -1937,10 +1958,24 @@ def evaluate_environment(facts: dict, smt_threshold: float = 0.05) -> list[Rejec
                     f"pinned core {core} runs under governor {governor!r}, not 'performance'",
                 )
             )
-    smt_active = facts.get("smt_active")
-    siblings = facts.get("siblings") or []
+    if not isinstance(facts.get("smt_active"), bool):
+        rejections.append(reject(
+            "smt_state_unverified", "the pinned host's SMT state is unknown"
+        ))
+    siblings = facts.get("siblings")
     busy = facts.get("sibling_busy")
-    if smt_active and siblings:
+    if siblings is None:
+        rejections.append(
+            reject(
+                "smt_sibling_unverified",
+                "thread siblings of the pinned core are unknown; sibling "
+                "quietness cannot be verified",
+            )
+        )
+    elif siblings:
+        # Sampling is required whenever the core has thread siblings,
+        # regardless of the reported SMT state: an unknown or disabled state
+        # must never excuse an unsampled or busy sibling.
         if busy is None:
             rejections.append(
                 reject(
@@ -2699,40 +2734,65 @@ def read_governor(core: int) -> str | None:
     return None
 
 
-def smt_siblings(core: int) -> list[int]:
-    path = Path(
-        f"/sys/devices/system/cpu/cpu{core}/topology/thread_siblings_list"
-    )
+def smt_siblings(core: int, path: Path | None = None) -> list[int] | None:
+    """Thread siblings of ``core``, or ``None`` when the topology is unknown.
+
+    A missing, unreadable, or malformed topology file is unknown; it is never
+    reported as an inactive (empty) sibling set.
+    """
+    if path is None:
+        path = Path(
+            f"/sys/devices/system/cpu/cpu{core}/topology/thread_siblings_list"
+        )
     if not path.is_file():
-        return []
+        return None
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
     siblings = set()
-    for token in path.read_text(encoding="utf-8").strip().split(","):
+    for token in text.split(","):
         token = token.strip()
         if not token:
-            continue
+            return None
         if "-" in token:
             low, high = token.split("-", 1)
             try:
-                siblings.update(range(int(low), int(high) + 1))
+                low_value = int(low)
+                high_value = int(high)
             except ValueError:
-                pass
+                return None
+            if low_value > high_value:
+                return None
+            siblings.update(range(low_value, high_value + 1))
         else:
             try:
                 siblings.add(int(token))
             except ValueError:
-                pass
+                return None
+    if core not in siblings:
+        return None
     siblings.discard(core)
     return sorted(siblings)
 
 
-def smt_active() -> bool:
-    path = Path("/sys/devices/system/cpu/smt/active")
-    if path.is_file():
-        try:
-            return path.read_text(encoding="utf-8").strip() == "1"
-        except OSError:
-            return False
-    return False
+def smt_active(path: Path | None = None) -> bool | None:
+    """Whether SMT is enabled, or ``None`` when the state is unknown."""
+    if path is None:
+        path = Path("/sys/devices/system/cpu/smt/active")
+    if not path.is_file():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if text == "1":
+        return True
+    if text == "0":
+        return False
+    return None
 
 
 def _cpu_times() -> dict[int, tuple[float, float]]:
@@ -2759,20 +2819,39 @@ def _cpu_times() -> dict[int, tuple[float, float]]:
 
 
 def measure_smt_busy(siblings: list[int], window: float) -> float | None:
+    """Busiest sibling busy fraction, or ``None`` when it cannot be verified.
+
+    An offline sibling is excluded only when sysfs confirms it is offline
+    before and after the sampling window. Every online sibling requires two
+    complete counter samples and a positive elapsed CPU-time delta.
+    """
     if not siblings:
         return None
+    online_before = read_cpu_list("/sys/devices/system/cpu/online")
     before = _cpu_times()
     time.sleep(window)
     after = _cpu_times()
-    busiest = 0.0
+    online_after = read_cpu_list("/sys/devices/system/cpu/online")
+    if online_before is None or online_after is None:
+        return None
+    if not before or not after:
+        return None
+    busiest = None
     for core in siblings:
-        if core not in before or core not in after:
+        if (core in online_before) != (core in online_after):
+            return None
+        if core not in online_before:
             continue
+        if core not in before or core not in after:
+            return None
         total = after[core][0] - before[core][0]
         idle = after[core][1] - before[core][1]
-        if total <= 0:
-            continue
-        busiest = max(busiest, max(0.0, min(1.0, (total - idle) / total)))
+        if total <= 0 or idle < 0 or idle > total:
+            return None
+        busy = max(0.0, min(1.0, (total - idle) / total))
+        busiest = busy if busiest is None else max(busiest, busy)
+    if busiest is None:
+        return 0.0
     return busiest
 
 
@@ -4147,7 +4226,7 @@ class Campaign:
                 )
                 if base_outputs is None or candidate_outputs is None:
                     return 1
-                problem = compare_outputs(base_outputs, candidate_outputs, order)
+                digest_problem = compare_outputs(base_outputs, candidate_outputs, order)
                 check_argv = {
                     "base": command_length(harness_command(
                         aliases["base"], ["--check"],
@@ -4160,19 +4239,19 @@ class Campaign:
                         chrt_parts=self.chrt_parts, disable_aslr=True,
                     )),
                 }
-                problem = check_argv_lengths(check_argv, f"check tier {tier}")
-                if problem is not None:
-                    self.reject(problem)
-                    return 1
+                argv_problem = check_argv_lengths(check_argv, f"check tier {tier}")
                 session["checks"][tier] = {
                     "base": base_outputs,
                     "candidate": candidate_outputs,
-                    "identical": problem is None,
+                    "identical": digest_problem is None,
                     "environment_digest": environment_digest(check_env),
                     "argv_lengths": check_argv,
                 }
-                if problem is not None:
-                    self.reject(problem)
+                if digest_problem is not None:
+                    self.reject(digest_problem)
+                    return 1
+                if argv_problem is not None:
+                    self.reject(argv_problem)
                     return 1
                 for arm in ("base", "candidate"):
                     self.run_route_diagnostic(tier, arm, session["arms"][arm])
@@ -4614,6 +4693,13 @@ class Campaign:
         starts = []
         for control in controls:
             starts.extend(entry["start_ns"] for entry in control.values())
+        # The same configured per-tier drift check as the main and
+        # confirmation stages gates these runs: an over-cap control spread
+        # must never enlarge a cell's layout spread.
+        drift, problem = check_drift(starts, self.session["config"]["drift_cap"])
+        if problem is not None:
+            self.reject(problem)
+            return None
         return {
             "bounds": {
                 cell: hl_upper_bound(values)["upper_bound"]
@@ -4624,7 +4710,7 @@ class Campaign:
                 for cell, values in ratios.items()
             },
             "controls": controls,
-            "drift": drift_stats(starts),
+            "drift": drift,
             "runs": len(controls),
             "environment_digest": environment_digests,
             "argv_lengths": argv_lengths,

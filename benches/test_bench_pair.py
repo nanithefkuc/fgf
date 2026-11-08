@@ -674,10 +674,152 @@ class EnvironmentTests(unittest.TestCase):
             self.codes(pinned_core=9, affinity=[0, 1, 2, 3]),
         )
 
-    def test_smt_disabled_does_not_sample(self):
+    def test_disabled_smt_with_verified_idle_sibling_passes(self):
         self.assertEqual(
-            self.codes(smt_active=False, sibling_busy=0.99), set()
+            self.codes(smt_active=False, sibling_busy=0.0), set()
         )
+
+    def test_busy_sibling_is_rejected_even_when_smt_reports_disabled(self):
+        self.assertIn(
+            "smt_sibling_busy",
+            self.codes(smt_active=False, sibling_busy=0.99),
+        )
+
+    def test_unknown_sibling_topology_is_rejected(self):
+        self.assertIn(
+            "smt_sibling_unverified",
+            self.codes(siblings=None, sibling_busy=None),
+        )
+
+    def test_unknown_smt_state_with_unknown_topology_is_rejected(self):
+        self.assertIn(
+            "smt_sibling_unverified",
+            self.codes(smt_active=None, siblings=None, sibling_busy=None),
+        )
+
+    def test_unknown_smt_state_is_rejected_even_with_idle_or_no_siblings(self):
+        for siblings, busy in (([], None), ([7], 0.0)):
+            with self.subTest(siblings=siblings):
+                self.assertIn(
+                    "smt_state_unverified",
+                    self.codes(smt_active=None, siblings=siblings, sibling_busy=busy),
+                )
+
+
+class SmtDetectionTests(unittest.TestCase):
+    """Sibling topology and SMT-state reads fail closed on unknown inputs."""
+
+    def write_topology(self, directory: Path, text: str | None) -> Path:
+        path = directory / "thread_siblings_list"
+        if text is not None:
+            path.write_text(text, encoding="utf-8")
+        return path
+
+    def siblings(self, text: str | None, core=2):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_topology(Path(directory), text)
+            return pair.smt_siblings(core, path)
+
+    def test_missing_topology_file_is_unknown(self):
+        self.assertIsNone(self.siblings(None))
+
+    def test_blank_topology_file_is_unknown(self):
+        self.assertIsNone(self.siblings(""))
+        self.assertIsNone(self.siblings("\n"))
+
+    def test_malformed_topology_file_is_unknown(self):
+        for text in ("2,,x", "2,,3", "x", "0-2-3", "4-1", "7"):
+            with self.subTest(text=text):
+                self.assertIsNone(self.siblings(text))
+
+    def test_ranges_are_expanded_and_the_core_is_discarded(self):
+        self.assertEqual(self.siblings("0-3,8\n"), [0, 1, 3, 8])
+
+    def test_single_sibling_entry_lists_no_siblings(self):
+        self.assertEqual(self.siblings("2\n", core=2), [])
+
+    def smt_state(self, text: str | None):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "active"
+            if text is not None:
+                path.write_text(text, encoding="utf-8")
+            return pair.smt_active(path)
+
+    def test_missing_smt_state_file_is_unknown(self):
+        self.assertIsNone(self.smt_state(None))
+
+    def test_smt_state_values(self):
+        self.assertIs(self.smt_state("1\n"), True)
+        self.assertIs(self.smt_state("0\n"), False)
+        self.assertIsNone(self.smt_state("on"))
+
+
+class SmtSamplingTests(unittest.TestCase):
+    """Sibling sampling distinguishes verified idle from unknown."""
+
+    def setUp(self):
+        self.original_cpu_times = pair._cpu_times
+        self.original_read_cpu_list = pair.read_cpu_list
+
+    def tearDown(self):
+        pair._cpu_times = self.original_cpu_times
+        pair.read_cpu_list = self.original_read_cpu_list
+
+    def sample(self, before, after, siblings=(7,), online=((7,), (7,))):
+        reads = iter([before, after])
+        states = iter(online)
+        pair._cpu_times = lambda: next(reads)
+        pair.read_cpu_list = lambda path: next(states)
+        return pair.measure_smt_busy(list(siblings), 0.0)
+
+    def test_no_siblings_is_unsampled(self):
+        pair._cpu_times = self.original_cpu_times
+        self.assertIsNone(pair.measure_smt_busy([], 0.0))
+
+    def test_unreadable_proc_stat_is_unknown(self):
+        self.assertIsNone(self.sample({}, {7: (100.0, 80.0)}))
+        self.assertIsNone(self.sample({7: (100.0, 80.0)}, {}))
+
+    def test_sibling_missing_from_one_sample_is_unknown(self):
+        self.assertIsNone(self.sample({7: (100.0, 80.0)}, {3: (50.0, 40.0)}))
+        self.assertIsNone(self.sample({3: (50.0, 40.0)}, {7: (100.0, 80.0)}))
+
+    def test_nonpositive_total_delta_is_unknown(self):
+        self.assertIsNone(self.sample({7: (100.0, 80.0)}, {7: (100.0, 80.0)}))
+
+    def test_online_sibling_missing_from_both_samples_is_unknown(self):
+        before = {3: (50.0, 40.0)}
+        after = {3: (60.0, 50.0)}
+        self.assertIsNone(self.sample(before, after))
+
+    def test_offline_sibling_requires_explicit_online_state(self):
+        before = {3: (50.0, 40.0)}
+        after = {3: (60.0, 50.0)}
+        self.assertEqual(
+            self.sample(before, after, online=((3,), (3,))), 0.0,
+        )
+        self.assertIsNone(self.sample(before, after, online=(None, (3,))))
+
+    def test_offline_sibling_is_skipped_beside_a_sampled_one(self):
+        before = {7: (100.0, 95.0)}
+        after = {7: (160.0, 155.0)}
+        self.assertEqual(self.sample(before, after, siblings=(5, 7)), 0.0)
+
+    def test_hotplug_during_sampling_is_unknown(self):
+        before = {7: (100.0, 95.0)}
+        after = {7: (160.0, 155.0)}
+        self.assertIsNone(self.sample(before, after, online=((7,), ())))
+
+    def test_busy_sibling_is_measured(self):
+        before = {7: (100.0, 80.0)}
+        after = {7: (200.0, 100.0)}
+        self.assertEqual(self.sample(before, after), 0.8)
+
+    def test_idle_sibling_measures_zero(self):
+        before = {7: (100.0, 80.0)}
+        after = {7: (160.0, 140.0)}
+        self.assertEqual(self.sample(before, after), 0.0)
+
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -946,24 +1088,87 @@ class InventoryAndOutputTests(unittest.TestCase):
         self.assertEqual(rejection.code, "dependency_mismatch")
         self.assertEqual(rejection.arm, "candidate")
 
-    def test_normal_dependency_set_excludes_dev_and_build_dependencies(self):
-        metadata = {
+    @staticmethod
+    def dependency_metadata(**overrides):
+        dependency = {
+            "name": "sim",
+            "req": "=0.2.0",
+            "kind": None,
+            "target": None,
+            "source": None,
+            "optional": False,
+            "uses_default_features": True,
+            "features": [],
+            "rename": None,
+            "path": None,
+        }
+        dependency.update(overrides)
+        return {
             "packages": [
                 {
                     "name": "fgf",
                     "source": None,
-                    "dependencies": [
-                        {"name": "sim", "req": "=0.2.0", "kind": None, "target": None},
-                        {"name": "arch", "req": "=0.9", "kind": "normal", "target": None},
-                        {"name": "crit", "req": "=0.8", "kind": "dev", "target": None},
-                        {"name": "build", "req": "=1", "kind": "build", "target": None},
-                    ],
+                    "dependencies": [dependency],
                 }
             ]
         }
+
+    def normal_dependencies(self, **overrides):
+        return pair.normal_dependency_set(self.dependency_metadata(**overrides))
+
+    def test_normal_dependency_set_excludes_dev_and_build_dependencies(self):
+        metadata = self.dependency_metadata()
+        metadata["packages"][0]["dependencies"] = [
+            {"name": "sim", "req": "=0.2.0", "kind": None, "target": None},
+            {"name": "arch", "req": "=0.9", "kind": "normal", "target": None},
+            {"name": "crit", "req": "=0.8", "kind": "dev", "target": None},
+            {"name": "build", "req": "=1", "kind": "build", "target": None},
+        ]
         self.assertEqual(
             pair.normal_dependency_set(metadata),
-            {"sim|=0.2.0|", "arch|=0.9|"},
+            {"sim|=0.2.0|||True|False|||", "arch|=0.9|||True|False|||"},
+        )
+
+    def test_normal_dependency_set_covers_each_semantic_dimension(self):
+        base = self.normal_dependencies()
+        changed = [
+            ("name", {"name": "other"}),
+            ("req", {"req": "=0.3.0"}),
+            ("registry source", {"source": "registry+https://example.com/sim"}),
+            (
+                "git source",
+                {"source": "git+https://example.com/sim?rev=aaaa#1111"},
+            ),
+            ("features", {"features": ["simd"]}),
+            ("default features", {"uses_default_features": False}),
+            ("optional", {"optional": True}),
+            ("target", {"target": 'cfg(target_os = "linux")'}),
+            ("rename", {"rename": "alias"}),
+            ("path", {"path": "../sim"}),
+        ]
+        for dimension, overrides in changed:
+            with self.subTest(dimension=dimension):
+                self.assertNotEqual(self.normal_dependencies(**overrides), base)
+        git_one = self.normal_dependencies(
+            source="git+https://example.com/sim?rev=aaaa#1111"
+        )
+        git_two = self.normal_dependencies(
+            source="git+https://example.com/sim?rev=bbbb#2222"
+        )
+        self.assertNotEqual(git_one, git_two)
+        self.assertNotEqual(
+            self.normal_dependencies(path="../one"),
+            self.normal_dependencies(path="../two"),
+        )
+
+    def test_normal_dependency_set_feature_order_is_insensitive(self):
+        self.assertEqual(
+            self.normal_dependencies(features=["a", "b"]),
+            self.normal_dependencies(features=["b", "a"]),
+        )
+        self.assertNotEqual(
+            self.normal_dependencies(features=["a", "b"]),
+            self.normal_dependencies(features=["a"]),
         )
 
 
@@ -2177,6 +2382,10 @@ class MockedSessionTests(unittest.TestCase):
         self.snapshot = self.root / "snapshot"
         (self.snapshot / "benches").mkdir(parents=True)
         (self.snapshot / "benches" / "operations.rs").write_text("fn main() {}\n")
+        shutil.copy2(
+            Path(pair.__file__).resolve(),
+            self.snapshot / "benches" / "bench_pair.py",
+        )
         (self.snapshot / "Cargo.toml").write_text("[package]\nname='fgf'\n")
         (self.snapshot / "Cargo.lock").write_text("version = 4\n")
         self.records = self.root / "records"
@@ -2185,6 +2394,8 @@ class MockedSessionTests(unittest.TestCase):
         self.slow_only_first = False
         self.timing_factor = None
         self.control_start = None
+        self.check_digest = None
+        self.candidate_dependency = None
         self.unstable_file = self.root / "unstable_cells.json"
         self.calibrated = self.root / "calibrated_inventories"
         digest = pair.inventory_digest(
@@ -2259,6 +2470,13 @@ class MockedSessionTests(unittest.TestCase):
                     ],
                 }],
             }
+            if (
+                self.candidate_dependency is not None
+                and any("arm-candidate" in str(part) for part in command)
+            ):
+                metadata["packages"][0]["dependencies"] = [
+                    self.candidate_dependency
+                ]
             return subprocess.CompletedProcess(command, 0, json.dumps(metadata), "")
         if command[0] == "cargo" and "build" in command:
             name = "operations" if "--bench" in command else "backend_report"
@@ -2279,7 +2497,10 @@ class MockedSessionTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, "\n".join(lines) + "\n", "")
         if "--check" in extra:
             lines = [f"BACKEND\t{tier}"]
-            lines += [f"OUTPUT\t{cell['id']}\t" + "0" * 64 for cell in self.cells]
+            digest = "0" * 64
+            if self.check_digest is not None and "candidate" in label:
+                digest = self.check_digest
+            lines += [f"OUTPUT\t{cell['id']}\t" + digest for cell in self.cells]
             return subprocess.CompletedProcess(command, 0, "\n".join(lines) + "\n", "")
         if "--time" in extra:
             selected = self.cells
@@ -2990,6 +3211,107 @@ class MockedSessionTests(unittest.TestCase):
             )
         )
 
+    def test_cross_arm_check_digest_mismatch_rejects_before_timing(self):
+        self.check_digest = "1" * 64
+        self.assertEqual(pair.run(self.args()), 1)
+        session = self.session()
+        self.assertEqual(
+            [rejection["code"] for rejection in session["rejections"]],
+            ["output_mismatch"],
+        )
+        checks = session["checks"]["v4x"]
+        self.assertFalse(checks["identical"])
+        self.assertTrue(checks["base"])
+        self.assertTrue(checks["candidate"])
+        self.assertNotEqual(checks["base"], checks["candidate"])
+        self.assertEqual(session["runs"], [])
+        self.assertEqual(session["rows"], [])
+
+    def test_missing_snapshot_runner_rejects_the_session(self):
+        (self.snapshot / "benches" / "bench_pair.py").unlink()
+        self.assertEqual(pair.run(self.args()), 1)
+        session = self.session()
+        self.assertIn(
+            "snapshot_runner_missing",
+            [rejection["code"] for rejection in session["rejections"]],
+        )
+        self.assertIsNone(session["snapshot"]["runner_digest"])
+        self.assertFalse(session["snapshot"]["runner_matches_snapshot"])
+
+    def test_candidate_manifest_change_is_rejected(self):
+        self.candidate_dependency = {
+            "name": "simdispatch",
+            "req": "=0.2.0",
+            "kind": None,
+            "target": None,
+            "source": "git+https://example.com/simdispatch?rev=aaaa#1111",
+        }
+        self.assertEqual(pair.run(self.args()), 1)
+        session = self.session()
+        rejection = next(
+            rejection
+            for rejection in session["rejections"]
+            if rejection["code"] == "dependency_mismatch"
+        )
+        self.assertEqual(rejection["arm"], "candidate")
+        self.assertIn("simdispatch", rejection["message"])
+        self.assertEqual(session["runs"], [])
+
+    def layout_calibration_runs(self, cell):
+        runs = []
+        for index in range(6):
+            runs.append({
+                "run": index,
+                "tier": "v4x",
+                "order": ["base", "candidate"],
+                "control": {"start_ns": 100.0, "end_ns": 200.0},
+                "arms": {
+                    "base": {"cells": {cell: {
+                        "summary_ns": 1000.0, "rounds_ns": [1000.0]}}},
+                    "candidate": {"cells": {cell: {
+                        "summary_ns": 1060.0, "rounds_ns": [1060.0]}}},
+                },
+            })
+        return runs
+
+    def test_layout_remeasurement_drift_over_cap_rejects(self):
+        self.factor = 1.06
+        self.slow_only_first = True
+        self.assertEqual(pair.run(self.args()), 1)
+        first = self.session()
+        cell = self.cells[0]["id"]
+        layout_path = self.root / "layout.json"
+        layout_path.write_text(
+            json.dumps({
+                "kind": "calibration",
+                "acceptance": False,
+                "rejected": False,
+                "rejections": [],
+                "host": first["host"],
+                "snapshot": first["snapshot"],
+                "calibration": {"mode": "base_vs_layout_control"},
+                "runs": self.layout_calibration_runs(cell),
+            }),
+            encoding="utf-8",
+        )
+        shutil.rmtree(self.records)
+        self.control_start = (
+            lambda run, arm, stage: 1000.0
+            if stage == "layout" and arm == "layout_control"
+            else 100.0
+        )
+        self.assertEqual(
+            pair.run(self.args("--layout-only", "--layout-sessions", str(layout_path))),
+            1,
+        )
+        session = self.session()
+        self.assertIn(
+            "drift_cap",
+            [rejection["code"] for rejection in session["rejections"]],
+        )
+        self.assertTrue(session["rejected"])
+        self.assertIsNone(session["layout_only"])
+
     def test_missing_setarch_rejects_the_session(self):
         pair.shutil.which = (
             lambda name: None if name == "setarch" else self.original_which(name)
@@ -3014,10 +3336,10 @@ class MockedSessionTests(unittest.TestCase):
             }],
         }
         campaign.session["arms"]["base"]["revision_dependency_set"] = [
-            "snapshot-dep|=1|"
+            "snapshot-dep|=1|||True|False|||"
         ]
         campaign.session["arms"]["candidate"]["revision_dependency_set"] = [
-            "candidate-dep|=2|"
+            "candidate-dep|=2|||True|False|||"
         ]
         snapshot = pair.Snapshot(
             "s", "s", self.snapshot, "d", {}, [], "", None, "operations", False
@@ -3133,10 +3455,13 @@ class SnapshotTests(unittest.TestCase):
             self.assertNotEqual(first, pair.snapshot_digest(path))
 
     def test_snapshot_runner_must_match_the_running_runner(self):
-        self.assertIsNone(pair.check_snapshot_runner(None, "self"))
         self.assertIsNone(pair.check_snapshot_runner("same", "same"))
         rejection = pair.check_snapshot_runner("other", "same")
         self.assertEqual(rejection.code, "snapshot_runner_mismatch")
+
+    def test_missing_snapshot_runner_is_rejected(self):
+        rejection = pair.check_snapshot_runner(None, "self")
+        self.assertEqual(rejection.code, "snapshot_runner_missing")
 
     def test_snapshot_toolchain_is_read_from_toml_and_plain_files(self):
         with tempfile.TemporaryDirectory() as directory:
