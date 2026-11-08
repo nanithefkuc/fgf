@@ -40,8 +40,10 @@ MIRI := ''
 # exclusion must be added here with a T4 justification in the crate's
 # `AGENTS.md`, never silently. The acceptance-host recipe `cover-native`
 # excludes nothing and reports each list separately.
+# Shared-shape files, including gf8/rows.rs, remain in hosted coverage;
+# native shared-region evidence belongs to each concrete ISA entry.
 # GFNI-only bodies: GF2P8MULB lanes and their coefficient-map helpers.
-COV_IGNORE_GFNI := 'kernel/x86/gf8/gfni\.rs$|kernel/x86/gf8/gfni/elementwise\.rs$|kernel/x86/gf8/gfni/gather\.rs$|kernel/x86/gf8/gfni/matrix\.rs$|kernel/x86/gf8/gfni/rows\.rs$|kernel/x86/gf8/gfni/scatter\.rs$|kernel/x86/gf8/gfni/single\.rs$|kernel/x86/gf16/gfni\.rs$|kernel/x86/gf16/gfni/elementwise\.rs$|kernel/x86/gf16/gfni/gather\.rs$|kernel/x86/gf16/gfni/matrix\.rs$|kernel/x86/gf16/gfni/scatter\.rs$|kernel/x86/gf16/gfni/single\.rs$|kernel/x86/gf32\.rs$|kernel/x86/gf64\.rs$'
+COV_IGNORE_GFNI := 'kernel/x86/gf8/gfni\.rs$|kernel/x86/gf8/gfni/elementwise\.rs$|kernel/x86/gf8/gfni/gather\.rs$|kernel/x86/gf8/gfni/matrix\.rs$|kernel/x86/gf8/gfni/scatter\.rs$|kernel/x86/gf8/gfni/single\.rs$|kernel/x86/gf16/gfni\.rs$|kernel/x86/gf16/gfni/elementwise\.rs$|kernel/x86/gf16/gfni/gather\.rs$|kernel/x86/gf16/gfni/matrix\.rs$|kernel/x86/gf16/gfni/scatter\.rs$|kernel/x86/gf16/gfni/single\.rs$|kernel/x86/gf32/gfni\.rs$|kernel/x86/gf64/gfni\.rs$'
 # AVX-512 bodies: 64-byte lanes, masked and streaming stores, V4x kernels.
 COV_IGNORE_AVX512 := 'kernel/x86/bytes/avx512\.rs$|kernel/x86/gf8/avx512\.rs$|kernel/x86/gf8/avx512/elementwise\.rs$|kernel/x86/gf8/avx512/gather\.rs$|kernel/x86/gf8/avx512/matrix\.rs$|kernel/x86/gf8/avx512/scatter\.rs$|kernel/x86/gf8/avx512/single\.rs$|kernel/x86/gf16/avx512\.rs$|kernel/x86/goldilocks/avx512\.rs$|kernel/x86/mersenne31/avx512\.rs$|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512\.rs$|kernel/x86/residue/avx512/matrix\.rs$|kernel/x86/residue/avx512/single\.rs$|kernel/x86/residue/avx512/single/u8\.rs$|kernel/x86/residue/avx512/single/u32\.rs$|kernel/x86/residue/avx512/single/u64\.rs$'
 # Dispatch modules whose generic arms are selected per field type and tier.
@@ -195,7 +197,7 @@ comparisons-check:
 
 # Kernel registry identity, documents, and artifact. Generation runs the
 # static checks: every public `kernel::x86` function takes a mapped
-# capability token first (or sits on the audited tokenless list), every
+# capability token first, every
 # mapped token family has entries, and every token-first function under
 # `kernel::x86` is reachable through `internals` (or sits on the private
 # helper allowlist). CI runs this recipe, uploads the registry, and the
@@ -732,7 +734,7 @@ unsafe-check-gfni:
 MIRI_GFNI := '''--test ops gf8_matrix_scattered_matches_contiguous -- --exact
 --test ops gf16_mul_into_matrix_overwrites -- --exact
 --features internals --test internals proven_gf8_mul_kernels_match_scalar -- --exact
---features internals --test internals proven_gf8_rs_gfni_kernels_match_scalar -- --exact
+--features internals --test internals proven_gf8_rs_kernels_gfni_match_scalar -- --exact
 --features internals --test internals proven_gf8_scatter_gather_match_scalar -- --exact
 --features internals --test internals proven_gf8_matrix_kernels_match_scalar -- --exact
 --features internals --test internals proven_gf8_matrix_scattered_matches_scalar -- --exact

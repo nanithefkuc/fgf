@@ -8,8 +8,8 @@
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-pub(crate) mod matrix;
-pub(crate) mod single;
+pub mod matrix;
+pub mod single;
 
 /// One conditional subtract of `p` over eight packed 64-bit lanes.
 #[archmage::rite(v4)]

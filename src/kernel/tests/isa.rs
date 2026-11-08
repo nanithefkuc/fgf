@@ -13,7 +13,7 @@ use crate::kernel::x86;
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn gfni_kernels_match_reference() {
+fn kernels_gfni_match_reference() {
     // The single-buffer entries take the prepared coefficient: the AES
     // field runs the native multiply, the affine form follows.
     tier_gate::run_entry(x86::gf8::mul_add_gfni::<true>, |token, entry| {
@@ -225,19 +225,27 @@ fn gfni_kernels_match_reference() {
     });
     // Level-2/3 tower kernels: the period-2 lane multiply one and two
     // levels up from the GF(2^16) kernel.
-    check_tower_gfni_kernels();
+    check_tower_kernels_gfni();
 }
 
 /// Differential-check the GFNI GF(2^32) and GF(2^64) kernels — the level-2
 /// and level-3 tower multiplies — against the portable scalar oracle.
-fn check_tower_gfni_kernels() {
+fn check_tower_kernels_gfni() {
     tier_gate::run_entry(x86::gf32::mul_add_gfni, |token, entry| {
         check_tower_mul_add(
             "gf32 gfni mul_add",
             GF32_LENGTHS,
             &gf32_coeffs(),
             gf32_reference,
-            |dst, coeff, src| entry(token, dst, coeff, x86::gf32::gf32_tiles(coeff), src),
+            |dst, coeff, src| {
+                entry(
+                    token,
+                    dst,
+                    coeff,
+                    crate::kernel::tables::gf32_tiles(coeff),
+                    src,
+                );
+            },
         );
     });
     tier_gate::run_entry(x86::gf32::mul_assign_gfni, |token, entry| {
@@ -246,7 +254,7 @@ fn check_tower_gfni_kernels() {
             GF32_LENGTHS,
             &gf32_coeffs(),
             gf32_assign_reference,
-            |dst, coeff| entry(token, dst, coeff, x86::gf32::gf32_tiles(coeff)),
+            |dst, coeff| entry(token, dst, coeff, crate::kernel::tables::gf32_tiles(coeff)),
         );
     });
     tier_gate::run_entry(x86::gf32::mul_into_gfni, |token, entry| {
@@ -255,7 +263,15 @@ fn check_tower_gfni_kernels() {
             GF32_LENGTHS,
             &gf32_coeffs(),
             gf32_into_reference,
-            |dst, coeff, src| entry(token, dst, coeff, x86::gf32::gf32_tiles(coeff), src),
+            |dst, coeff, src| {
+                entry(
+                    token,
+                    dst,
+                    coeff,
+                    crate::kernel::tables::gf32_tiles(coeff),
+                    src,
+                );
+            },
         );
     });
     // Level-3: the same identity over GF(2^32) lanes.
@@ -265,7 +281,15 @@ fn check_tower_gfni_kernels() {
             GF64_LENGTHS,
             &gf64_coeffs(),
             gf64_reference,
-            |dst, coeff, src| entry(token, dst, coeff, x86::gf64::gf64_tiles(coeff), src),
+            |dst, coeff, src| {
+                entry(
+                    token,
+                    dst,
+                    coeff,
+                    crate::kernel::tables::gf64_tiles(coeff),
+                    src,
+                );
+            },
         );
     });
     tier_gate::run_entry(x86::gf64::mul_assign_gfni, |token, entry| {
@@ -274,7 +298,7 @@ fn check_tower_gfni_kernels() {
             GF64_LENGTHS,
             &gf64_coeffs(),
             gf64_assign_reference,
-            |dst, coeff| entry(token, dst, coeff, x86::gf64::gf64_tiles(coeff)),
+            |dst, coeff| entry(token, dst, coeff, crate::kernel::tables::gf64_tiles(coeff)),
         );
     });
     tier_gate::run_entry(x86::gf64::mul_into_gfni, |token, entry| {
@@ -283,14 +307,22 @@ fn check_tower_gfni_kernels() {
             GF64_LENGTHS,
             &gf64_coeffs(),
             gf64_into_reference,
-            |dst, coeff, src| entry(token, dst, coeff, x86::gf64::gf64_tiles(coeff), src),
+            |dst, coeff, src| {
+                entry(
+                    token,
+                    dst,
+                    coeff,
+                    crate::kernel::tables::gf64_tiles(coeff),
+                    src,
+                );
+            },
         );
     });
 }
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn avx2_kernels_match_reference() {
+fn kernels_avx2_match_reference() {
     tier_gate::run_entry(x86::gf8::mul_add_avx2, |token, entry| {
         check_gf8_mul_add("gf8 aes avx2", &gf8_aes_coeffs(), |dst, table, src| {
             entry(token, dst, table, src);
@@ -430,14 +462,14 @@ fn avx2_kernels_match_reference() {
             entry(token, dst, src, delta_table(), AES_REDUCTION);
         });
     });
-    check_fan_paar_avx2_kernels();
+    check_fan_paar_kernels_avx2();
 }
 
 /// Differential-check the Fan–Paar GF(2^16)/32/64 AVX2 kernels — the fp8
 /// nibble tower and its period-2 lane-mul extensions — against the
 /// Wiedemann scalar oracle.
-fn check_fan_paar_avx2_kernels() {
-    tier_gate::run_entry(x86::fan_paar::mul_add_avx2_fp16, |token, entry| {
+fn check_fan_paar_kernels_avx2() {
+    tier_gate::run_entry(x86::fan_paar::gf16::mul_add_avx2, |token, entry| {
         check_tower_mul_add(
             "fp16 avx2 mul_add",
             FP16_LENGTHS,
@@ -446,7 +478,7 @@ fn check_fan_paar_avx2_kernels() {
             |dst, coeff, src| entry(token, dst, &FpTowerTables::new(coeff), src),
         );
     });
-    tier_gate::run_entry(x86::fan_paar::mul_assign_avx2_fp16, |token, entry| {
+    tier_gate::run_entry(x86::fan_paar::gf16::mul_assign_avx2, |token, entry| {
         check_tower_mul_assign(
             "fp16 avx2 mul_assign",
             FP16_LENGTHS,
@@ -455,7 +487,7 @@ fn check_fan_paar_avx2_kernels() {
             |dst, coeff| entry(token, dst, &FpTowerTables::new(coeff)),
         );
     });
-    tier_gate::run_entry(x86::fan_paar::mul_into_avx2_fp16, |token, entry| {
+    tier_gate::run_entry(x86::fan_paar::gf16::mul_into_avx2, |token, entry| {
         check_tower_mul_into(
             "fp16 avx2 mul_into",
             FP16_LENGTHS,
@@ -464,7 +496,7 @@ fn check_fan_paar_avx2_kernels() {
             |dst, coeff, src| entry(token, dst, &FpTowerTables::new(coeff), src),
         );
     });
-    tier_gate::run_entry(x86::fan_paar::mul_add_avx2_fp32, |token, entry| {
+    tier_gate::run_entry(x86::fan_paar::gf32::mul_add_avx2, |token, entry| {
         check_tower_mul_add(
             "fp32 avx2 mul_add",
             FP32_LENGTHS,
@@ -473,7 +505,7 @@ fn check_fan_paar_avx2_kernels() {
             |dst, coeff, src| entry(token, dst, coeff, src),
         );
     });
-    tier_gate::run_entry(x86::fan_paar::mul_assign_avx2_fp32, |token, entry| {
+    tier_gate::run_entry(x86::fan_paar::gf32::mul_assign_avx2, |token, entry| {
         check_tower_mul_assign(
             "fp32 avx2 mul_assign",
             FP32_LENGTHS,
@@ -482,7 +514,7 @@ fn check_fan_paar_avx2_kernels() {
             |dst, coeff| entry(token, dst, coeff),
         );
     });
-    tier_gate::run_entry(x86::fan_paar::mul_into_avx2_fp32, |token, entry| {
+    tier_gate::run_entry(x86::fan_paar::gf32::mul_into_avx2, |token, entry| {
         check_tower_mul_into(
             "fp32 avx2 mul_into",
             FP32_LENGTHS,
@@ -491,7 +523,7 @@ fn check_fan_paar_avx2_kernels() {
             |dst, coeff, src| entry(token, dst, coeff, src),
         );
     });
-    tier_gate::run_entry(x86::fan_paar::mul_add_avx2_fp64, |token, entry| {
+    tier_gate::run_entry(x86::fan_paar::gf64::mul_add_avx2, |token, entry| {
         check_tower_mul_add(
             "fp64 avx2 mul_add",
             FP64_LENGTHS,
@@ -500,7 +532,7 @@ fn check_fan_paar_avx2_kernels() {
             |dst, coeff, src| entry(token, dst, coeff, src),
         );
     });
-    tier_gate::run_entry(x86::fan_paar::mul_assign_avx2_fp64, |token, entry| {
+    tier_gate::run_entry(x86::fan_paar::gf64::mul_assign_avx2, |token, entry| {
         check_tower_mul_assign(
             "fp64 avx2 mul_assign",
             FP64_LENGTHS,
@@ -509,7 +541,7 @@ fn check_fan_paar_avx2_kernels() {
             |dst, coeff| entry(token, dst, coeff),
         );
     });
-    tier_gate::run_entry(x86::fan_paar::mul_into_avx2_fp64, |token, entry| {
+    tier_gate::run_entry(x86::fan_paar::gf64::mul_into_avx2, |token, entry| {
         check_tower_mul_into(
             "fp64 avx2 mul_into",
             FP64_LENGTHS,
@@ -522,7 +554,7 @@ fn check_fan_paar_avx2_kernels() {
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn ssse3_kernels_match_reference() {
+fn kernels_ssse3_match_reference() {
     tier_gate::run_entry(x86::gf8::mul_add_ssse3, |token, entry| {
         check_gf8_mul_add("gf8 aes ssse3", &gf8_aes_coeffs(), |dst, table, src| {
             entry(token, dst, table, src);
@@ -694,7 +726,7 @@ fn ssse3_kernels_match_reference() {
             entry(token, dst, src, delta_table(), AES_REDUCTION);
         });
     });
-    tier_gate::run_entry(x86::fan_paar::mul_add_ssse3_fp16, |token, entry| {
+    tier_gate::run_entry(x86::fan_paar::gf16::mul_add_ssse3, |token, entry| {
         check_tower_mul_add(
             "fp16 ssse3 mul_add",
             FP16_LENGTHS,
@@ -703,7 +735,7 @@ fn ssse3_kernels_match_reference() {
             |dst, coeff, src| entry(token, dst, &FpTowerTables::new(coeff), src),
         );
     });
-    tier_gate::run_entry(x86::fan_paar::mul_assign_ssse3_fp16, |token, entry| {
+    tier_gate::run_entry(x86::fan_paar::gf16::mul_assign_ssse3, |token, entry| {
         check_tower_mul_assign(
             "fp16 ssse3 mul_assign",
             FP16_LENGTHS,
@@ -712,7 +744,7 @@ fn ssse3_kernels_match_reference() {
             |dst, coeff| entry(token, dst, &FpTowerTables::new(coeff)),
         );
     });
-    tier_gate::run_entry(x86::fan_paar::mul_into_ssse3_fp16, |token, entry| {
+    tier_gate::run_entry(x86::fan_paar::gf16::mul_into_ssse3, |token, entry| {
         check_tower_mul_into(
             "fp16 ssse3 mul_into",
             FP16_LENGTHS,
@@ -1100,7 +1132,7 @@ fn x86_geometry_guards_accept_zero_length_rows() {
 }
 
 #[test]
-fn gfni_matrix_wrappers_accept_empty_terms() {
+fn matrix_gfni_wrappers_accept_empty_terms() {
     use crate::kernel::FlatMatrix;
 
     let Some(token) = tier_gate::summon::<X64V3GfniCryptoToken>() else {

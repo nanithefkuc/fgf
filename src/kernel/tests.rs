@@ -22,7 +22,6 @@
 //!
 //! [`fixtures`] supplies the shared noise streams; the coefficient and
 //! geometry lists below are the shared classes every family sweeps.
-#![allow(clippy::cast_possible_truncation)]
 
 extern crate std;
 
@@ -752,6 +751,7 @@ fn check_tower_mul_into<E: Copy + core::fmt::Debug>(
 }
 
 #[allow(dead_code)]
+#[allow(clippy::cast_possible_truncation)]
 fn gf8_coeff_at<const POLY: u128>(j: usize) -> Elem<FiniteField<2, 8, Polynomial<POLY>>> {
     // Includes 0 and 1 as j sweeps, which is what we want: the blocked
     // kernels must handle degenerate coefficients per row, not per call.
@@ -759,6 +759,7 @@ fn gf8_coeff_at<const POLY: u128>(j: usize) -> Elem<FiniteField<2, 8, Polynomial
 }
 
 #[allow(dead_code)]
+#[allow(clippy::cast_possible_truncation)]
 fn gf8_coeff_at2<const POLY: u128>(
     t: usize,
     j: usize,
@@ -767,11 +768,13 @@ fn gf8_coeff_at2<const POLY: u128>(
 }
 
 #[allow(dead_code)]
+#[allow(clippy::cast_possible_truncation)]
 fn gf16_coeff_at(j: usize) -> Elem<Rijndael16Field> {
     Elem::<Rijndael16Field>::from_raw((j as u16).wrapping_mul(7411))
 }
 
 #[allow(dead_code)]
+#[allow(clippy::cast_possible_truncation)]
 fn gf16_coeff_at2(t: usize, j: usize) -> Elem<Rijndael16Field> {
     Elem::<Rijndael16Field>::from_raw(((t * 7919 + j * 613) % 65536) as u16)
 }

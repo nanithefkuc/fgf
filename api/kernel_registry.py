@@ -89,9 +89,7 @@ TIER_RANK = {
 # to match exactly one tokenless function and fails when the name no longer
 # matches one, so disposing of an audited function removes its entry from
 # this list in the same change.
-TOKENLESS_ALLOWLIST = frozenset(
-    {"multiply_vectors_avx2", "multiply_vectors_ssse3", "gf32_tiles", "gf64_tiles"}
-)
+TOKENLESS_ALLOWLIST: frozenset[str] = frozenset()
 
 # Definition paths of token-first helpers deliberately not reachable through
 # internals. Each exception names the entry bodies that exercise it.

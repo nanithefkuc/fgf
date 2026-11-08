@@ -38,7 +38,7 @@ use crate::kernel::x86::residue::U32Params;
     clippy::cast_possible_truncation
 )]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_u32_avx512(
+pub fn mul_elementwise_avx512(
     _token: archmage::X64V4Token,
     dst: &mut [u8],
     a: &[u8],
@@ -46,13 +46,13 @@ pub fn mul_elementwise_u32_avx512(
     params: U32Params,
 ) {
     check_geometry_u32(
-        "residue::mul_elementwise_u32_avx512",
+        "residue::avx512::single::u32::mul_elementwise_avx512",
         dst.len(),
         "a",
         a.len(),
     );
     check_geometry_u32(
-        "residue::mul_elementwise_u32_avx512",
+        "residue::avx512::single::u32::mul_elementwise_avx512",
         dst.len(),
         "b",
         b.len(),
@@ -75,7 +75,7 @@ pub fn mul_elementwise_u32_avx512(
 
 /// `dst[i] = dst[i] * src[i] (mod p)` over four-byte residue lanes, AVX-512.
 ///
-/// The in-place form of [`mul_elementwise_u32_avx512`]: the `src` lanes
+/// The in-place form of [`mul_elementwise_avx512`]: the `src` lanes
 /// normalize on load and every stored lane is canonical.
 ///
 /// # Panics
@@ -89,14 +89,14 @@ pub fn mul_elementwise_u32_avx512(
     clippy::cast_possible_truncation
 )]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_assign_u32_avx512(
+pub fn mul_elementwise_assign_avx512(
     _token: archmage::X64V4Token,
     dst: &mut [u8],
     src: &[u8],
     params: U32Params,
 ) {
     check_geometry_u32(
-        "residue::mul_elementwise_assign_u32_avx512",
+        "residue::avx512::single::u32::mul_elementwise_assign_avx512",
         dst.len(),
         "src",
         src.len(),
@@ -133,7 +133,7 @@ pub fn mul_elementwise_assign_u32_avx512(
 /// four-byte lanes.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_u32_avx512(
+pub fn mul_into_avx512(
     _token: archmage::X64V4Token,
     dst: &mut [u8],
     src: &[u8],
@@ -141,7 +141,12 @@ pub fn mul_into_u32_avx512(
     q: u32,
     p: u32,
 ) {
-    check_geometry_u32("residue::mul_into_u32_avx512", dst.len(), "src", src.len());
+    check_geometry_u32(
+        "residue::avx512::single::u32::mul_into_avx512",
+        dst.len(),
+        "src",
+        src.len(),
+    );
     let cv = _mm512_set1_epi32(c as i32);
     let qv = _mm512_set1_epi32(q as i32);
     let p64 = _mm512_set1_epi64(i64::from(p));
@@ -179,7 +184,7 @@ pub fn mul_into_u32_avx512(
 /// four-byte lanes.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_u32_avx512(
+pub fn mul_add_avx512(
     _token: archmage::X64V4Token,
     dst: &mut [u8],
     src: &[u8],
@@ -187,7 +192,12 @@ pub fn mul_add_u32_avx512(
     q: u32,
     p: u32,
 ) {
-    check_geometry_u32("residue::mul_add_u32_avx512", dst.len(), "src", src.len());
+    check_geometry_u32(
+        "residue::avx512::single::u32::mul_add_avx512",
+        dst.len(),
+        "src",
+        src.len(),
+    );
     let cv = _mm512_set1_epi32(c as i32);
     let qv = _mm512_set1_epi32(q as i32);
     let p64 = _mm512_set1_epi64(i64::from(p));
@@ -235,10 +245,10 @@ pub fn mul_add_u32_avx512(
 /// Panics if `dst` holds a partial four-byte lane.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_u32_avx512(_token: archmage::X64V4Token, dst: &mut [u8], c: u32, q: u32, p: u32) {
+pub fn mul_assign_avx512(_token: archmage::X64V4Token, dst: &mut [u8], c: u32, q: u32, p: u32) {
     assert!(
         dst.len().is_multiple_of(4),
-        "residue::mul_assign_u32_avx512: dst lane width is 4 bytes but the buffer is {} bytes",
+        "residue::avx512::single::u32::mul_assign_avx512: dst lane width is 4 bytes but the buffer is {} bytes",
         dst.len()
     );
     let cv = _mm512_set1_epi32(c as i32);

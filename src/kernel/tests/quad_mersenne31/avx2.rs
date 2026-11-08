@@ -141,7 +141,7 @@ fn model_zip(
 /// the source operands.
 #[test]
 #[allow(clippy::too_many_lines)]
-fn avx2_matches_independent_model() {
+fn kernels_avx2_match_independent_model() {
     tier_gate::run_entry(x86::quad_mersenne31::add_assign_avx2, |token, entry| {
         for &len in LENS {
             for (src, base, _) in [
@@ -278,7 +278,7 @@ fn avx2_matches_independent_model() {
 /// Every operation agrees with the portable [`prime`] differential
 /// oracle over lengths straddling the vector lane.
 #[test]
-fn avx2_matches_portable_reference() {
+fn kernels_avx2_match_portable_reference() {
     // Vector-plus-tail, exact vectors, and a different tail.
     for &len in &[40usize, 64, 72] {
         let src = edges(len);
@@ -340,7 +340,7 @@ fn avx2_matches_portable_reference() {
 /// raw destination pattern defends the byte-preserving contract; the
 /// one shortcut adds, so its destination holds canonical elements.
 #[test]
-fn avx2_zero_one_shortcuts_match_control() {
+fn kernels_avx2_zero_one_shortcuts_match_control() {
     let len = 40;
     let src = canonical(len, 0x71);
     // Zero, including a non-canonical limb spelling of it: the no-op
@@ -404,7 +404,7 @@ fn avx2_zero_one_shortcuts_match_control() {
 /// unaligned load or store. Each offset window holds canonical element
 /// bytes copied in; only its address is odd.
 #[test]
-fn avx2_unaligned_slices() {
+fn kernels_avx2_unaligned_slices() {
     let len = 72;
     let src_elems = edges(len);
     let dst_elems = canonical(len, 0x82);
@@ -459,7 +459,7 @@ fn expect_geometry_panic(label: &str, dst: &mut [u8], invoke: impl FnOnce(&mut [
 /// partial trailing element, and every multi-operand entry rejects a
 /// length mismatch.
 #[test]
-fn avx2_geometry_validation_precedes_writes() {
+fn kernels_avx2_geometry_validation_precedes_writes() {
     let Some(token) = tier_gate::summon::<X64V3Token>() else {
         eprintln!("skipping: no AVX2 on this host");
         return;
@@ -514,7 +514,7 @@ fn avx2_geometry_validation_precedes_writes() {
 /// the portable prime reference through the shared prime drives.
 #[test]
 #[allow(clippy::too_many_lines)]
-fn qm31_avx2_kernels_match_reference() {
+fn kernels_avx2_match_reference() {
     const QM31_LENS: &[usize] = &[0, 8, 16, 24, 32, 40, 64, 72, 128, 264, 1024];
     const P: u32 = crate::field::mersenne31::MODULUS;
     const QM31_VALUES: [Elem<QuadMersenne31>; 6] = [

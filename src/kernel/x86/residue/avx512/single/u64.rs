@@ -27,7 +27,7 @@ use super::src_tail_avx512;
 /// `p` is odd, and `c_mont` is below `p`.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_u64_avx512(
+pub fn mul_into_avx512(
     _token: archmage::X64V4Token,
     dst: &mut [u8],
     src: &[u8],
@@ -37,12 +37,12 @@ pub fn mul_into_u64_avx512(
     assert_eq!(
         dst.len(),
         src.len(),
-        "residue::mul_into_u64_avx512: dst and src lengths differ"
+        "residue::avx512::single::u64::mul_into_avx512: dst and src lengths differ"
     );
     assert_eq!(
         dst.len() % 8,
         0,
-        "residue::mul_into_u64_avx512: dst length {} is not whole 8-byte lanes",
+        "residue::avx512::single::u64::mul_into_avx512: dst length {} is not whole 8-byte lanes",
         dst.len()
     );
     assert!(p % 2 == 1, "residue u64: modulus {p} is even");
@@ -82,7 +82,7 @@ pub fn mul_into_u64_avx512(
 /// `p` is odd, and `c_mont` is below `p`.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_u64_avx512(
+pub fn mul_add_avx512(
     _token: archmage::X64V4Token,
     dst: &mut [u8],
     src: &[u8],
@@ -92,12 +92,12 @@ pub fn mul_add_u64_avx512(
     assert_eq!(
         dst.len(),
         src.len(),
-        "residue::mul_add_u64_avx512: dst and src lengths differ"
+        "residue::avx512::single::u64::mul_add_avx512: dst and src lengths differ"
     );
     assert_eq!(
         dst.len() % 8,
         0,
-        "residue::mul_add_u64_avx512: dst length {} is not whole 8-byte lanes",
+        "residue::avx512::single::u64::mul_add_avx512: dst length {} is not whole 8-byte lanes",
         dst.len()
     );
     assert!(p % 2 == 1, "residue u64: modulus {p} is even");
@@ -150,11 +150,11 @@ pub fn mul_add_u64_avx512(
 /// `c_mont` is below `p`.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_u64_avx512(_token: archmage::X64V4Token, dst: &mut [u8], c_mont: u64, p: u64) {
+pub fn mul_assign_avx512(_token: archmage::X64V4Token, dst: &mut [u8], c_mont: u64, p: u64) {
     assert_eq!(
         dst.len() % 8,
         0,
-        "residue::mul_assign_u64_avx512: dst length {} is not whole 8-byte lanes",
+        "residue::avx512::single::u64::mul_assign_avx512: dst length {} is not whole 8-byte lanes",
         dst.len()
     );
     assert!(p % 2 == 1, "residue u64: modulus {p} is even");

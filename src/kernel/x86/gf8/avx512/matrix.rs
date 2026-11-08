@@ -13,7 +13,7 @@
 //! measurement on AVX-512 hardware.
 
 use super::super::{ColumnWindow, RESOLVE_CHUNK, check_scattered, column_blocked, column_blocks};
-use super::{bfactor_avx512, bmul_avx512, brem_half_avx512};
+use super::{bfactor_avx512, bmul_avx512, brem_avx512_half};
 use crate::kernel::Matrix;
 use crate::kernel::gf8::Prepared;
 use crate::kernel::routing::{MATRIX_PEEL_MIN, MATRIX_RESOLVE_MIN};
@@ -342,7 +342,7 @@ fn matrix_rows1<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool, const DIREC
     for term in 0..terms.len() {
         let coeff = terms.coefficient(term, g);
         if !coeff.is_zero() {
-            brem_half_avx512(tail, coeff, &terms.source(term)[tile..]);
+            brem_avx512_half(tail, coeff, &terms.source(term)[tile..]);
         }
     }
 }
@@ -987,7 +987,7 @@ fn matrix_tail<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
         for term in 0..terms.len() {
             let coeff = terms.coefficient(term, g + slot);
             if !coeff.is_zero() {
-                brem_half_avx512(tail, coeff, &terms.source(term)[tile..row_len]);
+                brem_avx512_half(tail, coeff, &terms.source(term)[tile..row_len]);
             }
         }
     }

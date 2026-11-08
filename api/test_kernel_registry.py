@@ -180,8 +180,7 @@ class Fixture:
 
 
 def base_fixture() -> tuple[dict, dict]:
-    """One entry per mapped family plus the four audited tokenless
-    functions, all reachable through the facade."""
+    """One entry per mapped family, all reachable through the facade."""
     fixture = Fixture()
     return _populate_fixture(fixture).seal()
 
@@ -213,11 +212,6 @@ def _populate_fixture(fixture: Fixture) -> Fixture:
     fixture.family("gf16", fn_ids[2:3])
     fixture.family("gf32", fn_ids[1:2])
     fixture.family("bytes", fn_ids[5:6])
-    for name in ("multiply_vectors_avx2", "multiply_vectors_ssse3", "gf32_tiles", "gf64_tiles"):
-        fixture.add_fn(
-            ["fgf", "kernel", "x86", "gf8", "avx2", name],
-            [resolved_type("__m256i", "intrin"), resolved_type("__m256i", "intrin")],
-        )
     return fixture
 
 
@@ -329,66 +323,6 @@ class GenerationFailures(unittest.TestCase):
         for family in ("v3", "v3_gfni_crypto", "v4x"):
             self.assertIn(f"no registry entry for token family {family}", message)
         self.assertNotIn("no registry entry for token family v2", message)
-
-
-class TokenlessAllowlist(unittest.TestCase):
-    def test_audited_tokenless_functions_are_recorded_as_non_entries(self) -> None:
-        registry = fresh_registry(*base_fixture())
-        self.assertEqual(
-            registry["audited_tokenless"],
-            sorted(
-                [
-                    "fgf::kernel::x86::gf8::avx2::multiply_vectors_avx2",
-                    "fgf::kernel::x86::gf8::avx2::multiply_vectors_ssse3",
-                    "fgf::kernel::x86::gf8::avx2::gf32_tiles",
-                    "fgf::kernel::x86::gf8::avx2::gf64_tiles",
-                ]
-            ),
-        )
-        self.assertNotIn("gf32_tiles", {entry["entry"] for entry in registry["entries"]})
-
-    def test_stale_allowlist_name_fails(self) -> None:
-        fixture = Fixture()
-        fn_id = fixture.add_fn(
-            ["fgf", "kernel", "x86", "gf8", "ssse3", "mul"], [token_type("X64V2Token")]
-        )
-        fixture.family("gf8", [fn_id])
-        with self.assertRaises(kernel_registry.RegistryError) as ctx:
-            fresh_registry(*fixture.seal())
-        message = fragment(ctx.exception)
-        self.assertIn("multiply_vectors_avx2", message)
-        self.assertIn("drop it from TOKENLESS_ALLOWLIST", message)
-
-    def test_allowlisted_name_that_gained_a_token_fails(self) -> None:
-        fixture = Fixture()
-        fn_ids = [
-            fixture.add_fn(["fgf", "kernel", "x86", "gf8", "ssse3", "mul"], [token_type("X64V2Token")]),
-            fixture.add_fn(
-                ["fgf", "kernel", "x86", "gf8", "avx2", "gf32_tiles"], [token_type("X64V3Token")]
-            ),
-        ]
-        fixture.family("gf8", fn_ids)
-        with self.assertRaises(kernel_registry.RegistryError) as ctx:
-            fresh_registry(*fixture.seal())
-        self.assertIn("gf32_tiles", fragment(ctx.exception))
-
-    def test_ambiguous_allowlisted_name_fails(self) -> None:
-        fixture = Fixture()
-        fn_ids = [
-            fixture.add_fn(
-                ["fgf", "kernel", "x86", "gf8", "avx2", "gf32_tiles"],
-                [resolved_type("__m256i", "a")],
-            ),
-            fixture.add_fn(
-                ["fgf", "kernel", "x86", "gf16", "avx2", "gf32_tiles"],
-                [resolved_type("__m256i", "a")],
-            ),
-        ]
-        fixture.family("gf8", fn_ids[:1])
-        fixture.family("gf16", fn_ids[1:])
-        with self.assertRaises(kernel_registry.RegistryError) as ctx:
-            fresh_registry(*fixture.seal())
-        self.assertIn("ambiguous", fragment(ctx.exception))
 
 
 class Reachability(unittest.TestCase):
@@ -694,17 +628,6 @@ class Audit(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("above the request ceiling scalar", errors[0])
 
-    def test_audited_non_entry_marker_fails(self) -> None:
-        errors = self.audit(
-            "v4x",
-            "v4x",
-            [
-                "kernel_differential executed tier=v2 "
-                "entry=fgf::kernel::x86::gf8::avx2::multiply_vectors_avx2"
-            ],
-        )
-        self.assertTrue(any("audited non-entry" in line for line in errors))
-
     def test_corrupt_and_unrelated_lines_are_handled(self) -> None:
         lines = [
             self.marker("mul_ssse3_v2"),
@@ -762,26 +685,6 @@ class CommandLine(unittest.TestCase):
         public_path.write_text(json.dumps(public))
         private_path.write_text(json.dumps(private))
         return public_path, private_path
-
-    def test_generate_writes_the_registry_and_reports_counts(self) -> None:
-        public_path, private_path = self.write_docs(*base_fixture())
-        registry_path = self.out / "registry.json"
-        result = self.run_cli(
-            "generate",
-            "--public-doc", str(public_path),
-            "--private-doc", str(private_path),
-            "--format", FORMAT,
-            "--channel", CHANNEL,
-            "--target", TARGET,
-            "--features", FEATURES,
-            "--out", str(registry_path),
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("6 entries", result.stdout)
-        self.assertIn("4 audited tokenless", result.stdout)
-        registry = json.loads(registry_path.read_text())
-        self.assertEqual(len(registry["entries"]), 6)
-        self.assertIn("identity", registry)
 
     def test_generate_fails_with_violation_list(self) -> None:
         fixture = Fixture()

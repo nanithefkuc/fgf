@@ -140,7 +140,7 @@ fn tile_group<M: Matrix<PreparedResidue> + ?Sized>(
     clippy::used_underscore_binding
 )]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_matrix_u32_avx2_with<M: Matrix<PreparedResidue> + ?Sized>(
+pub fn mul_into_matrix_avx2_with<M: Matrix<PreparedResidue> + ?Sized>(
     _token: archmage::X64V3Token,
     rows: &mut [u8],
     row_len: usize,
@@ -149,7 +149,7 @@ pub fn mul_into_matrix_u32_avx2_with<M: Matrix<PreparedResidue> + ?Sized>(
     p: u32,
 ) {
     run_delayed::<M, false>(
-        "residue::mul_into_matrix_u32_avx2_with",
+        "residue::avx2::matrix::mul_into_matrix_avx2_with",
         rows,
         row_len,
         nrows,
@@ -178,7 +178,7 @@ pub fn mul_into_matrix_u32_avx2_with<M: Matrix<PreparedResidue> + ?Sized>(
     clippy::used_underscore_binding
 )]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_u32_avx2_with<M: Matrix<PreparedResidue> + ?Sized>(
+pub fn mul_add_matrix_avx2_with<M: Matrix<PreparedResidue> + ?Sized>(
     _token: archmage::X64V3Token,
     rows: &mut [u8],
     row_len: usize,
@@ -187,7 +187,7 @@ pub fn mul_add_matrix_u32_avx2_with<M: Matrix<PreparedResidue> + ?Sized>(
     p: u32,
 ) {
     run_delayed::<M, true>(
-        "residue::mul_add_matrix_u32_avx2_with",
+        "residue::avx2::matrix::mul_add_matrix_avx2_with",
         rows,
         row_len,
         nrows,

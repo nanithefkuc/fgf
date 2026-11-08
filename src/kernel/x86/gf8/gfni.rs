@@ -9,7 +9,7 @@
 //! memory, is the limit.
 //!
 //! Submodules split on fan shape: `single`, `scatter`, `gather`, `matrix` over
-//! the register-blocked row-group bodies in `rows`, and `elementwise`. Every
+//! the family-level register-blocked row-group bodies, and `elementwise`. Every
 //! entry takes an `X64V3GfniCryptoToken`.
 //!
 //! This file holds the seam the blocked shapes share. The coefficient is the
@@ -23,7 +23,6 @@
 mod elementwise;
 mod gather;
 mod matrix;
-mod rows;
 mod scatter;
 mod single;
 
@@ -33,8 +32,6 @@ pub use matrix::{
     mul_add_matrix_at_gfni_with, mul_add_matrix_gfni_with, mul_into_matrix_at_gfni_with,
     mul_into_matrix_gfni_with,
 };
-#[cfg(test)]
-pub(crate) use rows::MATRIX_PREFETCH_MIN;
 pub use scatter::mul_add_scatter_gfni;
 pub use single::{mul_add_gfni, mul_assign_gfni, mul_into_gfni};
 #[cfg(feature = "simd512")]
@@ -60,7 +57,7 @@ pub(super) fn bfactor_gfni<const NATIVE: bool>(coeff: Prepared) -> __m256i {
 /// Broadcast a coefficient into a 128-bit multiply factor.
 #[inline]
 #[archmage::rite(v3_gfni_crypto)]
-pub(super) fn bfactor_half_gfni<const NATIVE: bool>(coeff: Prepared) -> __m128i {
+pub(super) fn bfactor_gfni_half<const NATIVE: bool>(coeff: Prepared) -> __m128i {
     if NATIVE {
         _mm_set1_epi8(coeff.byte().cast_signed())
     } else {
@@ -82,7 +79,7 @@ pub(super) fn bmul_gfni<const NATIVE: bool>(x: __m256i, factor: __m256i) -> __m2
 /// `coeff * x` over a 128-bit lane, one instruction.
 #[inline]
 #[archmage::rite(v3_gfni_crypto)]
-pub(super) fn bmul_half_gfni<const NATIVE: bool>(x: __m128i, factor: __m128i) -> __m128i {
+pub(super) fn bmul_gfni_half<const NATIVE: bool>(x: __m128i, factor: __m128i) -> __m128i {
     if NATIVE {
         _mm_gf2p8mul_epi8(x, factor)
     } else {
@@ -106,7 +103,7 @@ pub(super) fn brem_gfni<const NATIVE: bool>(dst: &mut [u8], coeff: Prepared, src
 /// broadcast without touching a table: the `VGF2P8AFFINEQB` map on the affine
 /// multiply, the raw coefficient byte on the native `GF2P8MULB` one.
 #[inline]
-fn factor_word_gfni<const NATIVE: bool>(coeff: Prepared) -> u64 {
+pub(super) fn factor_word_gfni<const NATIVE: bool>(coeff: Prepared) -> u64 {
     if NATIVE {
         u64::from(coeff.byte())
     } else {

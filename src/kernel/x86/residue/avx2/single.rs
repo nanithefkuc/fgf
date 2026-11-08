@@ -8,16 +8,9 @@
 //! Entries are safe capability-token functions taking an `X64V3Token` and
 //! validating their own geometry; tails run the scalar forms.
 
-mod u32;
-mod u64;
-mod u8;
-
-pub use u8::{mul_add_u8_avx2, mul_assign_u8_avx2, mul_into_u8_avx2};
-pub use u32::{
-    mul_add_u32_avx2, mul_assign_u32_avx2, mul_elementwise_assign_u32_avx2,
-    mul_elementwise_u32_avx2, mul_into_u32_avx2,
-};
-pub use u64::{mul_add_u64_avx2, mul_assign_u64_avx2, mul_into_u64_avx2};
+pub mod u32;
+pub mod u64;
+pub mod u8;
 
 /// The sub-vector tail of bytes past the 32-byte vector body.
 pub(super) fn src_tail_avx2(src: &[u8]) -> &[u8] {

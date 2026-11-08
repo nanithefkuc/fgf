@@ -1,7 +1,9 @@
 //! GF(2^8) kernels for x86 and `x86_64`.
 //!
 //! Submodules split on instruction set; the larger two split again on fan
-//! shape. `ssse3` and `avx2` hold the nibble-shuffle kernels, `gfni` the
+//! shape. The private family-level `rows` module holds row-group execution
+//! shared by scatter and matrix; each body retains its concrete GFNI context.
+//! `ssse3` and `avx2` hold the nibble-shuffle kernels, `gfni` the
 //! `GF2P8MULB`/`VGF2P8AFFINEQB` kernels at 32-byte lanes, and `avx512` the
 //! same multiplies at 64-byte lanes under `simd512`. The caller's resolved
 //! [`Backend`](crate::kernel::Backend) selects among them. Coefficients
@@ -32,12 +34,15 @@ mod avx2;
 #[cfg(feature = "simd512")]
 mod avx512;
 mod gfni;
+mod rows;
 mod ssse3;
+
+pub(crate) use avx2::multiply_vectors_avx2;
+pub(crate) use ssse3::multiply_vectors_ssse3;
 
 pub use avx2::{
     mul_add_avx2, mul_add_gather_avx2, mul_add_matrix_avx2_with, mul_add_scatter_avx2,
     mul_assign_avx2, mul_elementwise_assign_avx2, mul_elementwise_avx2, mul_into_avx2,
-    multiply_vectors_avx2,
 };
 #[cfg(feature = "simd512")]
 pub use avx512::{
@@ -46,17 +51,16 @@ pub use avx512::{
     mul_elementwise_assign_avx512, mul_elementwise_avx512, mul_into_avx512,
     mul_into_matrix_at_avx512_with, mul_into_matrix_avx512_with,
 };
-#[cfg(test)]
-pub(crate) use gfni::MATRIX_PREFETCH_MIN;
 pub use gfni::{
     mul_add_gather_gfni, mul_add_gfni, mul_add_matrix_at_gfni_with, mul_add_matrix_gfni_with,
     mul_add_scatter_gfni, mul_assign_gfni, mul_elementwise_assign_gfni, mul_elementwise_gfni,
     mul_into_gfni, mul_into_matrix_at_gfni_with, mul_into_matrix_gfni_with,
 };
+#[cfg(test)]
+pub(crate) use rows::MATRIX_PREFETCH_MIN;
 pub use ssse3::{
     mul_add_gather_ssse3, mul_add_matrix_ssse3_with, mul_add_scatter_ssse3, mul_add_ssse3,
     mul_assign_ssse3, mul_elementwise_assign_ssse3, mul_elementwise_ssse3, mul_into_ssse3,
-    multiply_vectors_ssse3,
 };
 
 /// The sealed instantiation selectors of the shared GF(2^8) single-row

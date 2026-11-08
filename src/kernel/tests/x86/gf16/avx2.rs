@@ -7,7 +7,7 @@ use crate::kernel::tests::tier_gate;
 /// form, which dispatch never produces on a shuffle host but direct callers
 /// may hold.
 #[test]
-fn gf16_scatter_accepts_plain_prepared_coefficients() {
+fn mul_add_scatter_avx2_accepts_plain_prepared_coefficients() {
     tier_gate::run_entry(x86::gf16::mul_add_scatter_avx2, |v3, entry| {
         for &len in LENGTHS {
             let src = noise(len, 0x61);

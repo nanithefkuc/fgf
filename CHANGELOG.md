@@ -91,6 +91,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Normalize x86 kernel layout and naming (`x86/gf32/gfni.rs`, `x86/gf64/gfni.rs`,
+  `fan_paar/{gf16,gf32,gf64}/{ssse3,avx2}.rs`, `gf8/rows.rs`), adopt
+  operation–ISA–`_with` order across unstable `internals` kernel entries, move
+  scalar `gf32_tiles` and `gf64_tiles` to `internals::kernel::tables`, empty
+  the kernel-registry allowlist, and remove module-level lint suppressions
+  under `src/kernel/`. [#133](https://github.com/nanithefkuc/fgf/issues/133).
 - Consolidate comparison packages under `benches/compare/`, enable `v4` push
   CI, remove retired Wasm `simd128` / NEON references, and align contributor
   documentation while keeping `benches/operations/**` in the crate package.

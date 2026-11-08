@@ -39,7 +39,7 @@ pub(in crate::kernel::x86::gf8) fn multiply_vectors_gfni<const NATIVE: bool>(
 /// `x * y` over a 128-bit lane.
 #[inline]
 #[archmage::rite(v3_gfni_crypto)]
-fn multiply_vectors_half_gfni<const NATIVE: bool>(
+fn multiply_vectors_gfni_half<const NATIVE: bool>(
     x: __m128i,
     y: __m128i,
     iso: Isomorphism,
@@ -97,7 +97,7 @@ pub fn mul_elementwise_gfni<const NATIVE: bool>(
         for ((d16, a16s), b16s) in dst16.iter_mut().zip(a16).zip(b16) {
             let x = _mm_loadu_si128(a16s);
             let y = _mm_loadu_si128(b16s);
-            _mm_storeu_si128(d16, multiply_vectors_half_gfni::<NATIVE>(x, y, iso));
+            _mm_storeu_si128(d16, multiply_vectors_gfni_half::<NATIVE>(x, y, iso));
         }
         for ((d, &x), &y) in dst_tail.iter_mut().zip(a_tail).zip(b_tail) {
             // `NATIVE` means the encoding is the AES polynomial basis, so the
@@ -142,7 +142,7 @@ pub fn mul_elementwise_assign_gfni<const NATIVE: bool>(
         for (d16, s16) in dst16.iter_mut().zip(src16) {
             let x = _mm_loadu_si128(&*d16);
             let y = _mm_loadu_si128(s16);
-            _mm_storeu_si128(d16, multiply_vectors_half_gfni::<NATIVE>(x, y, iso));
+            _mm_storeu_si128(d16, multiply_vectors_gfni_half::<NATIVE>(x, y, iso));
         }
         for (d, &s) in dst_tail.iter_mut().zip(src_tail) {
             *d = super::super::ssse3::gf_mul_ref(*d, s, reduction);

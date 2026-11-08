@@ -39,6 +39,7 @@ extern crate std;
 use std::vec::Vec;
 
 /// One step of the fixed LCG every stream shares.
+#[allow(clippy::cast_possible_truncation)]
 fn step(state: &mut u64) -> u8 {
     *state = state
         .wrapping_mul(6_364_136_223_846_793_005)

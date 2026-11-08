@@ -362,7 +362,7 @@
       ]
     },
     {
-      "key": "src/kernel/x86/gf8/gfni/rows.rs::MATRIX_PREFETCH_MIN",
+      "key": "src/kernel/x86/gf8/rows.rs::MATRIX_PREFETCH_MIN",
       "class": "unmapped_arcane",
       "reason": "the pinned compiler emitted no mapping for any site; the cited matrix cells run 4096-byte rows below the 8192-byte prefetch floor and 12288-byte rows above it, both within one resolve chunk",
       "straddling_cells": [
@@ -375,7 +375,7 @@
       ]
     },
     {
-      "key": "src/kernel/x86/gf8/gfni/rows.rs::MAX_GROUP_ROWS",
+      "key": "src/kernel/x86/gf8/rows.rs::MAX_GROUP_ROWS",
       "class": "unmapped_arcane",
       "reason": "some sites have no compiler mapping; every mapped site passed; the cited matrix cells walk sixteen rows in groups that include the six-row width and eight rows in four-row groups",
       "straddling_cells": [
@@ -388,10 +388,10 @@
       ]
     },
     {
-      "item": "src/kernel/x86/gf8/gfni/rows.rs::THREE_LANE_MAX_ROW",
-      "key": "src/kernel/x86/gf8/gfni/rows.rs::THREE_LANE_MAX_ROW",
+      "item": "src/kernel/x86/gf8/rows.rs::THREE_LANE_MAX_ROW",
+      "key": "src/kernel/x86/gf8/rows.rs::THREE_LANE_MAX_ROW",
       "class": "unmapped_branch",
-      "reason": "the comparison is the last conjunct of `const fn three_lanes` (`src/kernel/x86/gf8/gfni/rows.rs:354-360`, comparison at `:358`), called only from the `#[archmage::rite(v3_gfni_crypto)] matrix_group` ritual body at `:400`; the pinned compiler emitted no branch record inside that mapped ritual body. The straddling cells execute three-row matrix groups at 512-byte rows (inside the three-lane window) and 131136-byte rows (past the 128 KiB bound)",
+      "reason": "the comparison is the last conjunct of `const fn three_lanes` (`src/kernel/x86/gf8/rows.rs:354-360`, comparison at `:358`), called only from the `#[archmage::rite(v3_gfni_crypto)] matrix_group` ritual body at `:400`; the pinned compiler emitted no branch record inside that mapped ritual body. The straddling cells execute three-row matrix groups at 512-byte rows (inside the three-lane window) and 131136-byte rows (past the 128 KiB bound)",
       "straddling_cells": [
         "gf8-aes/mul_add_matrix/unprepared/512x3x6/aligned",
         "gf8-aes/mul_add_matrix/unprepared/131136x3x6/aligned"

@@ -460,14 +460,14 @@ fn prime_direct_elementwise<F>(
                     {
                         use fgf::internals::kernel::x86::residue as direct;
                         if assign {
-                            direct::mul_elementwise_assign_u32_avx2(
+                            direct::avx2::single::u32::mul_elementwise_assign_avx2(
                                 token,
                                 black_box(&mut *dst),
                                 black_box(&*b),
                                 params,
                             );
                         } else {
-                            direct::mul_elementwise_u32_avx2(
+                            direct::avx2::single::u32::mul_elementwise_avx2(
                                 token,
                                 black_box(&mut *dst),
                                 black_box(&*a),
@@ -574,7 +574,7 @@ fn prime_direct_matrix<const P: u64>(
                             sources: &src_refs,
                         };
                         if add {
-                            direct::mul_add_matrix_u32_avx2_with(
+                            direct::avx2::matrix::mul_add_matrix_avx2_with(
                                 token,
                                 black_box(&mut *rows_area),
                                 row_len,
@@ -583,7 +583,7 @@ fn prime_direct_matrix<const P: u64>(
                                 P as u32,
                             );
                         } else {
-                            direct::mul_into_matrix_u32_avx2_with(
+                            direct::avx2::matrix::mul_into_matrix_avx2_with(
                                 token,
                                 black_box(&mut *rows_area),
                                 row_len,
@@ -817,41 +817,45 @@ fn direct_single_body<F>(
                 use fgf::internals::kernel::x86::residue as direct;
                 match (bytes, p, op) {
                     (1, _, DirectOp::Into) | (1, _, DirectOp::Once) => {
-                        direct::mul_into_u8_avx2(token, dst, src, c8, p as u8);
+                        direct::avx2::single::u8::mul_into_avx2(token, dst, src, c8, p as u8);
                         return;
                     }
                     (1, _, DirectOp::Add) => {
-                        direct::mul_add_u8_avx2(token, dst, src, c8, p as u8);
+                        direct::avx2::single::u8::mul_add_avx2(token, dst, src, c8, p as u8);
                         return;
                     }
                     (1, _, DirectOp::Assign) => {
-                        direct::mul_assign_u8_avx2(token, dst, c8, p as u8);
+                        direct::avx2::single::u8::mul_assign_avx2(token, dst, c8, p as u8);
                         dst.copy_from_slice(staged);
                         return;
                     }
                     (4, _, DirectOp::Into) | (4, _, DirectOp::Once) => {
-                        direct::mul_into_u32_avx2(token, dst, src, c32, q32, p as u32);
+                        direct::avx2::single::u32::mul_into_avx2(
+                            token, dst, src, c32, q32, p as u32,
+                        );
                         return;
                     }
                     (4, _, DirectOp::Add) => {
-                        direct::mul_add_u32_avx2(token, dst, src, c32, q32, p as u32);
+                        direct::avx2::single::u32::mul_add_avx2(
+                            token, dst, src, c32, q32, p as u32,
+                        );
                         return;
                     }
                     (4, _, DirectOp::Assign) => {
-                        direct::mul_assign_u32_avx2(token, dst, c32, q32, p as u32);
+                        direct::avx2::single::u32::mul_assign_avx2(token, dst, c32, q32, p as u32);
                         dst.copy_from_slice(staged);
                         return;
                     }
                     (8, _, DirectOp::Into) | (8, _, DirectOp::Once) => {
-                        direct::mul_into_u64_avx2(token, dst, src, c_mont, p);
+                        direct::avx2::single::u64::mul_into_avx2(token, dst, src, c_mont, p);
                         return;
                     }
                     (8, _, DirectOp::Add) => {
-                        direct::mul_add_u64_avx2(token, dst, src, c_mont, p);
+                        direct::avx2::single::u64::mul_add_avx2(token, dst, src, c_mont, p);
                         return;
                     }
                     (8, _, DirectOp::Assign) => {
-                        direct::mul_assign_u64_avx2(token, dst, c_mont, p);
+                        direct::avx2::single::u64::mul_assign_avx2(token, dst, c_mont, p);
                         dst.copy_from_slice(staged);
                         return;
                     }
@@ -1262,7 +1266,13 @@ where
                     use fgf::internals::kernel::{SimdToken, X64V3Token};
                     if let Some(token) = X64V3Token::summon() {
                         use fgf::internals::kernel::x86::residue as direct_body;
-                        direct_body::mul_elementwise_u32_avx2(token, &mut direct, &a0, &b0, params);
+                        direct_body::avx2::single::u32::mul_elementwise_avx2(
+                            token,
+                            &mut direct,
+                            &a0,
+                            &b0,
+                            params,
+                        );
                         prime_check(
                             &direct,
                             bytes,
@@ -1270,7 +1280,7 @@ where
                             &format!("prime direct oracle elementwise {row} {lanes}"),
                         );
                         direct.copy_from_slice(&a0);
-                        direct_body::mul_elementwise_assign_u32_avx2(
+                        direct_body::avx2::single::u32::mul_elementwise_assign_avx2(
                             token,
                             &mut direct,
                             &b0,
@@ -1583,11 +1593,11 @@ fn prime_matrix_panel<const P: u64>(row: &str, counts: &[usize], seed: u64) {
                                 };
                                 probe.copy_from_slice(&dst0);
                                 if add {
-                                    direct_body::mul_add_matrix_u32_avx2_with(
+                                    direct_body::avx2::matrix::mul_add_matrix_avx2_with(
                                         token, &mut probe, row_len, 4, &terms, P as u32,
                                     );
                                 } else {
-                                    direct_body::mul_into_matrix_u32_avx2_with(
+                                    direct_body::avx2::matrix::mul_into_matrix_avx2_with(
                                         token, &mut probe, row_len, 4, &terms, P as u32,
                                     );
                                 }

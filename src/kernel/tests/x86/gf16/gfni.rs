@@ -14,7 +14,7 @@ const GFNI_TAIL_LENGTHS: &[usize] = &[50, 62, 94, 126, 158, 190, 222, 254, 350, 
 /// lengths over every destination residue, so declined odd heads stay
 /// covered beside the peeled 16-mod-32 ones.
 #[test]
-fn gf16_gfni_peels_half_lane() {
+fn mul_add_gfni_peels_half_lane() {
     let floor = crate::kernel::routing::HALF_LANE_PEEL_MIN;
     tier_gate::run_entry(x86::gf16::mul_add_gfni, |token, entry| {
         for len in [floor - 2, floor, floor + 2, floor + 130, 1152, 4096 + 66] {
@@ -85,7 +85,7 @@ fn gf16_gfni_peels_half_lane() {
 /// overflowed on exactly this geometry; the blocked GFNI routes hand
 /// it remainders up to 30 bytes.
 #[test]
-fn gf16_gfni_blocked_tails_match_scalar() {
+fn blocked_kernels_gfni_tails_match_scalar() {
     tier_gate::run_entry(x86::gf16::mul_add_scatter_gfni, |token, entry| {
         for &row_len in GFNI_TAIL_LENGTHS {
             for nrows in [1usize, 2, 3, 5] {
@@ -168,7 +168,7 @@ fn gf16_gfni_blocked_tails_match_scalar() {
 
 /// Compares the provider-form GFNI matrix with independent row sums.
 #[test]
-fn gf16_gfni_matrix_with_matches_reference() {
+fn mul_add_matrix_gfni_with_matches_reference() {
     if tier_gate::summon::<X64V3GfniCryptoToken>().is_none() {
         return;
     }
@@ -207,7 +207,7 @@ fn gf16_gfni_matrix_with_matches_reference() {
 }
 
 #[test]
-fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
+fn kernels_gfni_wrappers_tolerate_degenerate_geometry() {
     let Some(token) = tier_gate::summon::<X64V3GfniCryptoToken>() else {
         eprintln!("skipping: no AVX2+GFNI on this host");
         return;

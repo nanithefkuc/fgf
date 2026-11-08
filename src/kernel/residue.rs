@@ -273,7 +273,7 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
                     ResidueStrategy::Avx512 => {
                         avx512::matrix::mul_add_with::<P>(rows, row_len, nrows, &terms);
                     }
-                    _ => crate::kernel::x86::residue::mul_add_matrix_u32_avx2_with(
+                    _ => crate::kernel::x86::residue::avx2::matrix::mul_add_matrix_avx2_with(
                         crate::kernel::x86_v3_token(),
                         rows,
                         row_len,
@@ -321,7 +321,7 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
                     ResidueStrategy::Avx512 => {
                         avx512::matrix::mul_into_with::<P>(rows, row_len, nrows, &terms);
                     }
-                    _ => crate::kernel::x86::residue::mul_into_matrix_u32_avx2_with(
+                    _ => crate::kernel::x86::residue::avx2::matrix::mul_into_matrix_avx2_with(
                         crate::kernel::x86_v3_token(),
                         rows,
                         row_len,
@@ -346,7 +346,7 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
             #[cfg(feature = "simd512")]
             ResidueStrategy::Avx512 => return avx512::single::mul_elementwise::<P>(dst, a, b),
             ResidueStrategy::Avx2 => {
-                crate::kernel::x86::residue::mul_elementwise_u32_avx2(
+                crate::kernel::x86::residue::avx2::single::u32::mul_elementwise_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,
                     a,
@@ -373,7 +373,7 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
                 return avx512::single::mul_elementwise_assign::<P>(dst, src);
             }
             ResidueStrategy::Avx2 => {
-                crate::kernel::x86::residue::mul_elementwise_assign_u32_avx2(
+                crate::kernel::x86::residue::avx2::single::u32::mul_elementwise_assign_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,
                     src,
@@ -453,7 +453,7 @@ fn mul_into_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: 
         ResidueStrategy::Avx2 => {
             let token = crate::kernel::x86_v3_token();
             if <Row<P> as crate::field::FieldBuffer>::BYTES == 1 && P <= 127 {
-                crate::kernel::x86::residue::mul_into_u8_avx2(
+                crate::kernel::x86::residue::avx2::single::u8::mul_into_avx2(
                     token,
                     dst,
                     src,
@@ -463,7 +463,7 @@ fn mul_into_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: 
                 return;
             }
             if <Row<P> as crate::field::FieldBuffer>::BYTES == 4 {
-                crate::kernel::x86::residue::mul_into_u32_avx2(
+                crate::kernel::x86::residue::avx2::single::u32::mul_into_avx2(
                     token,
                     dst,
                     src,
@@ -474,7 +474,9 @@ fn mul_into_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: 
                 return;
             }
             if <Row<P> as crate::field::FieldBuffer>::BYTES == 8 && P % 2 == 1 {
-                crate::kernel::x86::residue::mul_into_u64_avx2(token, dst, src, coeff.word, P);
+                crate::kernel::x86::residue::avx2::single::u64::mul_into_avx2(
+                    token, dst, src, coeff.word, P,
+                );
                 return;
             }
         }
@@ -507,7 +509,7 @@ fn mul_add_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: &
         ResidueStrategy::Avx2 => {
             let token = crate::kernel::x86_v3_token();
             if <Row<P> as crate::field::FieldBuffer>::BYTES == 1 && P <= 127 {
-                crate::kernel::x86::residue::mul_add_u8_avx2(
+                crate::kernel::x86::residue::avx2::single::u8::mul_add_avx2(
                     token,
                     dst,
                     src,
@@ -517,7 +519,7 @@ fn mul_add_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: &
                 return;
             }
             if <Row<P> as crate::field::FieldBuffer>::BYTES == 4 {
-                crate::kernel::x86::residue::mul_add_u32_avx2(
+                crate::kernel::x86::residue::avx2::single::u32::mul_add_avx2(
                     token,
                     dst,
                     src,
@@ -528,7 +530,9 @@ fn mul_add_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: &
                 return;
             }
             if <Row<P> as crate::field::FieldBuffer>::BYTES == 8 && P % 2 == 1 {
-                crate::kernel::x86::residue::mul_add_u64_avx2(token, dst, src, coeff.word, P);
+                crate::kernel::x86::residue::avx2::single::u64::mul_add_avx2(
+                    token, dst, src, coeff.word, P,
+                );
                 return;
             }
         }
@@ -561,7 +565,7 @@ fn mul_assign_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue) {
         ResidueStrategy::Avx2 => {
             let token = crate::kernel::x86_v3_token();
             if <Row<P> as crate::field::FieldBuffer>::BYTES == 1 && P <= 127 {
-                crate::kernel::x86::residue::mul_assign_u8_avx2(
+                crate::kernel::x86::residue::avx2::single::u8::mul_assign_avx2(
                     token,
                     dst,
                     c.to_raw() as u8,
@@ -570,7 +574,7 @@ fn mul_assign_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue) {
                 return;
             }
             if <Row<P> as crate::field::FieldBuffer>::BYTES == 4 {
-                crate::kernel::x86::residue::mul_assign_u32_avx2(
+                crate::kernel::x86::residue::avx2::single::u32::mul_assign_avx2(
                     token,
                     dst,
                     (coeff.word & 0xFFFF_FFFF) as u32,
@@ -580,7 +584,9 @@ fn mul_assign_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue) {
                 return;
             }
             if <Row<P> as crate::field::FieldBuffer>::BYTES == 8 && P % 2 == 1 {
-                crate::kernel::x86::residue::mul_assign_u64_avx2(token, dst, coeff.word, P);
+                crate::kernel::x86::residue::avx2::single::u64::mul_assign_avx2(
+                    token, dst, coeff.word, P,
+                );
                 return;
             }
         }

@@ -12,19 +12,11 @@
 //! windows here. Preparation belongs to `kernel::residue`; entries take
 //! the exact capability token and validate geometry before the first lane.
 
-mod avx2;
+pub mod avx2;
 #[cfg(feature = "simd512")]
-pub(crate) mod avx512;
-
-pub use avx2::{
-    mul_add_matrix_u32_avx2_with, mul_add_u8_avx2, mul_add_u32_avx2, mul_add_u64_avx2,
-    mul_assign_u8_avx2, mul_assign_u32_avx2, mul_assign_u64_avx2, mul_elementwise_assign_u32_avx2,
-    mul_elementwise_u32_avx2, mul_into_matrix_u32_avx2_with, mul_into_u8_avx2, mul_into_u32_avx2,
-    mul_into_u64_avx2,
-};
+pub mod avx512;
 
 /// Inline coefficient representation consumed by prepared matrix kernels.
-#[allow(unused_imports)]
 pub use crate::kernel::residue::PreparedResidue;
 
 use crate::field::finite_field::{FiniteField, Residue};

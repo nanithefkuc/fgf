@@ -138,7 +138,7 @@ fn normalize64(x: __m256i, mu: __m256i, p: __m256i, pm1: __m256i) -> __m256i {
 /// `p` is odd, and `c_mont` is below `p`.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_u64_avx2(
+pub fn mul_into_avx2(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
     src: &[u8],
@@ -149,12 +149,12 @@ pub fn mul_into_u64_avx2(
     assert_eq!(
         dst.len(),
         src.len(),
-        "residue::mul_into_u64_avx2: dst and src lengths differ"
+        "residue::avx2::single::u64::mul_into_avx2: dst and src lengths differ"
     );
     assert_eq!(
         dst.len() % 8,
         0,
-        "residue::mul_into_u64_avx2: dst length {} is not whole 8-byte lanes",
+        "residue::avx2::single::u64::mul_into_avx2: dst length {} is not whole 8-byte lanes",
         dst.len()
     );
     assert!(p % 2 == 1, "residue doubleword: modulus {p} is even");
@@ -194,7 +194,7 @@ pub fn mul_into_u64_avx2(
 /// `p` is odd, and `c_mont` is below `p`.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_u64_avx2(
+pub fn mul_add_avx2(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
     src: &[u8],
@@ -205,12 +205,12 @@ pub fn mul_add_u64_avx2(
     assert_eq!(
         dst.len(),
         src.len(),
-        "residue::mul_add_u64_avx2: dst and src lengths differ"
+        "residue::avx2::single::u64::mul_add_avx2: dst and src lengths differ"
     );
     assert_eq!(
         dst.len() % 8,
         0,
-        "residue::mul_add_u64_avx2: dst length {} is not whole 8-byte lanes",
+        "residue::avx2::single::u64::mul_add_avx2: dst length {} is not whole 8-byte lanes",
         dst.len()
     );
     assert!(p % 2 == 1, "residue doubleword: modulus {p} is even");
@@ -263,12 +263,12 @@ pub fn mul_add_u64_avx2(
 /// `c_mont` is below `p`.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_u64_avx2(_token: archmage::X64V3Token, dst: &mut [u8], c_mont: u64, p: u64) {
+pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], c_mont: u64, p: u64) {
     align_spill_slots();
     assert_eq!(
         dst.len() % 8,
         0,
-        "residue::mul_assign_u64_avx2: dst length {} is not whole 8-byte lanes",
+        "residue::avx2::single::u64::mul_assign_avx2: dst length {} is not whole 8-byte lanes",
         dst.len()
     );
     assert!(p % 2 == 1, "residue doubleword: modulus {p} is even");
