@@ -672,6 +672,346 @@ fn add_residue_delayed<F: FieldBuffer>(cells: &mut Vec<Cell>, field: &'static st
     }
 }
 
+/// Add one `add_assign` cell over a binary field.
+fn push_xor_axis<F: FieldBuffer>(cells: &mut Vec<Cell>, field: &'static str, row_len: usize) {
+    push_single::<F>(
+        cells,
+        field,
+        fields::FAMILY_GF,
+        "add_assign",
+        "unprepared",
+        row_len,
+        0,
+    );
+}
+
+/// Cells for the uncited routing-threshold evidence sessions.
+///
+/// Each shape is an endpoint, integral grid point, or interval midpoint of
+/// one threshold session's axis. Shapes the registry already registers are
+/// reused by the session declarations rather than duplicated here.
+fn add_threshold_evidence_cells(cells: &mut Vec<Cell>) {
+    // `bytes.rs::XOR_INLINE_MAX` (31 bytes, `<=`). Byte-wide rows can sit
+    // exactly on the cutoff; wider elements only represent whole elements,
+    // so they contribute the representable grid values.
+    for row_len in [16, 24, 32, 48] {
+        push_xor_axis::<fields::Gf8Aes>(cells, fields::GF8_AES, row_len);
+        push_xor_axis::<fields::Gf8Rs>(cells, fields::GF8_RS, row_len);
+        push_xor_axis::<fields::Gf16Rijndael>(cells, fields::GF16_RIJNDAEL, row_len);
+        push_xor_axis::<fields::Gf16FanPaar>(cells, fields::FANPAAR16, row_len);
+        push_xor_axis::<fields::Gf32Rijndael>(cells, fields::GF32_RIJNDAEL, row_len);
+        push_xor_axis::<fields::Gf64Rijndael>(cells, fields::GF64_RIJNDAEL, row_len);
+        push_xor_axis::<fields::PackedRs16>(cells, fields::PACKED_RS16, row_len);
+        push_xor_axis::<fields::CustomRijndael16>(cells, fields::CUSTOM_RIJNDAEL16, row_len);
+    }
+    for row_len in [31, 62] {
+        push_xor_axis::<fields::Gf8Aes>(cells, fields::GF8_AES, row_len);
+        push_xor_axis::<fields::Gf8Rs>(cells, fields::GF8_RS, row_len);
+    }
+    // Only byte and 16-bit elements represent the 62-byte endpoint; 32- and
+    // 64-bit elements cannot.
+    push_xor_axis::<fields::Gf16Rijndael>(cells, fields::GF16_RIJNDAEL, 62);
+    push_xor_axis::<fields::Gf16FanPaar>(cells, fields::FANPAAR16, 62);
+    push_xor_axis::<fields::PackedRs16>(cells, fields::PACKED_RS16, 62);
+    push_xor_axis::<fields::CustomRijndael16>(cells, fields::CUSTOM_RIJNDAEL16, 62);
+    // `bytes.rs:37` compares the same cutoff in the offset-addressed gather;
+    // one gather target on each side of the grid covers that call site.
+    for row_len in [24, 32] {
+        push_gather::<fields::Gf8Aes>(
+            cells,
+            fields::GF8_AES,
+            fields::FAMILY_GF,
+            "add_gather_offsets",
+            "unprepared",
+            row_len,
+            8,
+            0,
+        );
+        push_gather::<fields::Gf8Rs>(
+            cells,
+            fields::GF8_RS,
+            fields::FAMILY_GF,
+            "add_gather_offsets",
+            "unprepared",
+            row_len,
+            8,
+            0,
+        );
+    }
+
+    // `gf8.rs` in-place scale below 65 536 bytes, GFNI without native AES.
+    // The 65 536-byte shapes are already registered by `add_gf8_thresholds`.
+    for prep in ["unprepared", "prepared"] {
+        for row_len in [32_768, 49_152, 98_304, 131_072] {
+            push_single::<fields::Gf8Rs>(
+                cells,
+                fields::GF8_RS,
+                fields::FAMILY_GF,
+                "mul_assign",
+                prep,
+                row_len,
+                0,
+            );
+        }
+    }
+
+    // `quad_mersenne31.rs::VECTOR_ADD_MIN_BYTES`: 32-byte shapes are
+    // registered by `add_qm31_thresholds`.
+    for operation in [
+        "add_assign",
+        "sub_assign",
+        "add_assign_scalar",
+        "sub_assign_scalar",
+    ] {
+        for row_len in [48, 64, 96, 128] {
+            push_single::<fgf::extension::QuadMersenne31>(
+                cells,
+                fields::QM31,
+                fields::FAMILY_M31,
+                operation,
+                "unprepared",
+                row_len,
+                0,
+            );
+        }
+    }
+
+    // `quad_mersenne31.rs::VECTOR_MUL_MIN_BYTES`: 24-byte shapes are
+    // registered by `add_qm31_thresholds`; at 64 bytes the unprepared
+    // `mul_add`/`mul_into` and prepared `mul_add` shapes already exist.
+    for operation in [
+        "mul_add",
+        "mul_assign",
+        "mul_into",
+        "mul_elementwise_into",
+        "mul_elementwise_assign",
+    ] {
+        for row_len in [16, 32, 48] {
+            push_single::<fgf::extension::QuadMersenne31>(
+                cells,
+                fields::QM31,
+                fields::FAMILY_M31,
+                operation,
+                "unprepared",
+                row_len,
+                0,
+            );
+        }
+    }
+    for (operation, prep) in [
+        ("mul_into", "prepared"),
+        ("mul_assign", "unprepared"),
+        ("mul_assign", "prepared"),
+        ("mul_elementwise_into", "unprepared"),
+        ("mul_elementwise_assign", "unprepared"),
+    ] {
+        push_single::<fgf::extension::QuadMersenne31>(
+            cells,
+            fields::QM31,
+            fields::FAMILY_M31,
+            operation,
+            prep,
+            64,
+            0,
+        );
+    }
+
+    // `x86.rs::NT_STORE_MIN`: the 2 MiB unprepared GF(2^8)-AES and GF(2^16)
+    // shapes already exist; every other streaming-floor shape is new.
+    for row_len in [1_048_576, 1_572_864] {
+        for prep in ["unprepared", "prepared"] {
+            push_single::<fields::Gf8Aes>(
+                cells,
+                fields::GF8_AES,
+                fields::FAMILY_GF,
+                "mul_into",
+                prep,
+                row_len,
+                0,
+            );
+            push_single::<fields::Gf8Rs>(
+                cells,
+                fields::GF8_RS,
+                fields::FAMILY_GF,
+                "mul_into",
+                prep,
+                row_len,
+                0,
+            );
+            push_single::<fields::Gf16Rijndael>(
+                cells,
+                fields::GF16_RIJNDAEL,
+                fields::FAMILY_GF,
+                "mul_into",
+                prep,
+                row_len,
+                0,
+            );
+        }
+    }
+    push_single::<fields::Gf8Rs>(
+        cells,
+        fields::GF8_RS,
+        fields::FAMILY_GF,
+        "mul_into",
+        "unprepared",
+        2_097_152,
+        0,
+    );
+    push_single::<fields::Gf8Aes>(
+        cells,
+        fields::GF8_AES,
+        fields::FAMILY_GF,
+        "mul_into",
+        "prepared",
+        2_097_152,
+        0,
+    );
+    push_single::<fields::Gf8Rs>(
+        cells,
+        fields::GF8_RS,
+        fields::FAMILY_GF,
+        "mul_into",
+        "prepared",
+        2_097_152,
+        0,
+    );
+    push_single::<fields::Gf16Rijndael>(
+        cells,
+        fields::GF16_RIJNDAEL,
+        fields::FAMILY_GF,
+        "mul_into",
+        "prepared",
+        2_097_152,
+        0,
+    );
+    for row_len in [3_145_728, 4_194_304] {
+        for prep in ["unprepared", "prepared"] {
+            push_single::<fields::Gf8Aes>(
+                cells,
+                fields::GF8_AES,
+                fields::FAMILY_GF,
+                "mul_into",
+                prep,
+                row_len,
+                0,
+            );
+            push_single::<fields::Gf8Rs>(
+                cells,
+                fields::GF8_RS,
+                fields::FAMILY_GF,
+                "mul_into",
+                prep,
+                row_len,
+                0,
+            );
+            push_single::<fields::Gf16Rijndael>(
+                cells,
+                fields::GF16_RIJNDAEL,
+                fields::FAMILY_GF,
+                "mul_into",
+                prep,
+                row_len,
+                0,
+            );
+        }
+    }
+
+    // `x86/bytes/avx512.rs` XOR gates: one byte-XOR axis shared by every
+    // binary element width.
+    for row_len in [128, 192, 256, 384, 512, 768, 1024] {
+        push_xor_axis::<fields::Gf8Aes>(cells, fields::GF8_AES, row_len);
+        push_xor_axis::<fields::Gf8Rs>(cells, fields::GF8_RS, row_len);
+        push_xor_axis::<fields::Gf16Rijndael>(cells, fields::GF16_RIJNDAEL, row_len);
+        push_xor_axis::<fields::Gf16FanPaar>(cells, fields::FANPAAR16, row_len);
+        push_xor_axis::<fields::Gf32Rijndael>(cells, fields::GF32_RIJNDAEL, row_len);
+        push_xor_axis::<fields::Gf64Rijndael>(cells, fields::GF64_RIJNDAEL, row_len);
+        push_xor_axis::<fields::PackedRs16>(cells, fields::PACKED_RS16, row_len);
+        push_xor_axis::<fields::CustomRijndael16>(cells, fields::CUSTOM_RIJNDAEL16, row_len);
+    }
+
+    // `x86/gf8/avx512/gather.rs::GATHER_PEEL_MIN`.
+    for prep in ["unprepared", "prepared"] {
+        for row_len in [1536, 2304, 3072, 4608, 6144] {
+            push_gather::<fields::Gf8Aes>(
+                cells,
+                fields::GF8_AES,
+                fields::FAMILY_GF,
+                "mul_add_gather",
+                prep,
+                row_len,
+                8,
+                0,
+            );
+            push_gather::<fields::Gf8Rs>(
+                cells,
+                fields::GF8_RS,
+                fields::FAMILY_GF,
+                "mul_add_gather",
+                prep,
+                row_len,
+                8,
+                0,
+            );
+        }
+    }
+
+    // `x86/gf8/avx512/scatter.rs::SCATTER_PEEL_MIN`.
+    for prep in ["unprepared", "prepared"] {
+        for row_len in [256, 384, 512, 768, 1024] {
+            push_scatter::<fields::Gf8Aes>(
+                cells,
+                fields::GF8_AES,
+                fields::FAMILY_GF,
+                "mul_add_scatter",
+                prep,
+                row_len,
+                8,
+                0,
+            );
+            push_scatter::<fields::Gf8Rs>(
+                cells,
+                fields::GF8_RS,
+                fields::FAMILY_GF,
+                "mul_add_scatter",
+                prep,
+                row_len,
+                8,
+                0,
+            );
+        }
+    }
+
+    // `x86/gf8/avx512/matrix.rs::MATRIX_PEEL_MIN`: 4096 and 8192 are
+    // registered by `add_field` and `add_gf8_thresholds`.
+    for prep in ["unprepared", "prepared"] {
+        for row_len in [6144, 12_288, 16_384] {
+            push_matrix::<fields::Gf8Aes>(
+                cells,
+                fields::GF8_AES,
+                fields::FAMILY_GF,
+                "mul_add_matrix",
+                prep,
+                row_len,
+                8,
+                8,
+                0,
+            );
+            push_matrix::<fields::Gf8Rs>(
+                cells,
+                fields::GF8_RS,
+                fields::FAMILY_GF,
+                "mul_add_matrix",
+                prep,
+                row_len,
+                8,
+                8,
+                0,
+            );
+        }
+    }
+}
+
 fn add_recip<F: FieldBuffer>(cells: &mut Vec<Cell>, field: &'static str, family: &'static str) {
     for (operation, row_len) in [
         ("inv_into", SMALL),
@@ -746,6 +1086,7 @@ pub fn registry() -> Vec<Cell> {
         }
     }
     add_bits(&mut cells);
+    add_threshold_evidence_cells(&mut cells);
     cells
 }
 
