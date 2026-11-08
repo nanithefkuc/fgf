@@ -2,10 +2,10 @@
 //!
 //! Extension arithmetic over Mersenne31 pairs with `i² = −1`, reached by
 //! the component rows structurally equal to the shipped prime extension;
-//! [`super::extension`] routes them here. On x86 hosts resolving
-//! `V3`/`V3GfniCrypto`, rows at or above the measured thresholds dispatch to
-//! the AVX2 extension kernels (four complex elements per vector); shorter
-//! rows stay here. On `V4x` hosts under `simd512`, the coefficient
+//! [`super::extension`] routes them here. On x86 hosts resolving the AVX2
+//! class, rows at or above the vector floors in [`super::routing`] dispatch
+//! to the AVX2 extension kernels (four complex elements per vector); shorter
+//! rows stay here. On hosts resolving the AVX-512 class, the coefficient
 //! multiply, multiply-accumulate, and elementwise product run the AVX-512
 //! kernels (eight complex elements per vector) and the remaining operations
 //! run the AVX2 kernels.
@@ -15,23 +15,16 @@
 //! per op, no re-reduction of already-canonical operands. Every input limb
 //! bit pattern is legal and every stored limb is canonical, matching the
 //! vector kernels lane for lane.
+//!
+//! Each entry matches the cached `QuadMersenne31` strategy resolved once per
+//! process; no entry reads the process backend.
 
 use crate::field::quad_mersenne31::QuadMersenne31;
 use crate::field::{Elem, FieldBuffer};
-use crate::kernel::Backend;
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-use crate::kernel::backend;
+use crate::kernel::QuadMersenneStrategy;
+use crate::kernel::quad_mersenne_strategy;
 use crate::kernel::{prime, scalar};
-
-/// Row length in bytes at or above which the AVX2 multiplies take over;
-/// one full vector of four complex elements.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-const VECTOR_MUL_MIN_BYTES: usize = 32;
-
-/// Row length in bytes at or above which the AVX2 add and sub take over;
-/// the mixed vector-plus-tail rows below this stay scalar.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-const VECTOR_ADD_MIN_BYTES: usize = 64;
 
 /// Reduce an arbitrary 32-bit lane to the canonical range `0..p`
 /// (the Mersenne fold, `2^31 ≡ 1`).
@@ -99,36 +92,36 @@ const fn qmul(ar: u32, ai: u32, br: u32, bi: u32) -> Elem<QuadMersenne31> {
 
 /// The backend the QM31 kernels report on this host.
 #[inline]
-pub(crate) fn backend_report() -> Backend {
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    {
-        match backend() {
-            #[cfg(feature = "simd512")]
-            Backend::V4x => Backend::V4x,
-            Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
-            _ => Backend::Scalar,
-        }
-    }
-    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-    {
-        Backend::Scalar
-    }
+pub(crate) fn backend_report() -> crate::kernel::Backend {
+    quad_mersenne_strategy().report()
 }
 
 /// `dst += src`.
 pub(crate) fn add_assign(dst: &mut [u8], src: &[u8]) {
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if matches!(
-        backend(),
-        Backend::V4x | Backend::V3GfniCrypto | Backend::V3
-    ) && dst.len() >= VECTOR_ADD_MIN_BYTES
-    {
-        crate::kernel::x86::quad_mersenne31::add_assign_avx2(
-            crate::kernel::x86_v3_token(),
-            dst,
-            src,
-        );
-        return;
+    match quad_mersenne_strategy() {
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx512
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::add_assign_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                src,
+            );
+            return;
+        }
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx2
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::add_assign_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                src,
+            );
+            return;
+        }
+        _ => {}
     }
     for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
         let a = QuadMersenne31::decode(d).to_raw();
@@ -148,18 +141,30 @@ pub(crate) fn add_assign(dst: &mut [u8], src: &[u8]) {
 
 /// `dst -= src`.
 pub(crate) fn sub_assign(dst: &mut [u8], src: &[u8]) {
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if matches!(
-        backend(),
-        Backend::V4x | Backend::V3GfniCrypto | Backend::V3
-    ) && dst.len() >= VECTOR_ADD_MIN_BYTES
-    {
-        crate::kernel::x86::quad_mersenne31::sub_assign_avx2(
-            crate::kernel::x86_v3_token(),
-            dst,
-            src,
-        );
-        return;
+    match quad_mersenne_strategy() {
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx512
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::sub_assign_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                src,
+            );
+            return;
+        }
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx2
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::sub_assign_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                src,
+            );
+            return;
+        }
+        _ => {}
     }
     debug_assert_eq!(dst.len(), src.len());
     for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
@@ -196,29 +201,32 @@ pub(crate) fn sub_assign(dst: &mut [u8], src: &[u8]) {
 
 /// `dst += coeff * src`.
 pub(crate) fn mul_add(dst: &mut [u8], coeff: Elem<QuadMersenne31>, src: &[u8]) {
-    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-    if matches!(backend(), Backend::V4x) && dst.len() >= VECTOR_MUL_MIN_BYTES {
-        crate::kernel::x86::quad_mersenne31::mul_add_avx512(
-            crate::kernel::x86_v4_token(),
-            dst,
-            coeff,
-            src,
-        );
-        return;
-    }
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if matches!(
-        backend(),
-        Backend::V4x | Backend::V3GfniCrypto | Backend::V3
-    ) && dst.len() >= VECTOR_MUL_MIN_BYTES
-    {
-        crate::kernel::x86::quad_mersenne31::mul_add_avx2(
-            crate::kernel::x86_v3_token(),
-            dst,
-            coeff,
-            src,
-        );
-        return;
+    match quad_mersenne_strategy() {
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx512
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_MUL_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::mul_add_avx512(
+                crate::kernel::x86_v4_token(),
+                dst,
+                coeff,
+                src,
+            );
+            return;
+        }
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx2
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_MUL_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::mul_add_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                coeff,
+                src,
+            );
+            return;
+        }
+        _ => {}
     }
     let cr = canon(coeff.to_raw()[0]);
     let ci = canon(coeff.to_raw()[1]);
@@ -245,18 +253,30 @@ pub(crate) fn mul_add(dst: &mut [u8], coeff: Elem<QuadMersenne31>, src: &[u8]) {
 
 /// `dst *= coeff`.
 pub(crate) fn mul_assign(dst: &mut [u8], coeff: Elem<QuadMersenne31>) {
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if matches!(
-        backend(),
-        Backend::V4x | Backend::V3GfniCrypto | Backend::V3
-    ) && dst.len() >= VECTOR_MUL_MIN_BYTES
-    {
-        crate::kernel::x86::quad_mersenne31::mul_assign_avx2(
-            crate::kernel::x86_v3_token(),
-            dst,
-            coeff,
-        );
-        return;
+    match quad_mersenne_strategy() {
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx512
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_MUL_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::mul_assign_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                coeff,
+            );
+            return;
+        }
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx2
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_MUL_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::mul_assign_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                coeff,
+            );
+            return;
+        }
+        _ => {}
     }
     let cr = canon(coeff.to_raw()[0]);
     let ci = canon(coeff.to_raw()[1]);
@@ -275,29 +295,32 @@ pub(crate) fn mul_assign(dst: &mut [u8], coeff: Elem<QuadMersenne31>) {
 
 /// `dst = coeff * src`, never reading the old destination.
 pub(crate) fn mul_into(dst: &mut [u8], coeff: Elem<QuadMersenne31>, src: &[u8]) {
-    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-    if matches!(backend(), Backend::V4x) && dst.len() >= VECTOR_MUL_MIN_BYTES {
-        crate::kernel::x86::quad_mersenne31::mul_into_avx512(
-            crate::kernel::x86_v4_token(),
-            dst,
-            coeff,
-            src,
-        );
-        return;
-    }
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if matches!(
-        backend(),
-        Backend::V4x | Backend::V3GfniCrypto | Backend::V3
-    ) && dst.len() >= VECTOR_MUL_MIN_BYTES
-    {
-        crate::kernel::x86::quad_mersenne31::mul_into_avx2(
-            crate::kernel::x86_v3_token(),
-            dst,
-            coeff,
-            src,
-        );
-        return;
+    match quad_mersenne_strategy() {
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx512
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_MUL_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::mul_into_avx512(
+                crate::kernel::x86_v4_token(),
+                dst,
+                coeff,
+                src,
+            );
+            return;
+        }
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx2
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_MUL_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::mul_into_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                coeff,
+                src,
+            );
+            return;
+        }
+        _ => {}
     }
     let cr = canon(coeff.to_raw()[0]);
     let ci = canon(coeff.to_raw()[1]);
@@ -315,29 +338,32 @@ pub(crate) fn mul_into(dst: &mut [u8], coeff: Elem<QuadMersenne31>, src: &[u8]) 
 pub(crate) fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]) {
     debug_assert_eq!(dst.len(), a.len());
     debug_assert_eq!(dst.len(), b.len());
-    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-    if matches!(backend(), Backend::V4x) && dst.len() >= VECTOR_MUL_MIN_BYTES {
-        crate::kernel::x86::quad_mersenne31::mul_elementwise_avx512(
-            crate::kernel::x86_v4_token(),
-            dst,
-            a,
-            b,
-        );
-        return;
-    }
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if matches!(
-        backend(),
-        Backend::V4x | Backend::V3GfniCrypto | Backend::V3
-    ) && dst.len() >= VECTOR_MUL_MIN_BYTES
-    {
-        crate::kernel::x86::quad_mersenne31::mul_elementwise_avx2(
-            crate::kernel::x86_v3_token(),
-            dst,
-            a,
-            b,
-        );
-        return;
+    match quad_mersenne_strategy() {
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx512
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_MUL_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::mul_elementwise_avx512(
+                crate::kernel::x86_v4_token(),
+                dst,
+                a,
+                b,
+            );
+            return;
+        }
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx2
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_MUL_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::mul_elementwise_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                a,
+                b,
+            );
+            return;
+        }
+        _ => {}
     }
     for (d, x, y) in dst
         .chunks_exact_mut(8)
@@ -356,54 +382,90 @@ pub(crate) fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]) {
 
 /// `dst[i] *= src[i]`.
 pub(crate) fn mul_elementwise_assign(dst: &mut [u8], src: &[u8]) {
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if matches!(
-        backend(),
-        Backend::V4x | Backend::V3GfniCrypto | Backend::V3
-    ) && dst.len() >= VECTOR_MUL_MIN_BYTES
-    {
-        crate::kernel::x86::quad_mersenne31::mul_elementwise_assign_avx2(
-            crate::kernel::x86_v3_token(),
-            dst,
-            src,
-        );
-        return;
+    match quad_mersenne_strategy() {
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx512
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_MUL_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::mul_elementwise_assign_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                src,
+            );
+            return;
+        }
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx2
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_MUL_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::mul_elementwise_assign_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                src,
+            );
+            return;
+        }
+        _ => {}
     }
     scalar::mul_elementwise_assign::<QuadMersenne31>(dst, src);
 }
 
 /// `dst[i] += value`.
 pub(crate) fn add_assign_scalar(dst: &mut [u8], value: Elem<QuadMersenne31>) {
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if matches!(
-        backend(),
-        Backend::V4x | Backend::V3GfniCrypto | Backend::V3
-    ) && dst.len() >= VECTOR_ADD_MIN_BYTES
-    {
-        crate::kernel::x86::quad_mersenne31::add_assign_scalar_avx2(
-            crate::kernel::x86_v3_token(),
-            dst,
-            value,
-        );
-        return;
+    match quad_mersenne_strategy() {
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx512
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::add_assign_scalar_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                value,
+            );
+            return;
+        }
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx2
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::add_assign_scalar_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                value,
+            );
+            return;
+        }
+        _ => {}
     }
     prime::add_assign_scalar::<QuadMersenne31>(dst, value);
 }
 
 /// `dst[i] -= value`.
 pub(crate) fn sub_assign_scalar(dst: &mut [u8], value: Elem<QuadMersenne31>) {
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if matches!(
-        backend(),
-        Backend::V4x | Backend::V3GfniCrypto | Backend::V3
-    ) && dst.len() >= VECTOR_ADD_MIN_BYTES
-    {
-        crate::kernel::x86::quad_mersenne31::sub_assign_scalar_avx2(
-            crate::kernel::x86_v3_token(),
-            dst,
-            value,
-        );
-        return;
+    match quad_mersenne_strategy() {
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx512
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::sub_assign_scalar_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                value,
+            );
+            return;
+        }
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        QuadMersenneStrategy::Avx2
+            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
+        {
+            crate::kernel::x86::quad_mersenne31::sub_assign_scalar_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                value,
+            );
+            return;
+        }
+        _ => {}
     }
     prime::sub_assign_scalar::<QuadMersenne31>(dst, value);
 }

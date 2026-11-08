@@ -9,12 +9,12 @@
 //! Every entry is a safe [`archmage`] capability-token function taking an
 //! `X64V4xToken`.
 
+use super::gfni;
 use super::{broadcast_words, check_elements};
 use crate::kernel::Matrix;
 use crate::kernel::proven_checks::check_terms;
+use crate::kernel::routing::MUL_ADD_PEEL_MIN;
 use crate::kernel::tables::TowerCoeff;
-
-use super::gfni;
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
@@ -47,13 +47,6 @@ pub(super) fn scale(x: __m512i, swapped: __m512i, same: __m512i, cross: __m512i)
         _mm512_gf2p8mul_epi8(swapped, cross),
     )
 }
-
-/// Shortest single-row destination that peels its head to a 64-byte
-/// boundary. `mul_add` and `mul_into` share the floor.
-///
-/// The peel runs up to 62 bytes through the 32-byte GFNI kernel, which
-/// repays only once the 64-byte body is long enough.
-pub(crate) const MUL_ADD_PEEL_MIN: usize = 3584;
 
 /// Head bytes that put `dst`'s 64-byte accesses on a cache-line boundary,
 /// or `0` below [`MUL_ADD_PEEL_MIN`] or when the head would split an element.

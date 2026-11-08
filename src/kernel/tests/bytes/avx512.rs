@@ -7,7 +7,7 @@ use crate::kernel::tests::tier_gate;
 /// source/destination offsets, and `VPOPCNTQ` counts against `count_ones`.
 #[test]
 fn bytes512_kernels_match_scalar() {
-    let peel = x86::bytes::XOR_PEEL_MIN;
+    let peel = crate::kernel::routing::XOR_PEEL_MIN;
     let edges = [peel - 1, peel, peel + 1, peel + 63, 1024 + 255, 4096 + 63];
     tier_gate::run_entry(x86::bytes::xor_avx512, |token: X64V4xToken, entry| {
         for &len in XOR_LENGTHS.iter().chain(&edges) {

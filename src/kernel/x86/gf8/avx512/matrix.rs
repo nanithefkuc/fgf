@@ -16,19 +16,7 @@ use super::super::{ColumnWindow, RESOLVE_CHUNK, check_scattered, column_blocked,
 use super::{bfactor_avx512, bmul_avx512, brem_half_avx512};
 use crate::kernel::Matrix;
 use crate::kernel::gf8::Prepared;
-
-/// Shortest matrix row that peels its head to a 64-byte boundary.
-///
-/// The peel runs one sub-lane AXPY per row per term, so it repays only once
-/// the tile body is long enough.
-pub(crate) const MATRIX_PEEL_MIN: usize = 8192;
-
-/// Shortest row using chunk-resolved matrix coefficients.
-///
-/// Shorter rows read coefficients directly in each tile or lane. The crossover
-/// is a measured parameter; public matrix shapes appear in the 3.0.2 record at
-/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/gf8.md>.
-const MATRIX_RESOLVE_MIN: usize = 512;
+use crate::kernel::routing::{MATRIX_PEEL_MIN, MATRIX_RESOLVE_MIN};
 
 /// Many sources into many rows, four rows per group over 256-byte tiles.
 ///

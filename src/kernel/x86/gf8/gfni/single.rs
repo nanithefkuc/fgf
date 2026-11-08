@@ -17,7 +17,7 @@
 use super::super::{BodySite, EntryBody};
 use super::{bfactor_gfni, bmul_gfni, bmul_half_gfni};
 use crate::kernel::gf8::{Prepared, mul_add_nibble, mul_assign_nibble, mul_into_nibble};
-use crate::kernel::x86::HALF_LANE_PEEL_MIN;
+use crate::kernel::routing::HALF_LANE_PEEL_MIN;
 
 /// `dst ^= coeff * src` over 32-byte lanes.
 ///

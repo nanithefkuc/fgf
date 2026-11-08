@@ -53,8 +53,6 @@ pub use avx2::{
     mul_add_avx2, mul_add_scatter_avx2, mul_assign_avx2, mul_elementwise_assign_avx2,
     mul_elementwise_avx2, mul_into_avx2,
 };
-#[cfg(all(test, feature = "simd512"))]
-pub(crate) use avx512::MUL_ADD_PEEL_MIN;
 #[cfg(feature = "simd512")]
 pub use avx512::{
     mul_add_avx512, mul_add_matrix_avx512, mul_add_matrix_avx512_with, mul_assign_avx512,

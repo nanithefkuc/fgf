@@ -6,12 +6,7 @@
 use super::super::check_gather;
 use super::{bfactor_avx512, bmul_avx512, brem_avx512};
 use crate::kernel::gf8::Coeffs;
-
-/// Shortest gather destination that peels its head to a 64-byte boundary.
-///
-/// The peel runs one sub-lane AXPY per source, so it repays only once the
-/// tile body is long enough.
-pub(crate) const GATHER_PEEL_MIN: usize = 3072;
+use crate::kernel::routing::GATHER_PEEL_MIN;
 
 // ---------------------------------------------------------------------------
 // Gather: many sources into one destination.

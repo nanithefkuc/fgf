@@ -30,6 +30,8 @@ use std::time::{Duration, Instant};
 use fgf::binary::AES;
 use fgf::binary::{Polynomial, RS};
 use fgf::extension::QuadMersenne31;
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+use fgf::internals::kernel::ResidueStrategy;
 use fgf::prime::{Goldilocks, Mersenne31};
 use fgf::{Elem, FieldBuffer, FiniteField, backend, backend_for, ops};
 
@@ -690,7 +692,7 @@ fn prime_direct_single<F>(
     F: FieldBuffer,
 {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    use fgf::internals::kernel::residue as selector;
+    use fgf::internals::kernel::routing as selector;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let bytes = F::BYTES;
     // The direct column calls the vector body for every kernel-covered
@@ -962,7 +964,7 @@ where
         // the production oracle above already covers.
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
-            use fgf::internals::kernel::residue as selector_oracle;
+            use fgf::internals::kernel::routing as selector_oracle;
             if !selector_oracle::routes_vector(bytes, p) {
                 // Kernel rejects this class; no direct cell exists and the
                 // production oracle above covers the portable path.
@@ -1046,14 +1048,14 @@ where
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-            use fgf::internals::kernel::residue as selector;
-            use fgf::internals::kernel::residue::VectorOp;
+            use fgf::internals::kernel::routing as selector;
+            use fgf::internals::kernel::routing::VectorOp;
             let into_backend = selector::single_row_backend(bytes, p, len, VectorOp::Into);
             let add_backend = selector::single_row_backend(bytes, p, len, VectorOp::Add);
             let assign_backend = selector::single_row_backend(bytes, p, len, VectorOp::Assign);
-            let takes_into = into_backend != fgf::Backend::Scalar;
-            let takes_add = add_backend != fgf::Backend::Scalar;
-            let takes_assign = assign_backend != fgf::Backend::Scalar;
+            let takes_into = into_backend != ResidueStrategy::Scalar;
+            let takes_add = add_backend != ResidueStrategy::Scalar;
+            let takes_assign = assign_backend != ResidueStrategy::Scalar;
             println!(
                 "PRIME_ROUTES\tprime with {row} into {lanes}\tbackend={} takes_vector={takes_into} via=selector",
                 into_backend.name()
@@ -1250,7 +1252,7 @@ where
         // the selector like the timed column.
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
-            use fgf::internals::kernel::residue as selector_oracle;
+            use fgf::internals::kernel::routing as selector_oracle;
             if !selector_oracle::routes_vector(bytes, p) || bytes != 4 {
                 // Kernel rejects this class; no direct cell exists.
             } else {
@@ -1293,9 +1295,9 @@ where
         );
         {
             #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-            use fgf::internals::kernel::residue as selector;
+            use fgf::internals::kernel::routing as selector;
             #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-            use fgf::internals::kernel::residue::VectorOp;
+            use fgf::internals::kernel::routing::VectorOp;
             #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             let operation_backend =
                 selector::single_row_backend(bytes, p, len, VectorOp::Elementwise);
@@ -1303,11 +1305,11 @@ where
             let assign_backend =
                 selector::single_row_backend(bytes, p, len, VectorOp::ElementwiseAssign);
             #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-            let operation_backend = fgf::Backend::Scalar;
+            let operation_backend = ResidueStrategy::Scalar;
             #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-            let assign_backend = fgf::Backend::Scalar;
-            let takes = operation_backend != fgf::Backend::Scalar;
-            let takes_assign = assign_backend != fgf::Backend::Scalar;
+            let assign_backend = ResidueStrategy::Scalar;
+            let takes = operation_backend != ResidueStrategy::Scalar;
+            let takes_assign = assign_backend != ResidueStrategy::Scalar;
             println!(
                 "PRIME_ROUTES\tprime elementwise {row} {lanes}\tbackend={} takes_vector={takes} via=selector",
                 operation_backend.name()
@@ -1389,7 +1391,7 @@ where
 #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
 fn prime_matrix_panel<const P: u64>(row: &str, counts: &[usize], seed: u64) {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    use fgf::internals::kernel::residue as selector;
+    use fgf::internals::kernel::routing as selector;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let k = selector::delay_depth::<P>();
     #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
@@ -1410,8 +1412,8 @@ fn prime_matrix_panel<const P: u64>(row: &str, counts: &[usize], seed: u64) {
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 let matrix_backend = selector::delayed_matrix_backend(4, k, row_len, nsources, add);
                 #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-                let matrix_backend = fgf::Backend::Scalar;
-                let routes = matrix_backend != fgf::Backend::Scalar;
+                let matrix_backend = ResidueStrategy::Scalar;
+                let routes = matrix_backend != ResidueStrategy::Scalar;
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 let operation_backend = if routes {
                     matrix_backend
@@ -1419,7 +1421,7 @@ fn prime_matrix_panel<const P: u64>(row: &str, counts: &[usize], seed: u64) {
                     selector::single_row_backend(4, P, row_len, selector::VectorOp::Add)
                 };
                 #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-                let operation_backend = fgf::Backend::Scalar;
+                let operation_backend = ResidueStrategy::Scalar;
                 let geometry = format!("prime matrix {disposition} {row} s{nsources} o4 L{lanes}");
                 let once_geometry =
                     format!("prime matrix once {disposition} {row} s{nsources} o4 L{lanes}");

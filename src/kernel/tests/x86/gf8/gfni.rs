@@ -336,7 +336,7 @@ fn gf8_rs_gfni_kernels_match_reference() {
 /// the scalar reference for all three single-row forms.
 #[test]
 fn gf8_gfni_peels_half_lane() {
-    let floor = x86::HALF_LANE_PEEL_MIN;
+    let floor = crate::kernel::routing::HALF_LANE_PEEL_MIN;
     tier_gate::run_entry(x86::gf8::mul_add_gfni::<true>, |token, entry| {
         for len in [floor - 2, floor - 1, floor, floor + 1, floor + 130, 1152] {
             for offset in [0usize, 1, 2, 15, 16, 17, 31, 32, 47] {
@@ -404,7 +404,7 @@ fn gf8_gfni_peels_half_lane() {
 /// against the scalar reference for all three single-row forms.
 #[test]
 fn gf8_rs_gfni_peels_half_lane() {
-    let floor = x86::HALF_LANE_PEEL_MIN;
+    let floor = crate::kernel::routing::HALF_LANE_PEEL_MIN;
     tier_gate::run_entry(x86::gf8::mul_add_gfni::<false>, |token, entry| {
         for len in [floor - 2, floor - 1, floor, floor + 1, floor + 130, 1152] {
             for offset in [0usize, 1, 2, 15, 16, 17, 31, 32, 47] {

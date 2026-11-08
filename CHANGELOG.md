@@ -50,6 +50,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Dispatch resolves one cached kernel-strategy enum per family beside the
+  process backend, and every dispatch arm matches that strategy — or a
+  prepared coefficient's variant, which carries the choice its preparation
+  made — instead of rematching the process backend per call. Public
+  `backend` queries and `backend_for` results are unchanged.
+- Every routing threshold and the residue geometry selectors live in one
+  private routing module, `kernel::routing`; kernel tuning parameters stay
+  with their kernels. `fgf::internals::kernel::residue` moves to
+  `fgf::internals::kernel::routing`, its selectors now return the exposed
+  `fgf::internals::kernel::ResidueStrategy` class, and every threshold value
+  is unchanged.
+- The Mersenne31 and Goldilocks dispatch impls, the GF(2^32)/GF(2^64)
+  storage dispatch, and the portable scaled-row loops of `kernel::scalar`
+  and `kernel::prime` share one generator each; each convention keeps its
+  own byte-level zero and unit shortcuts.
 - Benchmark publication refreshes measured anchors independently, preserving
   each row's revision, session, scope, and method. Descriptive surface
   measurements have a separate table; latest measurements do not imply a

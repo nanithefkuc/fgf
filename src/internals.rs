@@ -50,18 +50,25 @@ pub mod kernel {
         pub use crate::kernel::scalar::*;
     }
 
-    /// Residue row routing: the selector functions the production dispatch
-    /// runs, for benchmark routing reports that must not copy constants.
-    /// Available only where the x86 SIMD dispatch exists; other targets
-    /// route every residue shape through the portable path.
+    /// The kernel class a residue row's vectorizable operations take, for
+    /// routing reports; the label a selector's result reports as the
+    /// process tier.
+    pub use crate::kernel::ResidueStrategy;
+
+    /// Row routing: the threshold constants and selector functions the
+    /// production dispatch runs, for benchmark routing reports that must
+    /// not copy constants. Available only where the x86 SIMD dispatch
+    /// exists; other targets route every residue shape through the
+    /// portable path.
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    pub mod residue {
-        pub use crate::kernel::residue::{
+    pub mod routing {
+        pub use crate::kernel::routing::{
             DELAYED_ADD_MIN_DEPTH, DELAYED_INTO_MIN_DEPTH, DELAYED_MIN_SOURCES, VectorOp,
             avx2_floor_op_len, delay_depth, delayed_matrix_backend, routes_delayed, routes_vector,
             single_row_backend,
         };
     }
+
     /// Coefficient tables shared by field and architecture kernels.
     pub mod tables {
         // `ScaleTable` is declared in the field layer's byte module; the

@@ -7,9 +7,19 @@
 //! Unlike [`crate::kernel::scalar`], addition here is the field's modular
 //! `add`, never XOR — these are wrong for the binary fields and right for the
 //! prime fields. As with the scalar module, keeping this obviously correct is
-//! worth more than making it fast: the vector backends carry the speed.
+//! worth more than making it fast: the vector backends carry the speed. The
+//! scaled-row loops are the shared generator in [`crate::kernel`]; this
+//! convention's unit shortcut is the modular [`add_assign`] below, and its
+//! zero shortcut leaves an accumulated destination untouched and fills an
+//! overwritten one with canonical zeros.
 
 use crate::field::{Elem, FieldBuffer, FieldElem};
+
+portable_scaled_rows!(
+    "`dst[i] += coeff * src[i]`, elementwise.",
+    "`dst[i] = coeff * dst[i]`, in place.",
+    add_assign::<F>,
+);
 
 /// `dst[i] += src[i]`, modular field addition.
 pub fn add_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
@@ -35,40 +45,6 @@ pub fn sub_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     }
 }
 
-/// `dst[i] += coeff * src[i]`, elementwise.
-pub fn mul_add<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
-    debug_assert_eq!(dst.len(), src.len());
-    if coeff.is_zero() {
-        return;
-    }
-    if coeff.is_one() {
-        add_assign::<F>(dst, src);
-        return;
-    }
-    for (d, s) in dst
-        .chunks_exact_mut(F::BYTES)
-        .zip(src.chunks_exact(F::BYTES))
-    {
-        let value = F::decode(d).add(F::decode(s).mul(coeff));
-        F::encode(d, value);
-    }
-}
-
-/// `dst[i] = coeff * dst[i]`, in place.
-pub fn mul_assign<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>) {
-    if coeff.is_one() {
-        return;
-    }
-    if coeff.is_zero() {
-        dst.fill(0);
-        return;
-    }
-    for d in dst.chunks_exact_mut(F::BYTES) {
-        let value = F::decode(d).mul(coeff);
-        F::encode(d, value);
-    }
-}
-
 /// `dst[i] = coeff * src[i]`, out of place in one pass.
 ///
 /// The prior destination bytes are never read. A zero coefficient fills
@@ -89,52 +65,6 @@ pub fn mul_into<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
         .zip(src.chunks_exact(F::BYTES))
     {
         F::encode(d, F::decode(s).mul(coeff));
-    }
-}
-
-/// `rows[j] += coeffs[j] * src` for every row `j`.
-pub fn mul_add_scatter<F: FieldBuffer>(
-    rows: &mut [u8],
-    row_len: usize,
-    coeffs: &[Elem<F>],
-    src: &[u8],
-) {
-    for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-        mul_add::<F>(row, coeff, src);
-    }
-}
-
-/// `dst += sum(coeffs[i] * srcs[i])`.
-pub fn mul_add_gather<F: FieldBuffer>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
-    for (&coeff, &src) in coeffs.iter().zip(srcs) {
-        mul_add::<F>(dst, coeff, src);
-    }
-}
-
-/// Apply every `(coeffs, src)` term to all `nrows` rows.
-pub fn mul_add_matrix<F: FieldBuffer>(
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    terms: &[(&[Elem<F>], &[u8])],
-) {
-    for &(coeffs, src) in terms {
-        for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-            mul_add::<F>(row, coeff, src);
-        }
-    }
-}
-
-/// `dst[i] = a[i] * b[i]`, elementwise.
-pub fn mul_elementwise<F: FieldBuffer>(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    debug_assert_eq!(dst.len(), a.len());
-    debug_assert_eq!(dst.len(), b.len());
-    for ((d, x), y) in dst
-        .chunks_exact_mut(F::BYTES)
-        .zip(a.chunks_exact(F::BYTES))
-        .zip(b.chunks_exact(F::BYTES))
-    {
-        F::encode(d, F::decode(x).mul(F::decode(y)));
     }
 }
 

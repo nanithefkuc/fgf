@@ -8,9 +8,19 @@
 //! [`crate::field::binary::tower`] recurrence.
 //!
 //! Hot scalar paths that beat the generic form live in the per-field dispatch
-//! modules rather than here.
+//! modules rather than here. The scaled-row loops are the shared generator in
+//! [`crate::kernel`]: this convention's unit shortcut is XOR, so a unit
+//! coefficient folds sources with the eight-byte [`xor`] and a zero
+//! coefficient leaves the destination untouched.
 
-use crate::field::{Elem, FieldBuffer, FieldElem};
+use crate::field::FieldElem;
+
+portable_scaled_rows!(
+    "`dst ^= coeff * src`, elementwise.",
+    "`dst *= coeff`, elementwise, in place.",
+    xor,
+    mul_elementwise_assign,
+);
 
 /// `dst ^= src`, eight bytes at a time.
 ///
@@ -38,99 +48,6 @@ pub fn xor(dst: &mut [u8], src: &[u8]) {
     }
 }
 
-/// `dst ^= coeff * src`, elementwise.
-pub fn mul_add<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
-    debug_assert_eq!(dst.len(), src.len());
-
-    if coeff.is_zero() {
-        return;
-    }
-    if coeff.is_one() {
-        xor(dst, src);
-        return;
-    }
-    for (d, s) in dst
-        .chunks_exact_mut(F::BYTES)
-        .zip(src.chunks_exact(F::BYTES))
-    {
-        let value = F::decode(d).add(F::decode(s).mul(coeff));
-        F::encode(d, value);
-    }
-}
-
-/// `dst *= coeff`, elementwise, in place.
-pub fn mul_assign<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>) {
-    if coeff.is_one() {
-        return;
-    }
-    if coeff.is_zero() {
-        dst.fill(0);
-        return;
-    }
-    for d in dst.chunks_exact_mut(F::BYTES) {
-        let value = F::decode(d).mul(coeff);
-        F::encode(d, value);
-    }
-}
-
-/// `rows[j] ^= coeffs[j] * src` for every row `j`.
-pub fn mul_add_scatter<F: FieldBuffer>(
-    rows: &mut [u8],
-    row_len: usize,
-    coeffs: &[Elem<F>],
-    src: &[u8],
-) {
-    for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-        mul_add::<F>(row, coeff, src);
-    }
-}
-
-/// Apply every `(coeffs, src)` term to all `nrows` rows.
-pub fn mul_add_matrix<F: FieldBuffer>(
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    terms: &[(&[Elem<F>], &[u8])],
-) {
-    for &(coeffs, src) in terms {
-        for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-            mul_add::<F>(row, coeff, src);
-        }
-    }
-}
-
-/// `dst ^= sum(coeffs[i] * srcs[i])`.
-pub fn mul_add_gather<F: FieldBuffer>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
-    for (&coeff, &src) in coeffs.iter().zip(srcs) {
-        mul_add::<F>(dst, coeff, src);
-    }
-}
-
-/// `dst[i] = a[i] * b[i]`, elementwise.
-pub fn mul_elementwise<F: FieldBuffer>(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    debug_assert_eq!(dst.len(), a.len());
-    debug_assert_eq!(dst.len(), b.len());
-
-    for ((d, x), y) in dst
-        .chunks_exact_mut(F::BYTES)
-        .zip(a.chunks_exact(F::BYTES))
-        .zip(b.chunks_exact(F::BYTES))
-    {
-        F::encode(d, F::decode(x).mul(F::decode(y)));
-    }
-}
-
-/// `dst[i] *= src[i]`, elementwise, in place.
-pub fn mul_elementwise_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
-    debug_assert_eq!(dst.len(), src.len());
-    for (d, s) in dst
-        .chunks_exact_mut(F::BYTES)
-        .zip(src.chunks_exact(F::BYTES))
-    {
-        F::encode(d, F::decode(d).mul(F::decode(s)));
-    }
-}
-
 /// [`super::bytes::xor_broadcast`]'s portable body: XOR the cyclic `value_bytes`
 /// pattern over the whole buffer, regardless of element boundaries.
 ///
@@ -144,7 +61,7 @@ pub fn mul_elementwise_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
 #[inline]
 pub(crate) fn xor_broadcast_bytes(dst: &mut [u8], value_bytes: &[u8]) {
     assert!(!value_bytes.is_empty(), "xor_broadcast_bytes: empty value");
-    for (d, &p) in dst.iter_mut().zip(value_bytes.iter().cycle()) {
-        *d ^= p;
+    for (d, v) in dst.iter_mut().zip(value_bytes.iter().cycle()) {
+        *d ^= v;
     }
 }

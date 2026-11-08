@@ -4,16 +4,7 @@
 //! AVX2 entry and the population-count remainder through a scalar count.
 
 use super::avx2::xor_avx2;
-
-/// Shortest XOR buffer the 64-byte kernel takes; shorter buffers stay on
-/// [`xor_avx2`], which covers them in one out-of-line call.
-pub(crate) const XOR_AVX512_MIN: usize = 256;
-
-/// Shortest XOR destination that peels its head to a 64-byte boundary.
-///
-/// The peel is one out-of-line AVX2 call, which short buffers do not repay.
-/// Set by the same sweep as [`XOR_AVX512_MIN`].
-pub(crate) const XOR_PEEL_MIN: usize = 512;
+use crate::kernel::routing::XOR_PEEL_MIN;
 
 /// `dst ^= src` using 64-byte AVX-512 lanes.
 ///

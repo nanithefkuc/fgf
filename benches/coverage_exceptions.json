@@ -346,19 +346,19 @@
       "item": "src/kernel/residue.rs::fn mul_add_prepared::cmp:P<=127:right",
       "key": "src/kernel/residue.rs::fn mul_add_prepared::cmp:P<=127:right",
       "class": "unreachable",
-      "reason": "the comparison is the second conjunct of `BYTES == 1 && P <= 127` inside the `Backend::V3` arm, which `single_row_backend` selects for one-byte rows only when `routes_vector` already holds `P <= 127`; for every one-byte row that reaches it the conjunct is true, and wider rows short-circuit on `BYTES == 1`"
+      "reason": "the comparison is the second conjunct of `BYTES == 1 && P <= 127` inside the AVX2 arm, which `single_row_backend` selects for one-byte rows only when `routes_vector` already holds `P <= 127`; for every one-byte row that reaches it the conjunct is true, and wider rows short-circuit on `BYTES == 1`"
     },
     {
       "item": "src/kernel/residue.rs::fn mul_assign_prepared::cmp:P<=127:right",
       "key": "src/kernel/residue.rs::fn mul_assign_prepared::cmp:P<=127:right",
       "class": "unreachable",
-      "reason": "the comparison is the second conjunct of `BYTES == 1 && P <= 127` inside the `Backend::V3` arm, which `single_row_backend` selects for one-byte rows only when `routes_vector` already holds `P <= 127`; for every one-byte row that reaches it the conjunct is true, and wider rows short-circuit on `BYTES == 1`"
+      "reason": "the comparison is the second conjunct of `BYTES == 1 && P <= 127` inside the AVX2 arm, which `single_row_backend` selects for one-byte rows only when `routes_vector` already holds `P <= 127`; for every one-byte row that reaches it the conjunct is true, and wider rows short-circuit on `BYTES == 1`"
     },
     {
       "item": "src/kernel/residue.rs::fn mul_into_prepared::cmp:P<=127:right",
       "key": "src/kernel/residue.rs::fn mul_into_prepared::cmp:P<=127:right",
       "class": "unreachable",
-      "reason": "the comparison is the second conjunct of `BYTES == 1 && P <= 127` inside the `Backend::V3` arm, which `single_row_backend` selects for one-byte rows only when `routes_vector` already holds `P <= 127`; for every one-byte row that reaches it the conjunct is true, and wider rows short-circuit on `BYTES == 1`"
+      "reason": "the comparison is the second conjunct of `BYTES == 1 && P <= 127` inside the AVX2 arm, which `single_row_backend` selects for one-byte rows only when `routes_vector` already holds `P <= 127`; for every one-byte row that reaches it the conjunct is true, and wider rows short-circuit on `BYTES == 1`"
     }
   ]
 }

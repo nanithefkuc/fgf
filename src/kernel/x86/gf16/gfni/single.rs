@@ -9,10 +9,9 @@
 
 use super::super::{broadcast_words, check_elements, swap_mask_avx2};
 
+use crate::kernel::routing::HALF_LANE_PEEL_MIN;
 use crate::kernel::tables::TowerCoeff;
-use crate::kernel::x86::{
-    HALF_LANE_PEEL_MIN, PREFETCH_AHEAD, nt_split, prefetch_dst, prefetch_tile, store_avx2,
-};
+use crate::kernel::x86::{PREFETCH_AHEAD, nt_split, prefetch_dst, prefetch_tile, store_avx2};
 
 use super::scale_gfni;
 

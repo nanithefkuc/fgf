@@ -48,7 +48,7 @@ fn gf16_wide_kernels_match_reference() {
 /// with even (peelable) and odd (unpeelable) heads.
 #[test]
 fn gf16_wide_mul_add_peels_misaligned_rows() {
-    let floor = x86::gf16::MUL_ADD_PEEL_MIN;
+    let floor = crate::kernel::routing::MUL_ADD_PEEL_MIN;
     tier_gate::run_entry(x86::gf16::mul_add_avx512, |token, entry| {
         for len in [floor - 2, floor, floor + 2, floor + 130, 4096 + 66] {
             for offset in [0usize, 1, 2, 16, 34, 62] {
@@ -75,7 +75,7 @@ fn gf16_wide_mul_add_peels_misaligned_rows() {
 /// wide overwrite body, beside the `mul_add` coverage above.
 #[test]
 fn gf16_wide_mul_into_peels_misaligned_rows() {
-    let floor = x86::gf16::MUL_ADD_PEEL_MIN;
+    let floor = crate::kernel::routing::MUL_ADD_PEEL_MIN;
     tier_gate::run_entry(x86::gf16::mul_into_avx512, |token, entry| {
         for len in [floor - 2, floor, floor + 2, floor + 130, 4096 + 66] {
             for offset in [0usize, 1, 2, 16, 34, 62] {

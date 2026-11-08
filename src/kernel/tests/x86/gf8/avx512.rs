@@ -243,7 +243,7 @@ fn gf8_avx512_kernels_match_reference() {
     // floor so the peel stays exercised if the floor moves. The exact
     // floor length with a single row leaves a one-byte final remainder,
     // pinning the covered-prefix boundary a restructure must honor.
-    let floor = x86::gf8::MATRIX_PEEL_MIN;
+    let floor = crate::kernel::routing::MATRIX_PEEL_MIN;
     for &offset in &[1usize, 16, 48] {
         for &row_len in &[floor - 64, floor, floor + 64] {
             for &nrows in &[1usize, 2, 4, 7] {
@@ -319,8 +319,8 @@ fn gf8_avx512_kernels_match_reference() {
     tier_gate::run_entry(x86::gf8::mul_add_scatter_avx512, |token, entry| {
         for &offset in &[1usize, 16, 48] {
             for len in [
-                x86::gf8::SCATTER_PEEL_MIN,
-                x86::gf8::SCATTER_PEEL_MIN + 16,
+                crate::kernel::routing::SCATTER_PEEL_MIN,
+                crate::kernel::routing::SCATTER_PEEL_MIN + 16,
                 1152,
                 1168,
                 1184,
@@ -352,9 +352,9 @@ fn gf8_avx512_kernels_match_reference() {
     tier_gate::run_entry(x86::gf8::mul_add_gather_avx512, |token, entry| {
         for &offset in &[1usize, 16, 48] {
             for len in [
-                x86::gf8::GATHER_PEEL_MIN - 1,
-                x86::gf8::GATHER_PEEL_MIN,
-                x86::gf8::GATHER_PEEL_MIN + 64,
+                crate::kernel::routing::GATHER_PEEL_MIN - 1,
+                crate::kernel::routing::GATHER_PEEL_MIN,
+                crate::kernel::routing::GATHER_PEEL_MIN + 64,
             ] {
                 for &nsrcs in &[1usize, 3, 16] {
                     let backings: Vec<Vec<u8>> = (0..nsrcs)
@@ -727,7 +727,7 @@ fn check_matrix_resolve_chunks<E: Copy>(
     entries: &[MatrixEntry<'_, E>],
 ) {
     let chunk = x86::gf8::RESOLVE_CHUNK;
-    let floor = x86::gf8::MATRIX_PEEL_MIN;
+    let floor = crate::kernel::routing::MATRIX_PEEL_MIN;
     let every: Vec<usize> = (1..=9).collect();
     let few: &[usize] = &[2, 7];
     // Sub-lane, one lane, tile plus lanes plus sub-lane tail, and the

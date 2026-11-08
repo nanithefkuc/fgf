@@ -9,7 +9,7 @@ use crate::kernel::tests::tier_gate;
 #[test]
 fn bytes_avx2_peels_half_lane() {
     tier_gate::run_entry(x86::bytes::xor_avx2, |token, entry| {
-        let floor = x86::HALF_LANE_PEEL_MIN;
+        let floor = crate::kernel::routing::HALF_LANE_PEEL_MIN;
         for len in [floor - 2, floor - 1, floor, floor + 1, floor + 130, 1152] {
             for offset in [0usize, 1, 2, 15, 16, 17, 31, 32, 47] {
                 let src_storage = noise(len + 64, 0x2c1);

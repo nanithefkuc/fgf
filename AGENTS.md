@@ -151,7 +151,7 @@ layers, and production dependencies point strictly downward:
 | Facades | `lib.rs`, `prime`, `binary`, `extension`, `maps`, `ops`, `ops::bits`, and `internals` behind its feature | the layers below, by re-export only |
 | `ops`, `ops::bits` implementations | validation and composition | field implementation, engine |
 | `maps` implementation | scalar embeddings and isomorphisms | field implementation |
-| Engine | detection proof, the one routing table holding every threshold, kernels per primitive and ISA, prepared forms | field implementation |
+| Engine | detection proof, the per-family kernel strategies resolved beside it, the routing module holding every routing threshold, kernels per primitive and ISA, prepared forms | field implementation |
 | Field implementation | type model, presentations, scalar arithmetic, descriptors, const validation | nothing in the crate |
 
 The field implementation declares the private dispatch contract, its proof

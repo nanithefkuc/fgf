@@ -1,7 +1,7 @@
 //! AVX2 byte kernels over 32-byte lanes.
 
+use crate::kernel::routing::HALF_LANE_PEEL_MIN;
 use crate::kernel::scalar;
-use crate::kernel::x86::HALF_LANE_PEEL_MIN;
 
 /// `dst ^= src` using 32-byte AVX2 lanes.
 ///

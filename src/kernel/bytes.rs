@@ -34,7 +34,7 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
     if offsets.is_empty() {
         return;
     }
-    if live <= XOR_INLINE_MAX {
+    if live <= routing::XOR_INLINE_MAX {
         for &start in offsets {
             scalar::xor(dst, &region[start as usize..start as usize + live]);
         }
@@ -73,12 +73,6 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
     }
 }
 
-/// Buffers at most this long skip the dispatched SIMD XOR for the inline
-/// portable one: below a single vector the out-of-line SIMD entry boundary
-/// costs more than the body saves, and short GF(2) rows (eight
-/// elements per byte) sit almost entirely under it.
-const XOR_INLINE_MAX: usize = 31;
-
 /// `dst ^= src` over raw bytes.
 ///
 /// Field-independent: addition in every binary field is XOR, and XOR of a
@@ -89,7 +83,7 @@ const XOR_INLINE_MAX: usize = 31;
 pub fn xor(dst: &mut [u8], src: &[u8]) {
     assert_eq!(dst.len(), src.len(), "fgf::xor: length mismatch");
 
-    if dst.len() <= XOR_INLINE_MAX {
+    if dst.len() <= routing::XOR_INLINE_MAX {
         scalar::xor(dst, src);
         return;
     }
@@ -98,7 +92,7 @@ pub fn xor(dst: &mut [u8], src: &[u8]) {
         // The length guard sits on the `V4x` arm alone, so every narrower
         // tier reaches its body without testing it.
         #[cfg(feature = "simd512")]
-        X86Proof::V4x(token) if dst.len() >= x86::bytes::XOR_AVX512_MIN => {
+        X86Proof::V4x(token) if dst.len() >= routing::XOR_AVX512_MIN => {
             x86::bytes::xor_avx512(token.v4(), dst, src);
         }
         #[cfg(feature = "simd512")]

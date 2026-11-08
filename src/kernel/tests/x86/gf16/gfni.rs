@@ -15,7 +15,7 @@ const GFNI_TAIL_LENGTHS: &[usize] = &[50, 62, 94, 126, 158, 190, 222, 254, 350, 
 /// covered beside the peeled 16-mod-32 ones.
 #[test]
 fn gf16_gfni_peels_half_lane() {
-    let floor = x86::HALF_LANE_PEEL_MIN;
+    let floor = crate::kernel::routing::HALF_LANE_PEEL_MIN;
     tier_gate::run_entry(x86::gf16::mul_add_gfni, |token, entry| {
         for len in [floor - 2, floor, floor + 2, floor + 130, 1152, 4096 + 66] {
             for offset in [0usize, 1, 2, 15, 16, 17, 31, 32, 47] {

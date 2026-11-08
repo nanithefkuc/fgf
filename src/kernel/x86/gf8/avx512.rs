@@ -19,17 +19,11 @@ mod scatter;
 mod single;
 
 pub use elementwise::{mul_elementwise_assign_avx512, mul_elementwise_avx512};
-#[cfg(test)]
-pub(crate) use gather::GATHER_PEEL_MIN;
 pub use gather::mul_add_gather_avx512;
-#[cfg(test)]
-pub(crate) use matrix::MATRIX_PEEL_MIN;
 pub use matrix::{
     mul_add_matrix_at_avx512_with, mul_add_matrix_avx512_with, mul_into_matrix_at_avx512_with,
     mul_into_matrix_avx512_with,
 };
-#[cfg(test)]
-pub(crate) use scatter::SCATTER_PEEL_MIN;
 pub use scatter::mul_add_scatter_avx512;
 pub use single::{mul_add_avx512, mul_assign_avx512, mul_into_avx512};
 

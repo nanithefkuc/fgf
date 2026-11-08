@@ -6,12 +6,7 @@
 
 use super::{bfactor_avx512, bmul_avx512, brem_avx512, brem_half_avx512};
 use crate::kernel::gf8::{Coeffs, Prepared};
-
-/// Shortest scatter row that peels its head to a 64-byte boundary.
-///
-/// Below this the scalar/AVX2 head costs more than the split-line loads it
-/// removes.
-pub(crate) const SCATTER_PEEL_MIN: usize = 512;
+use crate::kernel::routing::SCATTER_PEEL_MIN;
 
 // ---------------------------------------------------------------------------
 // Scatter: one source into many rows.

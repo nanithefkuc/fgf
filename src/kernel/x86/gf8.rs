@@ -40,9 +40,6 @@ pub use avx2::{
     multiply_vectors_avx2,
 };
 #[cfg(feature = "simd512")]
-#[cfg(test)]
-pub(crate) use avx512::{GATHER_PEEL_MIN, MATRIX_PEEL_MIN, SCATTER_PEEL_MIN};
-#[cfg(feature = "simd512")]
 pub use avx512::{
     mul_add_avx512, mul_add_gather_avx512, mul_add_matrix_at_avx512_with,
     mul_add_matrix_avx512_with, mul_add_scatter_avx512, mul_assign_avx512,

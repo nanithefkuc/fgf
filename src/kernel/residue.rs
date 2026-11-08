@@ -7,29 +7,28 @@
 //!
 //! - One-byte rows with `P <= 127` prepare the canonical coefficient and
 //!   build two nibble tables per call; `mul_into`, `mul_assign`, and
-//!   `mul_add` vectorize on `V4x`/`V3GfniCrypto`/`V3` through
-//!   [`single_row_backend`].
+//!   `mul_add` vectorize through the single-row selector in
+//!   [`crate::kernel::routing`].
 //! - Four-byte rows prepare the Shoup pair
 //!   `(c, floor(c * 2^32 / P))`; `mul_into`, `mul_add`, and `mul_assign`
-//!   vectorize on `V4x`/`V3GfniCrypto`/`V3` through [`single_row_backend`].
+//!   vectorize through the same selector.
 //! - Eight-byte rows with odd `P` prepare the Montgomery word
 //!   `c * 2^64 mod P`; fixed-coefficient operations route through Montgomery
-//!   REDC on `V4x`/`V3GfniCrypto`/`V3` through [`single_row_backend`].
+//!   REDC through the same selector.
 //! - Four-byte rows delay reduction across shared sources in prepared
-//!   four-output matrices at or above the delayed source count in
-//!   [`DELAYED_MIN_SOURCES`] and rows of at least 256 bytes on
-//!   `V4x`/`V3GfniCrypto`/`V3` at or above each disposition's depth floor
-//!   in [`DELAYED_INTO_MIN_DEPTH`] and [`DELAYED_ADD_MIN_DEPTH`]; every
-//!   other shape uses the repeated single-row path.
+//!   four-output matrices at or above the delayed source count and row
+//!   floor in [`crate::kernel::routing`], at or above each disposition's
+//!   depth floor; every other shape uses the repeated single-row path.
 //! - Four-byte rows vectorize `mul_elementwise` and
-//!   `mul_elementwise_assign` through the narrow Barrett form on
-//!   `V4x`/`V3GfniCrypto`/`V3`, selected by [`single_row_backend`].
+//!   `mul_elementwise_assign` through the narrow Barrett form, selected by
+//!   the same selector.
 //!
 //! the backend query reports the highest implemented vector tier for
-//! rows whose prepared fixed-coefficient operations vectorize: `V4x` with
-//! `simd512` on capable hosts, otherwise `V3` on AVX2-capable hosts. Other
-//! widths report [`Backend::Scalar`]. Short rows use the measured AVX2 or
-//! portable paths; routing evidence is the 3.0.2 record at
+//! rows whose prepared fixed-coefficient operations vectorize: the AVX-512
+//! class with `simd512` on capable hosts, otherwise the AVX2 class on
+//! AVX2-capable hosts. Other widths report [`Backend::Scalar`]. Short rows
+//! use the measured AVX2 or portable paths; routing evidence is the 3.0.2
+//! record at
 //! <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
 //! Preparation computes one `u64` value with `u128` arithmetic, allocates
 //! nothing, and needs no `alloc`; every packed application runs
@@ -50,17 +49,23 @@
 //! convention; a residue row's lanes hold canonical residues at the
 //! presentation's byte width, and XOR broadcast over them would leave
 //! noncanonical lane words behind at `P = 2`.
-
+//!
+//! Every dispatch arm matches a selector from [`crate::kernel::routing`],
+//! which folds the call's geometry into the cached residue strategy; no
+//! arm reads the process backend.
 use crate::field::Elem;
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::field::FieldBuffer;
 use crate::field::dispatch::{KernelDispatch, RawDispatch};
 use crate::field::finite_field::{FiniteField, Residue};
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-use crate::kernel::backend;
+use crate::kernel::ResidueStrategy;
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+use crate::kernel::routing;
+use crate::kernel::{Backend, prime, scalar};
+
 #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 use crate::kernel::x86::residue::avx512;
-use crate::kernel::{Backend, prime, scalar};
 
 /// The backend-ready form of one residue coefficient: exactly one `u64`
 /// word, so `Coeff<F>` costs what `Elem<F>` costs.
@@ -160,8 +165,8 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
         {
             // Reports the implemented tier for nibble-table u8 rows,
             // every u32 row, and u64 rows at odd moduli.
-            if routes_vector(<Self as FieldBuffer>::BYTES, P) {
-                vector_tier()
+            if routing::routes_vector(<Self as crate::field::FieldBuffer>::BYTES, P) {
+                crate::kernel::residue_strategy().report()
             } else {
                 Backend::Scalar
             }
@@ -247,10 +252,15 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
         let _ = values;
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
-            let selected =
-                delayed_matrix_backend(nrows, delay_depth::<P>(), row_len, srcs.len(), true);
+            let selected = routing::delayed_matrix_backend(
+                nrows,
+                routing::delay_depth::<P>(),
+                row_len,
+                srcs.len(),
+                true,
+            );
             if Self::BYTES == 4
-                && selected != Backend::Scalar
+                && selected != ResidueStrategy::Scalar
                 && delayed_add_matches_composition::<P>(nrows, values)
             {
                 let terms = crate::kernel::FlatMatrix {
@@ -260,7 +270,7 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
                 };
                 match selected {
                     #[cfg(feature = "simd512")]
-                    Backend::V4x => {
+                    ResidueStrategy::Avx512 => {
                         avx512::matrix::mul_add_with::<P>(rows, row_len, nrows, &terms);
                     }
                     _ => crate::kernel::x86::residue::mul_add_matrix_u32_avx2_with(
@@ -293,9 +303,14 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
     ) {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
-            let selected =
-                delayed_matrix_backend(nrows, delay_depth::<P>(), row_len, srcs.len(), false);
-            if Self::BYTES == 4 && selected != Backend::Scalar {
+            let selected = routing::delayed_matrix_backend(
+                nrows,
+                routing::delay_depth::<P>(),
+                row_len,
+                srcs.len(),
+                false,
+            );
+            if Self::BYTES == 4 && selected != ResidueStrategy::Scalar {
                 let terms = crate::kernel::FlatMatrix {
                     coefficients: coeffs,
                     nrows,
@@ -303,7 +318,7 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
                 };
                 match selected {
                     #[cfg(feature = "simd512")]
-                    Backend::V4x => {
+                    ResidueStrategy::Avx512 => {
                         avx512::matrix::mul_into_with::<P>(rows, row_len, nrows, &terms);
                     }
                     _ => crate::kernel::x86::residue::mul_into_matrix_u32_avx2_with(
@@ -326,10 +341,11 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
 
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        match single_row_backend(Self::BYTES, P, dst.len(), VectorOp::Elementwise) {
+        match routing::single_row_backend(Self::BYTES, P, dst.len(), routing::VectorOp::Elementwise)
+        {
             #[cfg(feature = "simd512")]
-            Backend::V4x => return avx512::single::mul_elementwise::<P>(dst, a, b),
-            Backend::V3 => {
+            ResidueStrategy::Avx512 => return avx512::single::mul_elementwise::<P>(dst, a, b),
+            ResidueStrategy::Avx2 => {
                 crate::kernel::x86::residue::mul_elementwise_u32_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,
@@ -346,10 +362,17 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
 
     fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        match single_row_backend(Self::BYTES, P, dst.len(), VectorOp::ElementwiseAssign) {
+        match routing::single_row_backend(
+            Self::BYTES,
+            P,
+            dst.len(),
+            routing::VectorOp::ElementwiseAssign,
+        ) {
             #[cfg(feature = "simd512")]
-            Backend::V4x => return avx512::single::mul_elementwise_assign::<P>(dst, src),
-            Backend::V3 => {
+            ResidueStrategy::Avx512 => {
+                return avx512::single::mul_elementwise_assign::<P>(dst, src);
+            }
+            ResidueStrategy::Avx2 => {
                 crate::kernel::x86::residue::mul_elementwise_assign_u32_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,
@@ -373,154 +396,6 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
     fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
         prime::sub_assign_scalar::<Self>(dst, Self::prepared_coeff(RawDispatch, value));
     }
-}
-
-/// Whether this row's prepared fixed-coefficient path can vectorize:
-/// byte rows at `P <= 127`, any four-byte row, eight-byte odd rows.
-/// This predicate only names the classes the kernels cover. The routing
-/// evidence is the 3.0.2 record at
-/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
-/// The benchmark routing report calls this instead of copying the class list.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[must_use]
-pub const fn routes_vector(bytes: usize, p: u64) -> bool {
-    (bytes == 1 && p <= 127) || bytes == 4 || (bytes == 8 && p % 2 == 1)
-}
-
-/// Shortest AVX2 overwrite row, in lanes, for this width class.
-/// The paired measurement is the 3.0.2 record at <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[must_use]
-#[allow(clippy::match_same_arms)]
-pub const fn vector_floor_into_lanes(bytes: usize) -> usize {
-    match bytes {
-        1 => 64,
-        8 => 8,
-        _ => 8,
-    }
-}
-/// Shortest AVX2 in-place-scale row, in lanes, for this width class.
-/// The paired measurement is the 3.0.2 record at <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[must_use]
-pub const fn vector_floor_assign_lanes(bytes: usize) -> usize {
-    match bytes {
-        1 => 64,
-        8 => 16,
-        _ => 8,
-    }
-}
-/// Shortest AVX2 accumulation row, in lanes, for this width class.
-/// The paired measurement is the 3.0.2 record at <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[must_use]
-#[allow(clippy::match_same_arms)]
-pub const fn vector_floor_add_lanes(bytes: usize) -> usize {
-    match bytes {
-        1 => 8,
-        8 => 32,
-        _ => 8,
-    }
-}
-/// The single-row and elementwise operation the routing floor selects.
-/// `Assign` is the in-place scale; `Elementwise` and `ElementwiseAssign`
-/// are the raw-word element products. Dispatch matches on this instead of
-/// threading positional flags through every selector call.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum VectorOp {
-    /// Overwrite: `mul_into`.
-    Into,
-    /// Accumulation: `mul_add`.
-    Add,
-    /// In-place scale: `mul_assign`.
-    Assign,
-    /// Raw-word product: `mul_elementwise`.
-    Elementwise,
-    /// In-place raw-word product: `mul_elementwise_assign`.
-    ElementwiseAssign,
-}
-/// Shortest AVX2 elementwise row, in lanes, for this operation.
-/// The paired measurement is the 3.0.2 record at <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[must_use]
-pub const fn vector_floor_elementwise_lanes(op: VectorOp) -> usize {
-    match op {
-        VectorOp::Elementwise => 16,
-        VectorOp::ElementwiseAssign => 8,
-        VectorOp::Into | VectorOp::Add | VectorOp::Assign => {
-            panic!("elementwise lanes have no single-row operation")
-        }
-    }
-}
-/// Shortest AVX2 row, in bytes, for this width class and operation.
-/// The paired measurement is the 3.0.2 record at <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[must_use]
-pub const fn avx2_floor_op_len(bytes: usize, op: VectorOp) -> usize {
-    let lanes = match op {
-        VectorOp::Add => vector_floor_add_lanes(bytes),
-        VectorOp::Assign => vector_floor_assign_lanes(bytes),
-        VectorOp::Into => vector_floor_into_lanes(bytes),
-        VectorOp::Elementwise | VectorOp::ElementwiseAssign => vector_floor_elementwise_lanes(op),
-    };
-    lanes * bytes
-}
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-fn vector_tier() -> Backend {
-    match backend() {
-        #[cfg(feature = "simd512")]
-        Backend::V4x => Backend::V4x,
-        Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
-        _ => Backend::Scalar,
-    }
-}
-/// Select the actual single-row kernel tier for this geometry and operation.
-///
-/// AVX-512 requires `simd512` and a capable process backend. Shorter rows
-/// retain their AVX2 or portable route. Elementwise vectors require u32
-/// lanes. Coefficient zero/unit shortcuts apply before this selector.
-/// Routing evidence is the 3.0.2 record at <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[must_use]
-#[inline]
-pub fn single_row_backend(bytes: usize, p: u64, len: usize, op: VectorOp) -> Backend {
-    if !routes_vector(bytes, p)
-        || (matches!(op, VectorOp::Elementwise | VectorOp::ElementwiseAssign) && bytes != 4)
-    {
-        return Backend::Scalar;
-    }
-    let tier = vector_tier();
-    if tier == Backend::Scalar {
-        return Backend::Scalar;
-    }
-    #[cfg(feature = "simd512")]
-    {
-        let floor = match (bytes, op) {
-            (4, VectorOp::Assign) => 1024,
-            (8, VectorOp::Assign) => 256,
-            _ => 64,
-        };
-        if tier == Backend::V4x && len >= floor {
-            return Backend::V4x;
-        }
-    }
-    if len >= avx2_floor_op_len(bytes, op) {
-        Backend::V3
-    } else {
-        Backend::Scalar
-    }
-}
-
-/// Sources per delayed group: `K = floor(2^32 / P)`, the largest count
-/// whose 64-bit products stay below `2^32 * P`. Four-byte rows hold
-/// `P < 2^32`, so the quotient fits the delay depth. The benchmark
-/// routing report calls this instead of recomputing the depth.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[allow(clippy::cast_possible_truncation)]
-#[must_use]
-pub const fn delay_depth<const P: u64>() -> u64 {
-    ((1u128 << 32) / P as u128) as u64
 }
 
 /// Whether delayed accumulation reproduces the repeated single-row
@@ -552,69 +427,6 @@ fn delayed_add_matches_composition<const P: u64>(
     (0..nrows).all(|j| (0..nterms).any(|t| !values[t * nrows + j].is_zero()))
 }
 
-/// Whether the delayed tile covers this call: exactly four outputs, rows
-/// of at least 256 bytes, a depth at or above the disposition's floor in
-/// [`DELAYED_INTO_MIN_DEPTH`] or [`DELAYED_ADD_MIN_DEPTH`], and at least
-/// [`DELAYED_MIN_SOURCES`] sources, with the accumulation composition
-/// check at the call site. Shallower depths, fewer sources, and every
-/// other shape stay on the repeated single-row path. The routing evidence
-/// is the 3.0.2 record at
-/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
-/// The benchmark routing report calls this instead of copying the floors.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[must_use]
-pub const fn routes_delayed(
-    nrows: usize,
-    k: u64,
-    row_len: usize,
-    nterms: usize,
-    add: bool,
-) -> bool {
-    let floor = if add {
-        DELAYED_ADD_MIN_DEPTH
-    } else {
-        DELAYED_INTO_MIN_DEPTH
-    };
-    nrows == 4 && k >= floor && row_len >= 256 && nterms >= DELAYED_MIN_SOURCES
-}
-
-/// Fewest sources routed into the delayed tile, set by the paired
-/// measurement in the 3.0.2 record at
-/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-pub const DELAYED_MIN_SOURCES: usize = 8;
-
-/// Smallest delay depth routed for overwrite, set by the paired measurement
-/// in the 3.0.2 record at
-/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-pub const DELAYED_INTO_MIN_DEPTH: u64 = 4;
-
-/// Smallest delay depth routed for accumulation, set by the same record.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-pub const DELAYED_ADD_MIN_DEPTH: u64 = 4;
-
-/// Select the delayed-matrix kernel tier for this geometry and disposition.
-///
-/// `Scalar` selects the repeated single-row composition instead of a delayed
-/// tile. Accumulation additionally checks byte-preserving zero coefficients
-/// at the call site. The benchmark report uses this same selector.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[must_use]
-pub fn delayed_matrix_backend(
-    nrows: usize,
-    k: u64,
-    row_len: usize,
-    nterms: usize,
-    add: bool,
-) -> Backend {
-    if routes_delayed(nrows, k, row_len, nterms, add) {
-        vector_tier()
-    } else {
-        Backend::Scalar
-    }
-}
-
 /// Route one prepared fixed-coefficient overwrite through the vector path
 /// when this row and host qualify, else the portable path.
 #[allow(clippy::cast_possible_truncation, clippy::needless_return)]
@@ -630,15 +442,15 @@ fn mul_into_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: 
         return;
     }
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    match single_row_backend(
+    match routing::single_row_backend(
         <Row<P> as crate::field::FieldBuffer>::BYTES,
         P,
         dst.len(),
-        VectorOp::Into,
+        routing::VectorOp::Into,
     ) {
         #[cfg(feature = "simd512")]
-        Backend::V4x => return avx512::single::mul_into_with::<P>(dst, coeff, src),
-        Backend::V3 => {
+        ResidueStrategy::Avx512 => return avx512::single::mul_into_with::<P>(dst, coeff, src),
+        ResidueStrategy::Avx2 => {
             let token = crate::kernel::x86_v3_token();
             if <Row<P> as crate::field::FieldBuffer>::BYTES == 1 && P <= 127 {
                 crate::kernel::x86::residue::mul_into_u8_avx2(
@@ -684,15 +496,15 @@ fn mul_add_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: &
         return;
     }
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    match single_row_backend(
+    match routing::single_row_backend(
         <Row<P> as crate::field::FieldBuffer>::BYTES,
         P,
         dst.len(),
-        VectorOp::Add,
+        routing::VectorOp::Add,
     ) {
         #[cfg(feature = "simd512")]
-        Backend::V4x => return avx512::single::mul_add_with::<P>(dst, coeff, src),
-        Backend::V3 => {
+        ResidueStrategy::Avx512 => return avx512::single::mul_add_with::<P>(dst, coeff, src),
+        ResidueStrategy::Avx2 => {
             let token = crate::kernel::x86_v3_token();
             if <Row<P> as crate::field::FieldBuffer>::BYTES == 1 && P <= 127 {
                 crate::kernel::x86::residue::mul_add_u8_avx2(
@@ -738,15 +550,15 @@ fn mul_assign_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue) {
         return;
     }
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    match single_row_backend(
+    match routing::single_row_backend(
         <Row<P> as crate::field::FieldBuffer>::BYTES,
         P,
         dst.len(),
-        VectorOp::Assign,
+        routing::VectorOp::Assign,
     ) {
         #[cfg(feature = "simd512")]
-        Backend::V4x => return avx512::single::mul_assign_with::<P>(dst, coeff),
-        Backend::V3 => {
+        ResidueStrategy::Avx512 => return avx512::single::mul_assign_with::<P>(dst, coeff),
+        ResidueStrategy::Avx2 => {
             let token = crate::kernel::x86_v3_token();
             if <Row<P> as crate::field::FieldBuffer>::BYTES == 1 && P <= 127 {
                 crate::kernel::x86::residue::mul_assign_u8_avx2(

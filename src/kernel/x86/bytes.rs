@@ -14,9 +14,5 @@ mod sse2;
 
 pub use avx2::{xor_avx2, xor_broadcast_avx2, xor_gather_avx2};
 #[cfg(feature = "simd512")]
-pub(crate) use avx512::XOR_AVX512_MIN;
-#[cfg(all(test, feature = "simd512"))]
-pub(crate) use avx512::XOR_PEEL_MIN;
-#[cfg(feature = "simd512")]
 pub use avx512::{count_ones_avx512, xor_avx512};
 pub use sse2::{xor_broadcast_sse2, xor_sse2};

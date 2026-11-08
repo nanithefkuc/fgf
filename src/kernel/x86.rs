@@ -39,16 +39,7 @@ pub(crate) use bytes::{xor_avx2, xor_gather_avx2, xor_sse2};
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-///
-/// `mul_into` writes a destination it never reads, so an ordinary store pays
-/// a read-for-ownership fetch of every line it is about to overwrite
-/// completely. `vmovntdq` skips that fetch and the allocation, at the price
-/// of evicting the destination from cache.
-///
-/// Non-temporal stores evict the written destination from cache, so a
-/// subsequent read pays to fetch it again. `mul_add` and `mul_assign` read
-/// their destination and keep ordinary stores.
-pub(super) const NT_STORE_MIN: usize = 2 << 20;
+use super::routing::{ALIGN_PEEL_MIN, NT_STORE_MIN};
 
 /// Smallest destination a fused overwrite prefetches for.
 ///
@@ -102,13 +93,6 @@ pub(crate) fn wants_nt_store(len: usize) -> bool {
     len >= NT_STORE_MIN
 }
 
-/// Shortest 32-byte-lane destination that peels a 16-byte half-lane head.
-///
-/// A 256-bit store starting 16 bytes into a cache line splits it, and a
-/// body of split stores increases line traffic; one narrow head puts every
-/// remaining lane on a boundary.
-pub(super) const HALF_LANE_PEEL_MIN: usize = 512;
-
 /// Head bytes to store normally so that a non-temporal body starts on a
 /// 32-byte boundary, or `None` when this destination should stay temporal.
 ///
@@ -143,16 +127,11 @@ pub(super) fn nt_split(dst: &[u8], elem_bytes: usize) -> Option<usize> {
 /// skipped.
 #[inline]
 pub(super) fn peel_to_align(ptr: *const u8, len: usize, elem_bytes: usize) -> usize {
-    // The peel runs the narrow single-row kernels, which descend to 128-bit
-    // lanes and then scalar code. Keep the conservative crossover measured for
-    // the former all-scalar GF(2^8) peel: it won from about 2 KiB up and lost
-    // badly below 1 KiB. Sixteen turns of the 128-byte body remains the floor.
-    const FLOOR: usize = 16 * 128;
     let head = ptr.align_offset(32);
     // `align_offset` reports `usize::MAX` only for an unreachable alignment,
     // which cannot happen for a byte pointer; `head >= len` also covers the
     // degenerate case of a peel longer than the row.
-    if len < FLOOR || head >= len || !head.is_multiple_of(elem_bytes) {
+    if len < ALIGN_PEEL_MIN || head >= len || !head.is_multiple_of(elem_bytes) {
         0
     } else {
         head
