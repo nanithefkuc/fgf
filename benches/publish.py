@@ -42,8 +42,10 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import bench_baseline
+import bench_pair
 
-METHOD_VERSION = "fgf-pair/3"
+METHOD_VERSION = "fgf-pair/4"
+SUPPORTED_METHODS = ("fgf-pair/3", METHOD_VERSION)
 DRIFT_METHOD = "p90_minus_p10_over_median"
 SOURCE_DECIMALS = 9
 KINDS = ("acceptance", "calibration", "threshold", "descriptive")
@@ -411,9 +413,20 @@ def _check_decisions(decisions: dict, where: str, *,
                      allow_layout_exception: bool = False,
                      session: dict | None = None) -> None:
     failed = _failed_cells_by_tier(decisions)
+    confirmed = (
+        session is not None
+        and session.get("method_version") == METHOD_VERSION
+        and bool(failed)
+        and all(
+            cells and set(cells) == set(
+                (session.get("confirmed_failures") or {}).get(tier, [])
+            )
+            for tier, cells in failed.items()
+        )
+    )
     if failed:
-        if allow_layout_exception and session is not None \
-                and _layout_exception_covered(session):
+        if confirmed or (allow_layout_exception and session is not None
+                         and _layout_exception_covered(session)):
             pass
         else:
             tiers = ", ".join(sorted(failed))
@@ -423,6 +436,13 @@ def _check_decisions(decisions: dict, where: str, *,
         if (isinstance(superiority, dict)
                 and superiority.get("declared") is True
                 and superiority.get("passed") is not True):
+            tier_records = superiority.get("per_tier", {label: superiority})
+            if confirmed and all(
+                not item.get("declared")
+                or (item.get("targets") and not item.get("failed_targets"))
+                for item in tier_records.values()
+            ):
+                continue
             fail(f"{where}.{label} superiority did not pass")
 
 
@@ -435,8 +455,8 @@ def validate_session(session: dict, where: str) -> None:
         return
     _require_mapping(session, where)
     _require_keys(session, SESSION_KEYS, where)
-    if session["method_version"] != METHOD_VERSION:
-        fail(f"{where}.method_version must be {METHOD_VERSION}")
+    if session["method_version"] not in SUPPORTED_METHODS:
+        fail(f"{where}.method_version must be one of {', '.join(SUPPORTED_METHODS)}")
     if session["drift_method"] != DRIFT_METHOD:
         fail(f"{where}.drift_method must be {DRIFT_METHOD}")
     _require_string(session["session_id"], f"{where}.session_id")
@@ -508,6 +528,9 @@ def validate_session(session: dict, where: str) -> None:
     for index, run in enumerate(runs):
         item = _require_mapping(run, f"{where}.runs[{index}]")
         _require_keys(item, RUN_KEYS, f"{where}.runs[{index}]")
+        if session["method_version"] == METHOD_VERSION:
+            if item.get("stage") not in ("main", "confirmation"):
+                fail(f"{where}.runs[{index}].stage is invalid")
 
     summaries = _require_mapping(session["arm_summaries"], f"{where}.arm_summaries")
     _require_keys(summaries, ("base", "candidate"), f"{where}.arm_summaries")
@@ -610,6 +633,30 @@ def validate_session(session: dict, where: str) -> None:
                     excluded = superiority.get("excluded_unstable")
                     if excluded is not None:
                         _require_mapping(excluded, f"{where}.decisions.{tier}.superiority.excluded_unstable")
+    if session["method_version"] == METHOD_VERSION:
+        if config.get("confirmation") is not (kind != "calibration"):
+            fail(f"{where}.config.confirmation disagrees with kind")
+        if kind != "calibration":
+            targets = (
+                (session.get("threshold") or {}).get("target_set")
+                if kind == "threshold" else
+                (config.get("targets_declaration") or {}).get("cells")
+            )
+            try:
+                recomputed = {
+                    tier["requested"]: bench_pair.recorded_staged_decision(
+                        session, tier["requested"], targets
+                    )
+                    for tier in tiers
+                }
+            except (ValueError, KeyError, TypeError) as error:
+                fail(f"{where}: {error}")
+            if decisions != bench_pair.publishable_decisions(recomputed):
+                fail(f"{where}.decisions disagree with staged runs")
+            if session.get("confirmed_failures") != {
+                tier: record["confirmed_failures"] for tier, record in recomputed.items()
+            }:
+                fail(f"{where}.confirmed_failures disagree with staged runs")
     _check_decisions(decisions, f"{where}.decisions",
                      allow_layout_exception=True, session=session)
     rejections = session["rejections"]
@@ -1189,6 +1236,20 @@ def _digits_for(rows: list[PublishedRow]) -> int | None:
     return table_digits(values) if values else None
 
 
+def _measurement_record(row: PublishedRow) -> str:
+    session = row.session.data
+    if session.get("method_version") == METHOD_VERSION:
+        decision = ((session.get("decisions") or {}).get("per_tier") or {}).get(row.tier, {})
+        noninferiority = decision.get("noninferiority") or {}
+        if row.cell in noninferiority.get("confirmed_failures", []):
+            return "confirmed_regression"
+        if row.cell in noninferiority.get("unconfirmed_failures", []):
+            return "unconfirmed_main_failure"
+    if row.arm == "layout_control":
+        return "layout_control"
+    return "descriptive" if session["kind"] == "descriptive" else "accepted"
+
+
 def _measurement_table(rows: list[PublishedRow], host_index: HostIndex,
                        *, current: bool) -> str:
     digits = _digits_for(rows)
@@ -1211,9 +1272,7 @@ def _measurement_table(rows: list[PublishedRow], host_index: HostIndex,
         scope_label = scope["kind"]
         if scope_label == "selected":
             scope_label += f" {len(scope['cells'])}"
-        record = "descriptive" if session["kind"] == "descriptive" else "accepted"
-        if row.arm == "layout_control":
-            record = "layout_control"
+        record = _measurement_record(row)
         minimum = row.data.get("min_ns")
         maximum = row.data.get("max_ns")
         lines.append([host, row.tier, f"`{row.cell}`", row.arm, record, scope_label,
@@ -1421,11 +1480,13 @@ def render_thresholds(hosts: list[HostSpec], sessions: list[PublishedSession],
                       tiers: list[str]) -> str:
     ordered = _ordered_rows(rows, host_index, tiers, history=True)
     digits = _digits_for(ordered)
+    staged = any(row.session.data["method_version"] == METHOD_VERSION for row in ordered)
     measurements = []
     for row in ordered:
         value = "-" if digits is None else fmt_value(row.summary_ns, digits)
         measurements.append([
             host_index.name(row.host), row.tier, f"`{row.cell}`", row.arm,
+            *([_measurement_record(row)] if staged else []),
             f"`{row.data['library_sha']}`",
             f"`{row.session.data['session_id']}`",
             "yes" if row.data["unstable"] else "-", value,
@@ -1436,8 +1497,8 @@ def render_thresholds(hosts: list[HostSpec], sessions: list[PublishedSession],
         "## Measurements",
         "",
         render_markdown_table(
-            ["Host", "Tier", "Cell", "Arm", "Library SHA", "Session",
-             "Unstable", "ns/call"],
+            ["Host", "Tier", "Cell", "Arm", *(["Record"] if staged else []),
+             "Library SHA", "Session", "Unstable", "ns/call"],
             measurements),
     ]
     by_unit: dict[str, list[PublishedSession]] = {}

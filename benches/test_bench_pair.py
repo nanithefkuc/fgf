@@ -1056,7 +1056,6 @@ class ReanalysisTests(unittest.TestCase):
             self.assertIn("upper_bound", record)
 
     def test_calibration_reanalysis_reports_recommendation(self):
-        self.assertEqual(pair.METHOD_VERSION, "fgf-pair/3")
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "session.json"
             source.write_text(
@@ -2136,6 +2135,8 @@ class MockedSessionTests(unittest.TestCase):
         self.hostname = __import__("socket").gethostname()
         self.factor = 0.99
         self.slow_only_first = False
+        self.timing_factor = None
+        self.control_start = None
         self.unstable_file = self.root / "unstable_cells.json"
         self.calibrated = self.root / "calibrated_inventories"
         digest = pair.inventory_digest(
@@ -2244,11 +2245,17 @@ class MockedSessionTests(unittest.TestCase):
                 "layout_control" if "layout_control" in label else "candidate"
             )
             start = 100.0 + run * 0.1 + (0.02 if arm != "base" else 0.0)
+            if self.control_start is not None:
+                start = self.control_start(run, arm, label.rsplit("-", 1)[-1])
             lines = [f"BACKEND\t{tier}", f"CONTROL\tstart\t{start}"]
             for index, cell in enumerate(selected):
                 factor = self.factor if arm == "candidate" else 1.0
                 if self.slow_only_first and not (arm == "candidate" and index == 0):
                     factor = 1.0
+                if self.timing_factor is not None:
+                    factor = self.timing_factor(
+                        arm, cell["id"], run, label.rsplit("-", 1)[-1]
+                    )
                 for round_index in range(rounds):
                     value = (1000.0 + round_index) * factor
                     lines.append(
@@ -2343,6 +2350,153 @@ class MockedSessionTests(unittest.TestCase):
         check = session["checks"]["v4x"]
         self.assertIn("environment_digest", check)
         self.assertEqual(len(set(check["argv_lengths"].values())), 1)
+
+    def reanalyze(self, session):
+        source = self.root / "source.json"
+        pair.write_session(session, source)
+        expected = 0 if pair.decisions_pass(session["decisions"], None) else 1
+        self.assertEqual(pair.reanalyze_session(source, self.args()), expected)
+        output = next(self.root.glob("source.reanalysis-*.json"))
+        return json.loads(output.read_text(encoding="utf-8"))
+
+    def test_main_outlier_passes_only_after_separate_confirmation(self):
+        first = self.cells[0]["id"]
+        outliers = [-0.16, 0.0, 0.0, 0.0, 0.16]
+        self.timing_factor = lambda arm, name, run, stage: (
+            math.exp(outliers[run])
+            if arm == "candidate" and name == first and stage == "main" else 1.0
+        )
+        self.assertEqual(pair.run(self.args()), 0)
+        session = self.session()
+        decision = session["decisions"]["per_tier"]["v4x"]["noninferiority"]
+        record = decision["per_cell"][first]
+        self.assertAlmostEqual(record["main"]["estimate"], 0.0)
+        self.assertFalse(record["main"]["pass"])
+        self.assertTrue(record["confirmation"]["pass"])
+        self.assertEqual(record["confirmation"]["upper_bound"], 0.0)
+        self.assertTrue(decision["passed"])
+        self.assertEqual(decision["unconfirmed_failures"], [first])
+        self.assertEqual(session["confirmed_failures"]["v4x"], [])
+        confirmation = [run for run in session["runs"] if run["stage"] == "confirmation"]
+        self.assertEqual(len(confirmation), session["config"]["runs"])
+        for index, run in enumerate(confirmation):
+            self.assertEqual(run["order"], pair.balanced_order(index))
+            self.assertEqual(run["precondition"]["phase"], "confirmation")
+            for arm in ("base", "candidate"):
+                self.assertEqual(set(run["arms"][arm]["cells"]), {first})
+        self.assertEqual(
+            self.reanalyze(session)["decisions"], session["decisions"]
+        )
+
+    def test_shift_fails_both_stages_without_rejecting_session(self):
+        import publish
+
+        first = self.cells[0]["id"]
+        self.timing_factor = lambda arm, name, run, stage: (
+            1.08 if arm == "candidate" and name == first else 1.0
+        )
+        self.assertEqual(pair.run(self.args()), 1)
+        session = self.session()
+        self.assertFalse(session["rejected"])
+        self.assertEqual(session["rejections"], [])
+        self.assertEqual(session["confirmed_failures"]["v4x"], [first])
+        record = session["decisions"]["per_tier"]["v4x"]["noninferiority"]["per_cell"][first]
+        self.assertFalse(record["main"]["pass"])
+        self.assertFalse(record["confirmation"]["pass"])
+        self.assertAlmostEqual(record["confirmation"]["estimate"], math.log(1.08))
+        analysis = self.reanalyze(session)
+        self.assertEqual(analysis["decisions"], session["decisions"])
+        self.assertEqual(analysis["confirmed_failures"], session["confirmed_failures"])
+        publish.validate_session(session, "confirmed shift")
+
+    def test_confirmation_is_not_pooled_and_preserves_inventory_order(self):
+        import publish
+
+        ids = [entry["id"] for entry in self.cells]
+        self.timing_factor = lambda arm, name, run, stage: (
+            1.0 if arm == "base" else
+            1.02 if stage == "confirmation" and name == ids[0] else 1.08
+        )
+        self.assertEqual(pair.run(self.args()), 1)
+        session = self.session()
+        self.assertEqual(session["confirmed_failures"]["v4x"], ids[1:])
+        record = session["decisions"]["per_tier"]["v4x"]["noninferiority"]["per_cell"][ids[0]]
+        self.assertTrue(record["confirmation"]["pass"])
+        self.assertAlmostEqual(record["upper_bound"], math.log(1.02))
+        self.assertEqual(self.reanalyze(session)["decisions"], session["decisions"])
+        publish.validate_session(session, "mixed confirmed outcomes")
+
+    def test_superiority_uses_confirmed_non_target_outcome(self):
+        target, other = [entry["id"] for entry in self.cells[:2]]
+        targets = self.root / "targets.txt"
+        targets.write_text(target + "\n", encoding="utf-8")
+        for confirmation_factor, expected in ((1.08, 1), (1.0, 0)):
+            with self.subTest(confirmation_factor=confirmation_factor):
+                self.timing_factor = lambda arm, name, run, stage: (
+                    1.0 if arm == "base" else
+                    0.95 if name == target else
+                    (1.08 if stage == "main" else confirmation_factor)
+                    if name == other else 1.0
+                )
+                self.assertEqual(pair.run(self.args("--targets", str(targets))), expected)
+                session = self.session()
+                superiority = session["decisions"]["per_tier"]["v4x"]["superiority"]
+                self.assertTrue(superiority["per_target"][target]["pass"])
+                self.assertEqual(superiority["others_noninferior"], expected == 0)
+                self.assertEqual(superiority["passed"], expected == 0)
+                self.assertEqual(self.reanalyze(session)["decisions"], session["decisions"])
+                shutil.rmtree(self.records)
+                for path in self.root.glob("source.reanalysis-*.json"):
+                    path.unlink()
+
+    def test_superiority_miss_never_triggers_confirmation(self):
+        target = self.cells[0]["id"]
+        targets = self.root / "targets.txt"
+        targets.write_text(target + "\n", encoding="utf-8")
+        self.factor = 1.08
+        self.slow_only_first = True
+        self.assertEqual(pair.run(self.args("--targets", str(targets))), 1)
+        session = self.session()
+        self.assertFalse(session["decisions"]["superiority"]["passed"])
+        self.assertTrue(all(run["stage"] == "main" for run in session["runs"]))
+        self.assertEqual(session["confirmed_failures"]["v4x"], [])
+
+    def test_signed_unstable_failure_is_not_confirmed_or_decided(self):
+        first, other = [entry["id"] for entry in self.cells[:2]]
+        self.write_signed_unstable([first])
+        self.timing_factor = lambda arm, name, run, stage: (
+            1.08 if arm == "candidate" and name in (first, other) else 1.0
+        )
+        self.assertEqual(pair.run(self.args()), 1)
+        session = self.session()
+        self.assertEqual(session["confirmed_failures"]["v4x"], [other])
+        for run in session["runs"]:
+            if run["stage"] == "confirmation":
+                self.assertEqual(set(run["arms"]["base"]["cells"]), {other})
+        self.assertEqual(self.reanalyze(session)["decisions"], session["decisions"])
+
+    def test_confirmation_drift_rejects_without_overwriting_main_drift(self):
+        self.factor = 1.08
+        self.slow_only_first = True
+        self.control_start = lambda run, arm, stage: (
+            100.0 * (run + 1) if stage == "confirmation" else 100.0
+        )
+        self.assertEqual(pair.run(self.args()), 1)
+        session = self.session()
+        self.assertTrue(session["rejected"])
+        self.assertIn("drift_cap", [entry["code"] for entry in session["rejections"]])
+        self.assertEqual(session["drift"]["v4x"]["drift"], 0.0)
+        self.assertGreater(session["confirmation_drift"]["v4x"]["drift"], 0.2)
+
+    def test_reanalysis_rejects_incomplete_confirmation(self):
+        self.factor = 1.08
+        self.slow_only_first = True
+        self.assertEqual(pair.run(self.args()), 1)
+        session = self.session()
+        session["runs"].pop()
+        source = self.root / "incomplete.json"
+        pair.write_session(session, source)
+        self.assertEqual(pair.reanalyze_session(source, self.args()), 2)
 
     def write_signed_unstable(self, cells, *, signature="test-owner", digest=None):
         digest = digest or pair.inventory_digest(

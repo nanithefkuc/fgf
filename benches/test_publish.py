@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import io
 import json
@@ -87,7 +88,7 @@ def make_session(session_id: str = "20261107T000000Z-willow", *,
         row["library_sha"] = (base_sha if row["arm"] == "base"
                               else candidate_sha)
     session = {
-        "method_version": publish.METHOD_VERSION,
+        "method_version": "fgf-pair/3",
         "drift_method": publish.DRIFT_METHOD,
         "session_id": session_id,
         "created_utc": "2026-11-07T00:00:00Z",
@@ -218,7 +219,8 @@ def make_session(session_id: str = "20261107T000000Z-willow", *,
 def make_runner_session(session_id: str = "20261107T050000Z-willow", *,
                         tier: str = "v4x", cell: str = CELL_A,
                         base_ns: float = 101.0,
-                        candidate_ns: float = 100.0) -> dict:
+                        candidate_ns: float = 100.0,
+                        confirmation_ns: float | None = None) -> dict:
     args = argparse.Namespace(
         mode="acceptance", runs="5", rounds="3", delta="0.03", gamma="0.03",
         drift_cap="0.01", features="simd512",
@@ -262,7 +264,8 @@ def make_runner_session(session_id: str = "20261107T050000Z-willow", *,
         "field_backends_equal": True, "ok": True,
     }]
     session["runs"] = [{
-        "run": 0, "tier": tier, "order": ["base", "candidate"],
+        "run": index, "stage": "main", "tier": tier,
+        "order": bench_pair.balanced_order(index),
         "control": {"start_ns": 1, "end_ns": 2},
         "controls": {"base": {"start_ns": 1, "end_ns": 2},
                      "candidate": {"start_ns": 3, "end_ns": 4}},
@@ -272,24 +275,22 @@ def make_runner_session(session_id: str = "20261107T050000Z-willow", *,
             "candidate": {"cells": {cell: {"summary_ns": candidate_ns,
                                            "rounds_ns": [candidate_ns]}}},
         },
-    }]
+    } for index in range(5)]
+    if confirmation_ns is not None:
+        confirmation = copy.deepcopy(session["runs"])
+        for run in confirmation:
+            run["stage"] = "confirmation"
+            run["arms"]["candidate"]["cells"][cell] = {
+                "summary_ns": confirmation_ns, "rounds_ns": [confirmation_ns],
+            }
+        session["runs"].extend(confirmation)
     session["arm_summaries"] = {
         "base": {tier: {cell: base_ns}},
         "candidate": {tier: {cell: candidate_ns}},
     }
-    tier_noninferiority = {"passed": True, "delta": 0.03, "limit": 0.0296,
-                           "per_cell": {}, "failed_cells": []}
-    tier_superiority = {"declared": False, "gamma": 0.03, "delta": 0.03,
-                        "limit": -0.0305, "targets": [], "per_target": {},
-                        "failed_targets": [], "others_noninferior": True,
-                        "other_bounds": {}, "passed": None}
-    session["decisions"] = {
-        "noninferiority": {"passed": True, "per_tier": {tier: tier_noninferiority}},
-        "superiority": {"declared": False, "passed": None,
-                        "per_tier": {tier: tier_superiority}},
-        "per_tier": {tier: {"noninferiority": tier_noninferiority,
-                            "superiority": tier_superiority}},
-    }
+    decision = bench_pair.recorded_staged_decision(session, tier)
+    session["decisions"] = bench_pair.publishable_decisions({tier: decision})
+    session["confirmed_failures"] = {tier: decision["confirmed_failures"]}
     session["rows"] = bench_pair.build_rows(session, [tier], [cell])
     return session
 
@@ -731,6 +732,46 @@ class PublisherTests(unittest.TestCase):
             self.assertIn("`" + CELL_A + "`", page)
             self.assertIn("`" + CANDIDATE_SHA + "`", page)
 
+    def test_staged_diagnostics_render_without_disguising_confirmed_failure(self):
+        unconfirmed = make_runner_session(
+            "unconfirmed", cell=CELL_A, base_ns=100.0,
+            candidate_ns=108.0, confirmation_ns=100.0,
+        )
+        confirmed = make_runner_session(
+            "confirmed", cell=CELL_B, base_ns=100.0,
+            candidate_ns=108.0, confirmation_ns=108.0,
+        )
+        self.assertTrue(unconfirmed["decisions"]["noninferiority"]["passed"])
+        self.assertFalse(confirmed["decisions"]["noninferiority"]["passed"])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = write_manifest(root, [unconfirmed, confirmed])
+            code, _, stderr = run_publish(root, manifest)
+            self.assertEqual(code, 0, stderr)
+            for relative in ("BENCHMARKS.md", "benchmarks/history.md"):
+                page = read_page(root, relative)
+                rows = [line for line in page.splitlines() if line.startswith("| ")]
+                unconfirmed_row = next(line for line in rows if f"`{CELL_A}`" in line)
+                confirmed_row = next(line for line in rows if f"`{CELL_B}`" in line)
+                self.assertIn("| unconfirmed_main_failure |", unconfirmed_row)
+                self.assertIn("| confirmed_regression |", confirmed_row)
+                self.assertNotIn("| accepted |", confirmed_row)
+            self.assertEqual(run_publish(root, manifest, "--verify")[0], 0)
+
+    def test_staged_failure_cannot_be_published_without_confirmation_evidence(self):
+        session = make_runner_session(
+            base_ns=100.0, candidate_ns=108.0, confirmation_ns=108.0,
+        )
+        session["runs"].pop()
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(session, "incomplete confirmation")
+        session = make_runner_session(
+            base_ns=100.0, candidate_ns=108.0, confirmation_ns=100.0,
+        )
+        session["confirmed_failures"]["v4x"] = [CELL_A]
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(session, "mislabelled confirmation")
+
     def test_competitor_logs_render_separate_table(self) -> None:
         log = "\n".join([
             "TRIO\tshape\t1073741824\t1000000000\t2000000000\t2000000000"
@@ -807,6 +848,42 @@ class PublisherTests(unittest.TestCase):
             self.assertIn("## Declarations (bytes)", page)
             self.assertIn("Old cutoff (bytes)", page)
             self.assertIn("New cutoff (bytes)", page)
+
+    def test_threshold_rows_render_confirmed_and_unconfirmed_diagnostics(self):
+        sessions = []
+        for confirmation_ns in (100.0, 108.0):
+            session = make_runner_session(
+                f"threshold-{confirmation_ns}", cell=CELL_B, base_ns=100.0,
+                candidate_ns=108.0, confirmation_ns=confirmation_ns,
+            )
+            session["kind"], session["acceptance"] = "threshold", False
+            session["threshold"] = {
+                "item_key": "cutoff", "unit": "bytes", "old": 64, "new": 128,
+                "cells": [{"cell": CELL_A}, {"cell": CELL_B}], "target_set": [CELL_A],
+            }
+            for run in session["runs"]:
+                if run["stage"] == "main":
+                    for arm, value in (("base", 100.0), ("candidate", 95.0)):
+                        run["arms"][arm]["cells"][CELL_A] = {
+                            "summary_ns": value, "rounds_ns": [value],
+                        }
+            for arm, value in (("base", 100.0), ("candidate", 95.0)):
+                session["arm_summaries"][arm]["v4x"][CELL_A] = value
+            decision = bench_pair.recorded_staged_decision(session, "v4x", [CELL_A])
+            session["decisions"] = bench_pair.publishable_decisions({"v4x": decision})
+            session["confirmed_failures"] = {"v4x": decision["confirmed_failures"]}
+            session["rows"] = bench_pair.build_rows(session, ["v4x"], [CELL_A, CELL_B])
+            sessions.append(session)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = write_manifest(root, sessions)
+            code, _, stderr = run_publish(root, manifest)
+            self.assertEqual(code, 0, stderr)
+            page = read_page(root, "benchmarks/thresholds.md")
+            self.assertIn("| Record |", page)
+            self.assertIn("| confirmed_regression |", page)
+            self.assertIn("| unconfirmed_main_failure |", page)
+            self.assertFalse(sessions[1]["decisions"]["superiority"]["passed"])
 
 
 class IncrementalDescriptiveTests(unittest.TestCase):

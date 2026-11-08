@@ -540,7 +540,7 @@ on both — the snapshot's `benches/` tree (including the `operations` bench and
 this runner), `Cargo.toml`, `Cargo.lock`, and any `rust-toolchain` file, with
 `PAIR_FEATURES` and `PAIR_ALIGN` supplying the feature set and pinned flags —
 and executes only the snapshot's bench target. The snapshot digest, runner
-digest, method version `fgf-pair/3`, `drift_method`, both library SHAs, host
+digest, method version `fgf-pair/4`, `drift_method`, both library SHAs, host
 facts, execution isolation, requested and reported tiers, effective
 configuration, per-run environment digests and argv lengths, unstable-cell
 entries, and every rejection are written to
@@ -633,11 +633,11 @@ precondition rejects the session and is recorded.
 
 Independent runs alternate arm order: base then candidate in one run,
 candidate then base in the next. An arm's run summary is the median of its
-rounds, and its session summary is the median of its run summaries. Every run
-is bracketed by the harness's start and end controls. In acceptance and
+rounds, and its session summary is the median of main-stage run summaries.
+Every run is bracketed by the harness's start and end controls. In acceptance and
 threshold modes, the drift is `(p90 - p10) / median` of the start controls
-across every arm's start control in a tier, recorded as `drift_method`, and
-must not exceed the calibrated cap.
+across every arm's start control in a tier and stage, recorded as
+`drift_method`, and must not exceed the calibrated cap.
 
 The estimator is the per-run log ratio `log(candidate / base)` for every cell.
 Each cell's location estimate is the Hodges–Lehmann estimate of its ratios,
@@ -646,11 +646,27 @@ signed-rank bound, an order statistic of the Walsh averages. The exact null
 distribution supplies the order statistic up to the enumeration limit; larger
 run counts use a continuity-corrected normal approximation. A cell needs at
 least the estimator's minimum paired-run count before a bound is defined.
-Noninferiority holds when the upper bound is at most `log(1 + PAIR_DELTA)` for
-every cell. Superiority holds when, for every cell of a target set declared
-before measurement, the upper bound is below `log(1 - PAIR_GAMMA)`, and every
-cell outside the target set stays noninferior. The target declaration is
-digested into the session.
+Noninferiority compares the upper bound with `log(1 + PAIR_DELTA)`.
+Acceptance and threshold sessions confirm eligible main-stage failures in
+fresh processes within the same session, using the built arms and the host's
+calibrated `PAIR_RUNS` budget. Confirmation measures exactly the failed
+non-target cells, preserves signed-unstable exclusions, alternates arm order,
+and applies the same controls, host probes, isolation, environment and argv
+equality, and drift cap. Confirmation bounds use confirmation runs alone;
+stages are never pooled. A confirmed cell fails only when both stages fail.
+Superiority targets use main-stage bounds alone: a missed target bound fails
+without confirmation. Superiority requires each declared target's upper
+bound below `log(1 - PAIR_GAMMA)` and every non-target cell noninferior after
+confirmation. The target declaration is digested into the session.
+
+The session config records `confirmation`, each run records its `stage`, and
+each decided cell retains its `main` and optional `confirmation` estimate,
+upper bound, and pass result. Per-tier `confirmed_failures` remain failed
+decisions in a non-rejected session and produce an unsuccessful exit.
+Publication labels these rows `confirmed_regression`; main-stage failures
+that pass confirmation remain visible as `unconfirmed_main_failure`
+diagnostics. Reanalysis recomputes each stage independently from stored runs
+and reports failed staged decisions through an unsuccessful exit.
 
 Calibration is the same recipe in `--mode calibration`: base against base, or
 base against a layout control rebuilt from the same revision with a different

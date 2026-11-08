@@ -50,6 +50,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Paired acceptance and threshold campaigns confirm eligible noninferiority
+  failures in fresh same-session processes without pooling stages. Session
+  records and reanalysis retain both stage outcomes; publication distinguishes
+  confirmed regressions from unconfirmed main-stage diagnostics. Reanalysis
+  of earlier single-stage records applies their recorded signed-unstable
+  exclusions, as their live decisions did.
 - Dispatch resolves one cached kernel-strategy enum per family beside the
   process backend, and every dispatch arm matches that strategy — or a
   prepared coefficient's variant, which carries the choice its preparation

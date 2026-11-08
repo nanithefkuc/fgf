@@ -80,7 +80,7 @@ import time
 import tomllib
 from pathlib import Path
 
-METHOD_VERSION = "fgf-pair/3"
+METHOD_VERSION = "fgf-pair/4"
 DRIFT_METHOD = "p90_minus_p10_over_median"
 SUPPORTED_TIERS = ("v4x", "v3_gfni_crypto", "v3", "v2", "scalar")
 DEFAULT_TIERS = " ".join(SUPPORTED_TIERS)
@@ -432,6 +432,75 @@ def evaluate_superiority(
     }
 
 
+def confirmation_cells(noninferiority: dict, targets=()) -> list[str]:
+    """Main-stage failures eligible for fresh noninferiority confirmation."""
+    target_set = set(targets or ())
+    return [
+        cell for cell in noninferiority["failed_cells"] if cell not in target_set
+    ]
+
+
+def evaluate_staged_decisions(
+    ratios: dict, confirmation_ratios: dict, delta: float, gamma: float,
+    targets=None, excluded=(), unstable_targets=(),
+) -> dict:
+    """Decide noninferiority from separate stages and superiority from main runs."""
+    main = evaluate_noninferiority(ratios, delta, excluded)
+    expected = confirmation_cells(main, targets)
+    if set(confirmation_ratios) != set(expected):
+        raise ValueError("confirmation cells do not match eligible main failures")
+    confirmation = evaluate_noninferiority(confirmation_ratios, delta)
+    per_cell = {}
+    for cell, main_result in main["per_cell"].items():
+        confirmation_result = confirmation["per_cell"].get(cell)
+        effective = confirmation_result or main_result
+        per_cell[cell] = {
+            **effective,
+            "main": main_result,
+            "confirmation": confirmation_result,
+        }
+    failed = [cell for cell, result in per_cell.items() if not result["pass"]]
+    confirmed = confirmation["failed_cells"]
+    noninferiority = {
+        **main,
+        "per_cell": per_cell,
+        "passed": not failed,
+        "failed_cells": failed,
+        "main_failed_cells": main["failed_cells"],
+        "confirmed_failures": confirmed,
+        "unconfirmed_failures": [
+            cell for cell in expected if cell not in confirmed
+        ],
+    }
+    if targets is None:
+        superiority = {"declared": False, "passed": None}
+    else:
+        superiority = evaluate_superiority(
+            ratios, targets, gamma, delta, excluded=excluded,
+            unstable_targets=unstable_targets,
+        )
+        others = {
+            cell: result for cell, result in per_cell.items()
+            if cell not in set(targets)
+        }
+        superiority["other_cells"] = others
+        superiority["other_bounds"] = {
+            cell: result["upper_bound"] for cell, result in others.items()
+        }
+        superiority["others_noninferior"] = all(
+            result["pass"] for result in others.values()
+        )
+        superiority["passed"] = (
+            bool(targets) and not superiority["failed_targets"]
+            and superiority["others_noninferior"]
+        )
+    return {
+        "noninferiority": noninferiority,
+        "superiority": superiority,
+        "confirmed_failures": confirmed,
+    }
+
+
 # --------------------------------------------------------------------------
 # Drift, calibration recommendation, layout spread
 # --------------------------------------------------------------------------
@@ -462,9 +531,12 @@ def start_controls(runs) -> list[float]:
     return samples
 
 
-def session_tier_drift(session: dict) -> dict:
+def session_tier_drift(session: dict, stage: str = "main") -> dict:
     """Per-tier start-control drift under the current method."""
-    runs = session.get("runs") or []
+    runs = [
+        run for run in session.get("runs") or []
+        if run.get("stage", "main") == stage
+    ]
     tiers = sorted({
         run.get("tier") for run in runs if isinstance(run.get("tier"), str)
     })
@@ -824,11 +896,13 @@ def layout_disposition(failed_bound: float, spread: float | None) -> dict:
     }
 
 
-def session_tier_ratios(session: dict, tier: str) -> dict | None:
+def session_tier_ratios(
+    session: dict, tier: str, stage: str = "main"
+) -> dict | None:
     runs = [
         run
         for run in session.get("runs") or []
-        if run.get("tier") == tier
+        if run.get("tier") == tier and run.get("stage", "main") == stage
     ]
     if len(runs) < 2:
         return None
@@ -853,6 +927,43 @@ def session_tier_ratios(session: dict, tier: str) -> dict | None:
         return paired_log_ratios(base_arm, candidate_arm, cells)
     except (KeyError, ValueError):
         return None
+
+
+def recorded_staged_decision(session: dict, tier: str, targets=None) -> dict:
+    """Recompute staged decisions, rejecting incomplete or mismatched run scopes."""
+    config = session["config"]
+    excluded = ((session.get("unstable") or {}).get("entries") or {}).get(tier, [])
+    main_ratios = session_tier_ratios(session, tier) or {}
+    cells = (session.get("scope") or {}).get("cells") or list(main_ratios)
+    if not cells:
+        raise ValueError(f"tier {tier} has no main-stage cells")
+    if set(main_ratios) != set(cells):
+        raise ValueError(f"tier {tier} has mismatched main cells")
+    main_ratios = {cell: main_ratios[cell] for cell in cells}
+    main = evaluate_noninferiority(main_ratios, float(config["delta"]), excluded)
+    expected_confirmation = confirmation_cells(main, targets)
+    ratios_by_stage = {}
+    for stage, expected in (("main", cells), ("confirmation", expected_confirmation)):
+        runs = [
+            run for run in session.get("runs") or []
+            if run.get("tier") == tier and run.get("stage") == stage
+        ]
+        count = int(config["runs"]) if expected else 0
+        if len(runs) != count or {run["run"] for run in runs} != set(range(count)):
+            raise ValueError(f"tier {tier} has incomplete {stage} runs")
+        for run in runs:
+            for arm in ("base", "candidate"):
+                observed = ((run.get("arms") or {}).get(arm) or {}).get("cells") or {}
+                if set(observed) != set(expected):
+                    raise ValueError(f"tier {tier} has mismatched {stage} cells")
+        ratios = session_tier_ratios(session, tier, stage) or {}
+        ratios_by_stage[stage] = {cell: ratios[cell] for cell in expected}
+    return evaluate_staged_decisions(
+        ratios_by_stage["main"], ratios_by_stage["confirmation"],
+        float(config["delta"]), float(config["gamma"]),
+        targets=targets, excluded=excluded,
+        unstable_targets=set(excluded) & set(targets or ()),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -2739,6 +2850,7 @@ class Campaign:
         self.lock_path = self.repo / "bench-records" / ".campaign.lock"
         self._lock = None
         self.current_run = 0
+        self.current_stage = "main"
         self.args_rounds = 0
         self.machine = os.uname().machine
         self.chrt_parts = []
@@ -3448,7 +3560,7 @@ class Campaign:
             executable,
             extra,
             tier,
-            f"run-{self.current_run}-{arm}-{tier}",
+            f"run-{self.current_run}-{arm}-{tier}-{self.current_stage}",
             env=env,
             disable_aslr=True,
         )
@@ -3457,7 +3569,7 @@ class Campaign:
                 reject(
                     "run_failed",
                     f"{arm} timing run failed at tier {tier}; "
-                    f"see run-{self.current_run}-{arm}-{tier}.log",
+                    f"see run-{self.current_run}-{arm}-{tier}-{self.current_stage}.log",
                     arm=arm,
                 )
             )
@@ -3514,11 +3626,16 @@ class Campaign:
 
     # -- rules ------------------------------------------------------------
 
-    def tier_runs(self, tier: str) -> list[dict]:
-        return [run for run in self.session["runs"] if run["tier"] == tier]
+    def tier_runs(self, tier: str, stage: str = "main") -> list[dict]:
+        return [
+            run for run in self.session["runs"]
+            if run["tier"] == tier and run.get("stage", "main") == stage
+        ]
 
-    def build_ratios(self, tier: str, order: list[str]) -> dict | None:
-        runs = self.tier_runs(tier)
+    def build_ratios(
+        self, tier: str, order: list[str], stage: str = "main"
+    ) -> dict | None:
+        runs = self.tier_runs(tier, stage)
         if not runs:
             return None
         base = [
@@ -3573,6 +3690,46 @@ class Campaign:
                     if values:
                         cells[cell] = statistics.median(values)
                 self.session["arm_summaries"][arm][tier] = cells
+
+    def measure_stage(self, tier, aliases, cells, cells_filter, stage) -> bool:
+        """Run fresh paired processes with the campaign's isolation checks."""
+        self.current_stage = stage
+        for run_index in range(self.session["config"]["runs"]):
+            self.current_run = run_index
+            if not self.check_preconditions(tier, run_index, stage):
+                return False
+            precondition = self.session["preconditions"][-1]
+            run_env = self.harness_env(tier)
+            arm_order = balanced_order(run_index)
+            pieces = {}
+            for arm in arm_order:
+                piece = self.timed_run(
+                    tier, arm, aliases[arm], cells,
+                    env=run_env, cells_filter=cells_filter,
+                )
+                if piece is None:
+                    return False
+                pieces[arm] = piece
+            lengths = {arm: pieces[arm]["argv_length"] for arm in arm_order}
+            problem = check_argv_lengths(
+                lengths, f"tier {tier} {stage} run {run_index}"
+            )
+            if problem is not None:
+                self.reject(problem)
+                return False
+            self.session["runs"].append({
+                "run": run_index,
+                "stage": stage,
+                "tier": tier,
+                "order": arm_order,
+                "control": pieces[arm_order[0]]["control"],
+                "controls": {arm: pieces[arm]["control"] for arm in arm_order},
+                "precondition": precondition,
+                "environment_digest": environment_digest(run_env),
+                "argv_lengths": lengths,
+                "arms": {arm: pieces[arm]["arms"][arm] for arm in arm_order},
+            })
+        return True
 
     # -- main flow --------------------------------------------------------
 
@@ -4107,95 +4264,64 @@ class Campaign:
             session["config"]["unstable_target_runs"] = args.unstable_target_runs
 
             drift_by_tier = {}
+            decisions = {}
+            session["drift"] = drift_by_tier
             for tier in tiers:
-                for run_index in range(session["config"]["runs"]):
-                    self.current_run = run_index
-                    if not self.check_preconditions(tier, run_index):
-                        return 1
-                    precondition = self.session["preconditions"][-1]
-                    run_env = self.harness_env(tier)
-                    arm_order = balanced_order(run_index)
-                    run = None
-                    for arm in arm_order:
-                        piece = self.timed_run(
-                            tier, arm, aliases[arm], scope_cells,
-                            env=run_env, cells_filter=scope_file,
-                        )
-                        if piece is None:
-                            return 1
-                        if run is None:
-                            run = {
-                                "run": piece["run"],
-                                "tier": tier,
-                                "order": arm_order,
-                                "control": piece["control"],
-                                "controls": {arm: piece["control"]},
-                                "precondition": precondition,
-                                "environment_digest": environment_digest(run_env),
-                                "argv_lengths": {
-                                    arm: piece["argv_length"]
-                                },
-                                "arms": {arm: piece["arms"][arm]},
-                            }
-                        else:
-                            run["controls"][arm] = piece["control"]
-                            run["arms"][arm] = piece["arms"][arm]
-                            run["argv_lengths"][arm] = piece["argv_length"]
-                    problem = check_argv_lengths(
-                        run["argv_lengths"],
-                        f"tier {tier} run {run_index}",
-                    )
-                    if problem is not None:
-                        self.reject(problem)
-                        return 1
-                    self.session["runs"].append(run)
-
-            self.summarize(tiers)
-
-            drift_rejection = None
-            for tier in tiers:
-                starts = start_controls(self.tier_runs(tier))
+                if not self.measure_stage(
+                    tier, aliases, scope_cells, scope_file, "main"
+                ):
+                    return 1
                 stats, problem = check_drift(
-                    starts, session["config"]["drift_cap"]
-                    if mode != "calibration"
-                    else float("inf"),
+                    start_controls(self.tier_runs(tier)),
+                    session["config"]["drift_cap"]
+                    if mode != "calibration" else float("inf"),
                 )
                 drift_by_tier[tier] = stats
                 if problem is not None and mode != "calibration":
-                    drift_rejection = problem
                     self.reject(problem)
-            session["drift"] = drift_by_tier
-            if drift_rejection is not None:
-                return 1
-
-            if mode == "calibration":
-                return self.finish_calibration(tiers, drift_by_tier)
-
-            decisions = {}
-            for tier in tiers:
+                    return 1
+                if mode == "calibration":
+                    continue
                 ratios = self.build_ratios(tier, scope_cells)
                 if ratios is None:
                     return 1
                 excluded = unstable_by_tier.get(tier, set())
-                unstable_targets = unstable_targets_by_tier.get(tier, set())
-                noninferiority = evaluate_noninferiority(
+                main = evaluate_noninferiority(
                     ratios, session["config"]["delta"], excluded=excluded
                 )
-                decisions[tier] = {"noninferiority": noninferiority}
-                if declared_targets is not None:
-                    decisions[tier]["superiority"] = evaluate_superiority(
-                        ratios,
-                        declared_targets,
-                        session["config"]["gamma"],
-                        session["config"]["delta"],
-                        excluded=excluded,
-                        unstable_targets=unstable_targets,
+                cells = confirmation_cells(main, declared_targets)
+                confirmation_ratios = {}
+                if cells:
+                    filter_path = self.session_dir / f"confirmation-cells-{tier}.txt"
+                    filter_path.write_text("\n".join(cells) + "\n", encoding="utf-8")
+                    if not self.measure_stage(
+                        tier, aliases, cells, filter_path, "confirmation"
+                    ):
+                        return 1
+                    stats, problem = check_drift(
+                        start_controls(self.tier_runs(tier, "confirmation")),
+                        session["config"]["drift_cap"],
                     )
-                else:
-                    decisions[tier]["superiority"] = {
-                        "declared": False,
-                        "passed": None,
-                    }
+                    session["confirmation_drift"][tier] = stats
+                    if self.reject(problem):
+                        return 1
+                    confirmation_ratios = self.build_ratios(
+                        tier, cells, "confirmation"
+                    )
+                    if confirmation_ratios is None:
+                        return 1
+                decisions[tier] = evaluate_staged_decisions(
+                    ratios, confirmation_ratios,
+                    session["config"]["delta"], session["config"]["gamma"],
+                    targets=declared_targets, excluded=excluded,
+                    unstable_targets=unstable_targets_by_tier.get(tier, set()),
+                )
+                session["confirmed_failures"][tier] = decisions[tier]["confirmed_failures"]
+                session["decisions"] = publishable_decisions(decisions)
+
+            if mode == "calibration":
+                self.summarize(tiers)
+                return self.finish_calibration(tiers, drift_by_tier)
             session["decisions"] = publishable_decisions(decisions)
             session["arm_summaries"] = {
                 arm: {tier: {} for tier in tiers}
@@ -4405,6 +4531,7 @@ class Campaign:
         )
         filter_path = self.session_dir / f"layout-cells-{tier}.txt"
         filter_path.write_text("\n".join(cells) + "\n", encoding="utf-8")
+        self.current_stage = "layout"
         base_runs = []
         control_runs = []
         controls = []
@@ -4694,7 +4821,7 @@ def build_rows(
                 parts = cell_parts(cell) or {}
                 rounds = []
                 for run in session.get("runs") or []:
-                    if run.get("tier") != tier:
+                    if run.get("tier") != tier or run.get("stage", "main") != "main":
                         continue
                     entry = (
                         ((run.get("arms") or {}).get(arm) or {}).get("cells") or {}
@@ -5030,7 +5157,8 @@ def reanalyze_session(path: Path, args) -> int:
         tier = run.get("tier")
         if isinstance(tier, str):
             runs_by_tier.setdefault(tier, 0)
-            runs_by_tier[tier] += 1
+            if run.get("stage", "main") == "main":
+                runs_by_tier[tier] += 1
     for tier in sorted(runs_by_tier):
         ratios = session_tier_ratios(source, tier)
         if ratios is not None:
@@ -5101,6 +5229,7 @@ def reanalyze_session(path: Path, args) -> int:
         "scope": source.get("scope"),
         "config": {
             "delta": delta,
+            "confirmation": config.get("confirmation", False),
             "gamma": gamma,
             "drift_safety_factor": factor,
             "drift_method": DRIFT_METHOD,
@@ -5118,6 +5247,8 @@ def reanalyze_session(path: Path, args) -> int:
             for tier in sorted(runs_by_tier)
         },
         "drift": drift_by_tier,
+        "confirmation_drift": session_tier_drift(source, "confirmation"),
+        "confirmed_failures": {},
         "decisions": {},
         "calibration": None,
         "threshold": None,
@@ -5153,32 +5284,42 @@ def reanalyze_session(path: Path, args) -> int:
             targets = declaration.get("cells")
         per_tier = {}
         insufficient = False
-        for tier, ratios in ratios_by_tier.items():
+        decision_tiers = runs_by_tier if config.get("confirmation") else ratios_by_tier
+        for tier in decision_tiers:
+            ratios = ratios_by_tier.get(tier, {})
             try:
-                tier_decision = {
-                    "noninferiority": evaluate_noninferiority(ratios, delta)
-                }
-                if targets is not None:
-                    tier_decision["superiority"] = evaluate_superiority(
-                        ratios, targets, gamma, delta
-                    )
+                excluded = ((source.get("unstable") or {}).get("entries") or {}).get(tier, [])
+                if config.get("confirmation"):
+                    tier_decision = recorded_staged_decision(source, tier, targets)
+                    output["confirmed_failures"][tier] = tier_decision["confirmed_failures"]
                 else:
-                    tier_decision["superiority"] = {
-                        "declared": False,
-                        "passed": None,
+                    tier_decision = {
+                        "noninferiority": evaluate_noninferiority(ratios, delta, excluded)
                     }
+                    if targets is not None:
+                        tier_decision["superiority"] = evaluate_superiority(
+                            ratios, targets, gamma, delta, excluded=excluded,
+                            unstable_targets=set(excluded) & set(targets),
+                        )
+                    else:
+                        tier_decision["superiority"] = {
+                            "declared": False,
+                            "passed": None,
+                        }
                 per_tier[tier] = tier_decision
             except InsufficientRuns as error:
                 insufficient = True
                 per_tier[tier] = {
                     "insufficient_runs": str(error),
-                    "runs": min(len(values) for values in ratios.values()),
+                    "runs": min((len(values) for values in ratios.values()), default=0),
                 }
-        output["decisions"] = {
-            "estimator": ESTIMATOR,
-            "confidence": CONFIDENCE,
-            "per_tier": per_tier,
-        }
+            except (ValueError, KeyError, TypeError) as error:
+                print(f"bench_pair: {path}: {error}", file=sys.stderr)
+                return 2
+        output["decisions"] = (
+            {"estimator": ESTIMATOR, "confidence": CONFIDENCE, "per_tier": per_tier}
+            if insufficient else publishable_decisions(per_tier)
+        )
         output["insufficient_runs"] = insufficient
     stamp = utc_stamp()
     target = path.with_name(f"{path.stem}.reanalysis-{stamp}.json")
@@ -5188,6 +5329,10 @@ def reanalyze_session(path: Path, args) -> int:
         counter += 1
     target.write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
     print(target)
+    if config.get("confirmation") and kind != "calibration":
+        return 0 if not output["insufficient_runs"] and decisions_pass(
+            output["decisions"], targets
+        ) else 1
     return 0
 
 
@@ -5210,6 +5355,7 @@ def base_session(args, session_id: str) -> dict:
         "arms": {},
         "config": {
             "runs": args.runs,
+            "confirmation": args.mode in ("acceptance", "threshold"),
             "rounds": args.rounds,
             "delta": args.delta,
             "gamma": args.gamma,
@@ -5248,6 +5394,8 @@ def base_session(args, session_id: str) -> dict:
         "runs": [],
         "arm_summaries": {"base": {}, "candidate": {}},
         "drift": {},
+        "confirmation_drift": {},
+        "confirmed_failures": {},
         "decisions": {},
         "rejections": [],
         "rows": [],
