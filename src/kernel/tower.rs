@@ -56,24 +56,30 @@ macro_rules! wide_tower_dispatch {
                 Backend::Scalar
             }
 
+            // As the bridge's `prepare`: inlined so the GFNI tile
+            // derivation is hoisted out of loops holding the coefficient
+            // fixed.
+            #[inline(always)]
             fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> Prepared {
                 let raw = coeff.to_raw();
                 if $pred::<F>() {
                     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     {
-                        let strategy = $crate::kernel::wide_tower_strategy();
-                        #[cfg(feature = "simd512")]
-                        if strategy == $crate::kernel::WideTowerStrategy::Avx512 {
-                            return Prepared::Compact {
-                                coeff: raw,
-                                tiles: x86::$xg::$tiles(Elem::<$rijndael_field> { raw }),
-                            };
-                        }
-                        if strategy == $crate::kernel::WideTowerStrategy::Gfni {
-                            return Prepared::Compact {
-                                coeff: raw,
-                                tiles: x86::$xg::$tiles(Elem::<$rijndael_field> { raw }),
-                            };
+                        match $crate::kernel::wide_tower_strategy() {
+                            #[cfg(feature = "simd512")]
+                            $crate::kernel::WideTowerStrategy::Avx512 => {
+                                return Prepared::Compact {
+                                    coeff: raw,
+                                    tiles: x86::$xg::$tiles(Elem::<$rijndael_field> { raw }),
+                                };
+                            }
+                            $crate::kernel::WideTowerStrategy::Gfni => {
+                                return Prepared::Compact {
+                                    coeff: raw,
+                                    tiles: x86::$xg::$tiles(Elem::<$rijndael_field> { raw }),
+                                };
+                            }
+                            _ => {}
                         }
                     }
                     return Prepared::Plain(raw);
@@ -813,24 +819,21 @@ pub mod gf16 {
             Backend::Scalar
         }
 
+        #[inline]
         fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> Prepared {
             let raw = coeff.to_raw();
             if rijndael16::<F>() {
-                let strategy = tower16_strategy();
-                if strategy == Tower16Strategy::Scalar {
-                    // Portable fallback: Scalar and any future tier FGF does
-                    // not vectorize. `Backend` is `#[non_exhaustive]`.
-                    return Prepared::Plain(raw);
-                }
-                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                {
-                    // GFNI-capable tiers take the broadcast pair; every
-                    // other vector tier runs the four nibble tables.
-                    if strategy == Tower16Strategy::Avx2 || strategy == Tower16Strategy::Ssse3 {
-                        return Prepared::Tables(rijndael_tables(raw));
+                return match tower16_strategy() {
+                    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
+                    Tower16Strategy::Avx512 => Prepared::Compact(rijndael_compact(raw)),
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                    Tower16Strategy::Gfni => Prepared::Compact(rijndael_compact(raw)),
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                    Tower16Strategy::Avx2 | Tower16Strategy::Ssse3 => {
+                        Prepared::Tables(rijndael_tables(raw))
                     }
-                    return Prepared::Compact(rijndael_compact(raw));
-                }
+                    Tower16Strategy::Scalar => Prepared::Plain(raw),
+                };
             }
             if fanpaar16::<F>() {
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -880,25 +883,22 @@ pub mod gf16 {
         ) {
             match coeff {
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                Prepared::Compact(compact) => match tower16_strategy() {
-                    // Rows shorter than one 64-byte lane go straight to the
-                    // 32-byte kernel `mul_add_avx512` would hand them to.
+                Prepared::Compact(compact) => {
                     #[cfg(feature = "simd512")]
-                    Tower16Strategy::Avx512 if dst.len() >= 64 => {
+                    if tower16_strategy() == Tower16Strategy::Avx512 && dst.len() >= 64 {
+                        // Rows shorter than one 64-byte lane go straight to
+                        // the 32-byte kernel `mul_add_avx512` would hand
+                        // them to.
                         x86::gf16::mul_add_avx512(
                             crate::kernel::x86_v4x_token(),
                             dst,
                             *compact,
                             src,
                         );
+                        return;
                     }
-                    _ => x86::gf16::mul_add_gfni(
-                        crate::kernel::x86_v3_gfni_token(),
-                        dst,
-                        *compact,
-                        src,
-                    ),
-                },
+                    x86::gf16::mul_add_gfni(crate::kernel::x86_v3_gfni_token(), dst, *compact, src);
+                }
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Tables(tables) => match tower16_strategy() {
                     Tower16Strategy::Ssse3 => {
@@ -943,17 +943,14 @@ pub mod gf16 {
         ) {
             match coeff {
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                Prepared::Compact(compact) => match tower16_strategy() {
+                Prepared::Compact(compact) => {
                     #[cfg(feature = "simd512")]
-                    Tower16Strategy::Avx512 => {
+                    if tower16_strategy() == Tower16Strategy::Avx512 {
                         x86::gf16::mul_assign_avx512(crate::kernel::x86_v4x_token(), dst, *compact);
+                        return;
                     }
-                    _ => x86::gf16::mul_assign_gfni(
-                        crate::kernel::x86_v3_gfni_token(),
-                        dst,
-                        *compact,
-                    ),
-                },
+                    x86::gf16::mul_assign_gfni(crate::kernel::x86_v3_gfni_token(), dst, *compact);
+                }
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Tables(tables) => match tower16_strategy() {
                     Tower16Strategy::Ssse3 => {
@@ -997,23 +994,24 @@ pub mod gf16 {
         ) {
             match coeff {
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                Prepared::Compact(compact) => match tower16_strategy() {
+                Prepared::Compact(compact) => {
                     #[cfg(feature = "simd512")]
-                    Tower16Strategy::Avx512 => {
+                    if tower16_strategy() == Tower16Strategy::Avx512 {
                         x86::gf16::mul_into_avx512(
                             crate::kernel::x86_v4x_token(),
                             dst,
                             *compact,
                             src,
                         );
+                        return;
                     }
-                    _ => x86::gf16::mul_into_gfni(
+                    x86::gf16::mul_into_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
                         *compact,
                         src,
-                    ),
-                },
+                    );
+                }
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Tables(tables) => match tower16_strategy() {
                     Tower16Strategy::Ssse3 => {

@@ -41,7 +41,12 @@ where
         <StorageOf<S, D> as StorageDispatch<S::Base, D>>::backend::<Self>(RawDispatch)
     }
 
-    #[inline]
+    // Always-inline exposes a storage's preparation to the caller, so work
+    // the caller never reads — the wide tower's GFNI tiles on paths that
+    // only use the raw coefficient — is eliminated, and a constant
+    // coefficient's preparation is hoisted out of steady-state row loops
+    // instead of re-derived per call behind a call boundary.
+    #[inline(always)]
     fn prepare(proof: RawDispatch, coeff: Elem<Self>) -> Self::Prepared {
         <StorageOf<S, D> as StorageDispatch<S::Base, D>>::prepare::<Self>(proof, coeff)
     }

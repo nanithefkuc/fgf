@@ -224,147 +224,154 @@ macro_rules! prime_dispatch {
                 dst: &mut [u8],
                 src: &[u8],
             ) {
-                match $crate::kernel::prime_strategy() {
-                    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx512 => {
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                {
+                    let strategy = $crate::kernel::prime_strategy();
+                    #[cfg(feature = "simd512")]
+                    if strategy == $crate::kernel::PrimeStrategy::Avx512 {
                         $crate::kernel::x86::$kernels::add_assign_avx512(
                             $crate::kernel::x86_v4_token(),
                             dst,
                             src,
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx2 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Avx2 {
                         $crate::kernel::x86::$kernels::add_assign_avx2(
                             $crate::kernel::x86_v3_token(),
                             dst,
                             src,
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Sse42 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Sse42 {
                         $crate::kernel::x86::$kernels::add_assign_sse42(
                             $crate::kernel::x86_v2_token(),
                             dst,
                             src,
                         );
-                    }
-                    $crate::kernel::PrimeStrategy::Scalar => {
-                        $crate::kernel::prime::add_assign::<$field>(dst, src);
+                        return;
                     }
                 }
+                $crate::kernel::prime::add_assign::<$field>(dst, src);
             }
 
+            #[inline]
             fn sub_assign(
                 _proof: $crate::field::dispatch::RawDispatch,
                 dst: &mut [u8],
                 src: &[u8],
             ) {
-                match $crate::kernel::prime_strategy() {
-                    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx512 => {
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                {
+                    let strategy = $crate::kernel::prime_strategy();
+                    #[cfg(feature = "simd512")]
+                    if strategy == $crate::kernel::PrimeStrategy::Avx512 {
                         $crate::kernel::x86::$kernels::sub_assign_avx512(
                             $crate::kernel::x86_v4_token(),
                             dst,
                             src,
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx2 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Avx2 {
                         $crate::kernel::x86::$kernels::sub_assign_avx2(
                             $crate::kernel::x86_v3_token(),
                             dst,
                             src,
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Sse42 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Sse42 {
                         $crate::kernel::x86::$kernels::sub_assign_sse42(
                             $crate::kernel::x86_v2_token(),
                             dst,
                             src,
                         );
-                    }
-                    $crate::kernel::PrimeStrategy::Scalar => {
-                        $crate::kernel::prime::sub_assign::<$field>(dst, src);
+                        return;
                     }
                 }
+                $crate::kernel::prime::sub_assign::<$field>(dst, src);
             }
 
+            #[inline]
             fn mul_add(
                 _proof: $crate::field::dispatch::RawDispatch,
                 dst: &mut [u8],
                 coeff: &Self::Prepared,
                 src: &[u8],
             ) {
-                match $crate::kernel::prime_strategy() {
-                    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx512 => {
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                {
+                    let strategy = $crate::kernel::prime_strategy();
+                    #[cfg(feature = "simd512")]
+                    if strategy == $crate::kernel::PrimeStrategy::Avx512 {
                         $crate::kernel::x86::$kernels::mul_add_avx512(
                             $crate::kernel::x86_v4_token(),
                             dst,
                             coeff.to_raw(),
                             src,
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx2 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Avx2 {
                         $crate::kernel::x86::$kernels::mul_add_avx2(
                             $crate::kernel::x86_v3_token(),
                             dst,
                             coeff.to_raw(),
                             src,
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Sse42 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Sse42 {
                         $crate::kernel::x86::$kernels::mul_add_sse42(
                             $crate::kernel::x86_v2_token(),
                             dst,
                             coeff.to_raw(),
                             src,
                         );
-                    }
-                    $crate::kernel::PrimeStrategy::Scalar => {
-                        $crate::kernel::prime::mul_add::<$field>(dst, *coeff, src);
+                        return;
                     }
                 }
+                $crate::kernel::prime::mul_add::<$field>(dst, *coeff, src);
             }
 
+            #[inline]
             fn mul_assign(
                 _proof: $crate::field::dispatch::RawDispatch,
                 dst: &mut [u8],
                 coeff: &Self::Prepared,
             ) {
-                match $crate::kernel::prime_strategy() {
-                    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx512 => {
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                {
+                    let strategy = $crate::kernel::prime_strategy();
+                    #[cfg(feature = "simd512")]
+                    if strategy == $crate::kernel::PrimeStrategy::Avx512 {
                         $crate::kernel::x86::$kernels::mul_assign_avx512(
                             $crate::kernel::x86_v4_token(),
                             dst,
                             coeff.to_raw(),
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx2 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Avx2 {
                         $crate::kernel::x86::$kernels::mul_assign_avx2(
                             $crate::kernel::x86_v3_token(),
                             dst,
                             coeff.to_raw(),
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Sse42 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Sse42 {
                         $crate::kernel::x86::$kernels::mul_assign_sse42(
                             $crate::kernel::x86_v2_token(),
                             dst,
                             coeff.to_raw(),
                         );
-                    }
-                    $crate::kernel::PrimeStrategy::Scalar => {
-                        $crate::kernel::prime::mul_assign::<$field>(dst, *coeff);
+                        return;
                     }
                 }
+                $crate::kernel::prime::mul_assign::<$field>(dst, *coeff);
             }
 
             fn mul_into(
@@ -373,46 +380,47 @@ macro_rules! prime_dispatch {
                 coeff: &Self::Prepared,
                 src: &[u8],
             ) {
-                match $crate::kernel::prime_strategy() {
-                    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx512 => {
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                {
+                    let strategy = $crate::kernel::prime_strategy();
+                    #[cfg(feature = "simd512")]
+                    if strategy == $crate::kernel::PrimeStrategy::Avx512 {
                         $crate::kernel::x86::$kernels::mul_into_avx512(
                             $crate::kernel::x86_v4_token(),
                             dst,
                             coeff.to_raw(),
                             src,
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx2 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Avx2 {
                         $crate::kernel::x86::$kernels::mul_into_avx2(
                             $crate::kernel::x86_v3_token(),
                             dst,
                             coeff.to_raw(),
                             src,
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Sse42 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Sse42 {
                         $crate::kernel::x86::$kernels::mul_into_sse42(
                             $crate::kernel::x86_v2_token(),
                             dst,
                             coeff.to_raw(),
                             src,
                         );
+                        return;
                     }
-                    $crate::kernel::PrimeStrategy::Scalar => {
-                        for (d, s) in dst
-                            .chunks_exact_mut(core::mem::size_of::<$lane>())
-                            .zip(src.chunks_exact(core::mem::size_of::<$lane>()))
-                        {
-                            let v = *coeff
-                                * <$crate::field::Elem<$field> as $crate::field::FieldElem>::from_raw(
-                                    <$lane>::from_le_bytes(s.try_into().unwrap()),
-                                );
-                            d.copy_from_slice(&v.to_raw().to_le_bytes());
-                        }
-                    }
+                }
+                for (d, s) in dst
+                    .chunks_exact_mut(core::mem::size_of::<$lane>())
+                    .zip(src.chunks_exact(core::mem::size_of::<$lane>()))
+                {
+                    let v = *coeff
+                        * <$crate::field::Elem<$field> as $crate::field::FieldElem>::from_raw(
+                            <$lane>::from_le_bytes(s.try_into().unwrap()),
+                        );
+                    d.copy_from_slice(&v.to_raw().to_le_bytes());
                 }
             }
 
@@ -451,38 +459,39 @@ macro_rules! prime_dispatch {
                 a: &[u8],
                 b: &[u8],
             ) {
-                match $crate::kernel::prime_strategy() {
-                    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx512 => {
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                {
+                    let strategy = $crate::kernel::prime_strategy();
+                    #[cfg(feature = "simd512")]
+                    if strategy == $crate::kernel::PrimeStrategy::Avx512 {
                         $crate::kernel::x86::$kernels::mul_elementwise_avx512(
                             $crate::kernel::x86_v4_token(),
                             dst,
                             a,
                             b,
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx2 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Avx2 {
                         $crate::kernel::x86::$kernels::mul_elementwise_avx2(
                             $crate::kernel::x86_v3_token(),
                             dst,
                             a,
                             b,
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Sse42 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Sse42 {
                         $crate::kernel::x86::$kernels::mul_elementwise_sse42(
                             $crate::kernel::x86_v2_token(),
                             dst,
                             a,
                             b,
                         );
-                    }
-                    $crate::kernel::PrimeStrategy::Scalar => {
-                        $crate::kernel::prime::mul_elementwise::<$field>(dst, a, b);
+                        return;
                     }
                 }
+                $crate::kernel::prime::mul_elementwise::<$field>(dst, a, b);
             }
 
             fn mul_elementwise_assign(
@@ -490,35 +499,36 @@ macro_rules! prime_dispatch {
                 dst: &mut [u8],
                 src: &[u8],
             ) {
-                match $crate::kernel::prime_strategy() {
-                    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx512 => {
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                {
+                    let strategy = $crate::kernel::prime_strategy();
+                    #[cfg(feature = "simd512")]
+                    if strategy == $crate::kernel::PrimeStrategy::Avx512 {
                         $crate::kernel::x86::$kernels::mul_elementwise_assign_avx512(
                             $crate::kernel::x86_v4_token(),
                             dst,
                             src,
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx2 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Avx2 {
                         $crate::kernel::x86::$kernels::mul_elementwise_assign_avx2(
                             $crate::kernel::x86_v3_token(),
                             dst,
                             src,
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Sse42 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Sse42 {
                         $crate::kernel::x86::$kernels::mul_elementwise_assign_sse42(
                             $crate::kernel::x86_v2_token(),
                             dst,
                             src,
                         );
-                    }
-                    $crate::kernel::PrimeStrategy::Scalar => {
-                        $crate::kernel::scalar::mul_elementwise_assign::<$field>(dst, src);
+                        return;
                     }
                 }
+                $crate::kernel::scalar::mul_elementwise_assign::<$field>(dst, src);
             }
 
             fn add_assign_scalar(
@@ -526,35 +536,36 @@ macro_rules! prime_dispatch {
                 dst: &mut [u8],
                 value: &Self::Prepared,
             ) {
-                match $crate::kernel::prime_strategy() {
-                    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx512 => {
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                {
+                    let strategy = $crate::kernel::prime_strategy();
+                    #[cfg(feature = "simd512")]
+                    if strategy == $crate::kernel::PrimeStrategy::Avx512 {
                         $crate::kernel::x86::$kernels::add_assign_scalar_avx512(
                             $crate::kernel::x86_v4_token(),
                             dst,
                             value.to_raw(),
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx2 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Avx2 {
                         $crate::kernel::x86::$kernels::add_assign_scalar_avx2(
                             $crate::kernel::x86_v3_token(),
                             dst,
                             value.to_raw(),
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Sse42 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Sse42 {
                         $crate::kernel::x86::$kernels::add_assign_scalar_sse42(
                             $crate::kernel::x86_v2_token(),
                             dst,
                             value.to_raw(),
                         );
-                    }
-                    $crate::kernel::PrimeStrategy::Scalar => {
-                        $crate::kernel::prime::add_assign_scalar::<$field>(dst, *value);
+                        return;
                     }
                 }
+                $crate::kernel::prime::add_assign_scalar::<$field>(dst, *value);
             }
 
             fn sub_assign_scalar(
@@ -562,35 +573,36 @@ macro_rules! prime_dispatch {
                 dst: &mut [u8],
                 value: &Self::Prepared,
             ) {
-                match $crate::kernel::prime_strategy() {
-                    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx512 => {
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                {
+                    let strategy = $crate::kernel::prime_strategy();
+                    #[cfg(feature = "simd512")]
+                    if strategy == $crate::kernel::PrimeStrategy::Avx512 {
                         $crate::kernel::x86::$kernels::sub_assign_scalar_avx512(
                             $crate::kernel::x86_v4_token(),
                             dst,
                             value.to_raw(),
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Avx2 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Avx2 {
                         $crate::kernel::x86::$kernels::sub_assign_scalar_avx2(
                             $crate::kernel::x86_v3_token(),
                             dst,
                             value.to_raw(),
                         );
+                        return;
                     }
-                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-                    $crate::kernel::PrimeStrategy::Sse42 => {
+                    if strategy == $crate::kernel::PrimeStrategy::Sse42 {
                         $crate::kernel::x86::$kernels::sub_assign_scalar_sse42(
                             $crate::kernel::x86_v2_token(),
                             dst,
                             value.to_raw(),
                         );
-                    }
-                    $crate::kernel::PrimeStrategy::Scalar => {
-                        $crate::kernel::prime::sub_assign_scalar::<$field>(dst, *value);
+                        return;
                     }
                 }
+                $crate::kernel::prime::sub_assign_scalar::<$field>(dst, *value);
             }
         }
     };
@@ -712,16 +724,19 @@ static BACKEND: std::sync::LazyLock<ResolvedBackend> =
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PrimeStrategy {
     /// 64-byte AVX-512 lanes.
+    // The discriminants stay sparse: a dense set lets the compiler lower
+    // the dispatch matches to a jump table, and the dependent table load
+    // sits on every row operation's hot path.
     #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-    Avx512,
+    Avx512 = 4,
     /// 32-byte AVX2 lanes.
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    Avx2,
+    Avx2 = 2,
     /// 16-byte SSE4.2 lanes.
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    Sse42,
+    Sse42 = 6,
     /// The portable `prime` bodies.
-    Scalar,
+    Scalar = 0,
 }
 
 impl PrimeStrategy {

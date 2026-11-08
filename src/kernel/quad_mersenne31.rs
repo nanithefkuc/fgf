@@ -412,60 +412,32 @@ pub(crate) fn mul_elementwise_assign(dst: &mut [u8], src: &[u8]) {
 
 /// `dst[i] += value`.
 pub(crate) fn add_assign_scalar(dst: &mut [u8], value: Elem<QuadMersenne31>) {
-    match quad_mersenne_strategy() {
-        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-        QuadMersenneStrategy::Avx512
-            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
-        {
-            crate::kernel::x86::quad_mersenne31::add_assign_scalar_avx2(
-                crate::kernel::x86_v3_token(),
-                dst,
-                value,
-            );
-            return;
-        }
-        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        QuadMersenneStrategy::Avx2
-            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
-        {
-            crate::kernel::x86::quad_mersenne31::add_assign_scalar_avx2(
-                crate::kernel::x86_v3_token(),
-                dst,
-                value,
-            );
-            return;
-        }
-        _ => {}
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    if quad_mersenne_strategy() != QuadMersenneStrategy::Scalar
+        && dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES
+    {
+        crate::kernel::x86::quad_mersenne31::add_assign_scalar_avx2(
+            crate::kernel::x86_v3_token(),
+            dst,
+            value,
+        );
+        return;
     }
     prime::add_assign_scalar::<QuadMersenne31>(dst, value);
 }
 
 /// `dst[i] -= value`.
 pub(crate) fn sub_assign_scalar(dst: &mut [u8], value: Elem<QuadMersenne31>) {
-    match quad_mersenne_strategy() {
-        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-        QuadMersenneStrategy::Avx512
-            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
-        {
-            crate::kernel::x86::quad_mersenne31::sub_assign_scalar_avx2(
-                crate::kernel::x86_v3_token(),
-                dst,
-                value,
-            );
-            return;
-        }
-        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        QuadMersenneStrategy::Avx2
-            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
-        {
-            crate::kernel::x86::quad_mersenne31::sub_assign_scalar_avx2(
-                crate::kernel::x86_v3_token(),
-                dst,
-                value,
-            );
-            return;
-        }
-        _ => {}
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    if quad_mersenne_strategy() != QuadMersenneStrategy::Scalar
+        && dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES
+    {
+        crate::kernel::x86::quad_mersenne31::sub_assign_scalar_avx2(
+            crate::kernel::x86_v3_token(),
+            dst,
+            value,
+        );
+        return;
     }
     prime::sub_assign_scalar::<QuadMersenne31>(dst, value);
 }
