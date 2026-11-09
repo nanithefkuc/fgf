@@ -50,6 +50,45 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Paired measurement preserves cross-arm output mismatch rejections, checks
+  complete normal-dependency identities, requires verifiable SMT and snapshot
+  runner state, and enforces drift limits on layout remeasurements.
+- Calibration selects the smallest common passing prefix across tiers.
+  Threshold declarations retain source comparison semantics and reject
+  noninteger cutoffs or empty target sets; publication rechecks predicates
+  against recorded targets.
+- Threshold records retain unsuccessful neighbour comparisons as evidence,
+  with explicit decision columns and stable citation anchors, without
+  treating those candidates as accepted current results.
+- Benchmark coverage attributes macro-expanded operations to their concrete
+  function instances and derives private-helper tier requirements from callers,
+  retaining conservative requirements when attribution is ambiguous.
+- Coverage exceptions require measured source-owner witnesses and matching
+  operation geometry, including count boundaries and complete tuning schedules.
+  Scalar bulk operations contribute exact compiler function counters.
+- Coverage-exception declarations can scope straddling cells per tier and
+  prove an opaque nested kernel through a fingerprinted direct caller, a
+  proof that never credits the callee with execution.
+- Coverage maps defer unobserved tier-specific sites to their own tier sessions;
+  observed fallback routes and unknown site owners remain required.
+- Coverage isolates operation-time function counts from inventory startup,
+  checks element schedules using compiler-owned lane geometry, rejects
+  aggregates that defer a threshold at every tier, and excludes non-code
+  regions from entry execution evidence.
+- Stronger-tier coverage requires direct execution evidence rather than a
+  potential dispatch call. Short-gather fixtures exercise source-count and
+  remainder-alignment boundaries; exception geometry respects preceding guards.
+- `just bench-threshold-scan` tests and regenerates an external threshold
+  inventory. Compound constant expressions do not claim bare scalar cutoffs.
+- Paired measurements collect optional per-row compiler-function observations
+  from separate instrumented artifacts without using them in decision rules.
+  Diagnostic deadlines terminate their child processes before measurement.
+- Calibration diagnostics retain the common-prefix estimates and prior drift.
+  Threshold mode rejects independent target declarations and unsupported units.
+- Aggregate coverage retains failures from every required host/tier row.
+  Ambiguous attribution remains a failure and is not suggested as an exception.
+- Routing applicability follows closed strategy guards and complete helper
+  chains without treating unexecuted vector-only selectors as scalar work.
 - Paired drift gating uses the start-control interquartile range relative to
   the median within each tier and stage. Every host's cap is half the
   noninferiority margin; the calibration-derived cap remains a reported

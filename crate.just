@@ -507,9 +507,9 @@ package-api:
 # the live host before any acceptance measurement; `PAIR_CALIBRATED_FLAGS` must
 # equal `PAIR_ALIGN` for the host it was calibrated on.
 PAIR_RUNS := 'Comet:24 zbox:24'
-# Start-control IQR drift caps are half the noninferiority margin
-# (PAIR_DELTA / 2) on every host: drift below that cannot create or hide a
-# decision. The calibration recommendation's cap remains a diagnostic.
+# Start-control IQR drift caps use half the noninferiority margin
+# (PAIR_DELTA / 2) as a host-independent policy budget, not a guarantee about
+# decision bias. The calibration recommendation's cap remains diagnostic.
 PAIR_DRIFT_CAP := 'Comet:0.015 zbox:0.015'
 PAIR_ROUNDS := '7'
 PAIR_DELTA := '0.03'
@@ -574,6 +574,7 @@ bench-pair *ARGS:
     : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
     exec python3 benches/bench_pair.py \
         --snapshot '{{PAIR_SNAPSHOT}}' \
+        --route-toolchain '{{API_NIGHTLY}}' \
         --runs '{{PAIR_RUNS}}' \
         --drift-cap '{{PAIR_DRIFT_CAP}}' \
         --rounds '{{PAIR_ROUNDS}}' \
@@ -593,6 +594,26 @@ bench-pair *ARGS:
         --unstable-target-runs '{{PAIR_UNSTABLE_TARGET_RUNS}}' \
         --policy-json '{"runs":"{{PAIR_RUNS}}","drift_cap":"{{PAIR_DRIFT_CAP}}","rounds":"{{PAIR_ROUNDS}}","delta":"{{PAIR_DELTA}}","gamma":"{{PAIR_GAMMA}}","calibrated_hosts":"{{PAIR_CALIBRATED_HOSTS}}","calibrated_tiers":"{{PAIR_CALIBRATED_TIERS}}","calibrated_toolchain":"{{PAIR_CALIBRATED_TOOLCHAIN}}","calibrated_flags":"{{PAIR_CALIBRATED_FLAGS}}","smt_window":"{{PAIR_SMT_WINDOW}}","smt_busy_threshold":"{{PAIR_SMT_BUSY_THRESHOLD}}","chrt":"{{PAIR_CHRT}}","unstable_target_runs":"{{PAIR_UNSTABLE_TARGET_RUNS}}"}' \
         {{ARGS}}
+
+# Test and regenerate an external threshold inventory and its source positions.
+[group('bench')]
+bench-threshold-scan:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    inventory="${FGF_THRESHOLD_INVENTORY:?set FGF_THRESHOLD_INVENTORY to inventory.json}"
+    scan_dir="$(dirname "${inventory}")"
+    [[ -f "${scan_dir}/test_scan.py" ]] || {
+        printf 'bench-threshold-scan: test_scan.py is missing beside the inventory\n' >&2
+        exit 2
+    }
+    python3 -m unittest discover -s "${scan_dir}" -p 'test_scan.py'
+    exec python3 "${scan_dir}/scan.py" --root . --out "${inventory}" \
+        --md "${scan_dir}/inventory.md" --positions "${scan_dir}/positions.json"
+
+# Observe per-row compiler-mapped kernel functions without timing.
+[group('bench')]
+bench-route-probe TIER *ARGS:
+    python3 benches/route_probe.py --tier {{TIER}} --toolchain {{API_NIGHTLY}} {{ARGS}}
 
 # Instrumented coverage map of the public operations bench at one tier. The
 # bench is rebuilt on the pinned nightly with branch coverage, `--check` runs

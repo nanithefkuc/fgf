@@ -105,11 +105,11 @@ pub const FAMILY_GDL: &str = "gdl";
 pub const FAMILY_EXT: &str = "ext";
 pub const FAMILY_GF2: &str = "gf2";
 
-/// One `FIELD_BACKEND` line per registered field label: where that field's
-/// bulk operations resolve in this process.
+/// Backend and compiler-owned element-byte geometry per registered field label.
 pub fn print_backends() {
     fn row<F: FieldBuffer>(label: &str) {
         println!("FIELD_BACKEND\t{label}\t{}", backend_for::<F>().name());
+        println!("FIELD_ELEMENT_BYTES\t{label}\t{}", F::BYTES);
     }
     row::<Gf8Aes>(GF8_AES);
     row::<Gf8Rs>(GF8_RS);
@@ -131,5 +131,8 @@ pub fn print_backends() {
     row::<CustomRijndael16>(CUSTOM_RIJNDAEL16);
     // Bit-packed GF(2) has no `FieldBuffer` lane form; its arithmetic is the
     // GF(2) interop row's byte XOR route.
-    row::<FiniteField<2, 1>>(GF2_BITS);
+    println!(
+        "FIELD_BACKEND\t{GF2_BITS}\t{}",
+        backend_for::<FiniteField<2, 1>>().name()
+    );
 }

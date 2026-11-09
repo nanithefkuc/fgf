@@ -765,9 +765,10 @@ fn add_threshold_evidence_cells(cells: &mut Vec<Cell>) {
     }
 
     // `gf8.rs` in-place scale below 65 536 bytes, GFNI without native AES.
-    // The 65 536-byte shapes are already registered by `add_gf8_thresholds`.
+    // The 65 536-byte shapes are already registered by `add_gf8_thresholds`;
+    // 196 608 is the midpoint above 131 072 and 262 144 the next doubling.
     for prep in ["unprepared", "prepared"] {
-        for row_len in [32_768, 49_152, 98_304, 131_072] {
+        for row_len in [32_768, 49_152, 98_304, 131_072, 196_608, 262_144] {
             push_single::<fields::Gf8Rs>(
                 cells,
                 fields::GF8_RS,
@@ -1007,6 +1008,35 @@ fn add_threshold_evidence_cells(cells: &mut Vec<Cell>) {
         }
     }
 
+    // `x86/bytes/avx2.rs` half-lane peel: the peel fires when the
+    // destination sits 16 bytes past a 32-byte boundary and carries at least
+    // `HALF_LANE_PEEL_MIN` bytes, so both straddling shapes shift the
+    // destination by 16 bytes; aligned destinations never trigger it. The
+    // aligned 384- and 768-byte shapes above already cover the
+    // `XOR_PEEL_MIN` comparison.
+    for row_len in [384, 768] {
+        push_single::<fields::Gf8Aes>(
+            cells,
+            fields::GF8_AES,
+            fields::FAMILY_GF,
+            "add_assign",
+            "unprepared",
+            row_len,
+            16,
+        );
+        // The Rijndael scatter retains a full-row GFNI tail at the wider tier.
+        push_scatter::<fields::Gf16Rijndael>(
+            cells,
+            fields::GF16_RIJNDAEL,
+            fields::FAMILY_GF,
+            "mul_add_scatter",
+            "unprepared",
+            row_len,
+            3,
+            16,
+        );
+    }
+
     // `x86/gf8/avx512/matrix.rs::MATRIX_PEEL_MIN`: 4096 and 8192 are
     // registered by `add_field` and `add_gf8_thresholds`.
     for prep in ["unprepared", "prepared"] {
@@ -1034,6 +1064,114 @@ fn add_threshold_evidence_cells(cells: &mut Vec<Cell>) {
                 0,
             );
         }
+    }
+
+    // `x86/gf8/avx512/matrix.rs` group floors: the blocked walks gate a
+    // two-row and a four-row group, so a one-row shape covers the below
+    // side of both floors, a three-row shape sits between them, and the
+    // registered eight-row shapes sit above both.
+    push_matrix::<fields::Gf8Aes>(
+        cells,
+        fields::GF8_AES,
+        fields::FAMILY_GF,
+        "mul_add_matrix",
+        "unprepared",
+        MID,
+        1,
+        1,
+        0,
+    );
+    for rows in [1, 3] {
+        push_matrix::<fields::Gf8Aes>(
+            cells,
+            fields::GF8_AES,
+            fields::FAMILY_GF,
+            "mul_add_matrix_at",
+            "unprepared",
+            MID,
+            rows,
+            rows,
+            OFFSET,
+        );
+    }
+
+    // Short gathers exercise the source-count gate and both sides of the
+    // fused remainder alignment gate in native and affine byte fields.
+    for (row_len, sources) in [(32, 3), (48, 2), (48, 3), (64, 2), (64, 3), (96, 3)] {
+        push_gather::<fields::Gf8Aes>(
+            cells,
+            fields::GF8_AES,
+            fields::FAMILY_GF,
+            "mul_add_gather",
+            "unprepared",
+            row_len,
+            sources,
+            0,
+        );
+        push_gather::<fields::Gf8Rs>(
+            cells,
+            fields::GF8_RS,
+            fields::FAMILY_GF,
+            "mul_add_gather",
+            "unprepared",
+            row_len,
+            sources,
+            0,
+        );
+    }
+}
+
+/// GF(2^16) shapes for the blocked-term schedules.
+///
+/// The GFNI and AVX-512 matrix bodies fold `TERM_BLOCK` terms per
+/// destination block and walk four-row groups; sixteen and thirty-two terms
+/// run complete blocks, and the row counts straddle the four-row group
+/// width. Those blocked bodies hang off the prepared `_with` matrix route,
+/// so the same row shapes also run prepared: one row is the single-row
+/// residual, three rows the two-row group plus single, four rows one
+/// complete four-row group, five rows that group plus a single, and eight
+/// rows two complete groups. The prepared eight-row, eight-source shape is
+/// already registered by `add_field`. The GFNI gather folds `SOURCE_GROUP`
+/// sources per register group; three sources never fill one, and six run
+/// one full group followed by a partial group.
+fn add_gf16_blocked_cells(cells: &mut Vec<Cell>) {
+    for (rows, sources) in [(3, 16), (4, 16), (5, 16), (8, 16), (8, 32)] {
+        push_matrix::<fields::Gf16Rijndael>(
+            cells,
+            fields::GF16_RIJNDAEL,
+            fields::FAMILY_GF,
+            "mul_add_matrix",
+            "unprepared",
+            MID,
+            rows,
+            sources,
+            0,
+        );
+    }
+    for (rows, sources) in [(1, 16), (3, 16), (4, 16), (5, 16), (8, 16), (8, 32)] {
+        push_matrix::<fields::Gf16Rijndael>(
+            cells,
+            fields::GF16_RIJNDAEL,
+            fields::FAMILY_GF,
+            "mul_add_matrix",
+            "prepared",
+            MID,
+            rows,
+            sources,
+            0,
+        );
+    }
+    for sources in [3, 6] {
+        push_gather::<fields::Gf16Rijndael>(
+            cells,
+            fields::GF16_RIJNDAEL,
+            fields::FAMILY_GF,
+            "mul_add_gather",
+            "unprepared",
+            MID,
+            sources,
+            0,
+        );
     }
 }
 
@@ -1113,6 +1251,7 @@ pub fn registry() -> Vec<Cell> {
     }
     add_bits(&mut cells);
     add_threshold_evidence_cells(&mut cells);
+    add_gf16_blocked_cells(&mut cells);
     cells
 }
 

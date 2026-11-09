@@ -72,6 +72,7 @@ import re
 import shlex
 import shutil
 import socket
+import signal
 import statistics
 import subprocess
 import sys
@@ -629,43 +630,6 @@ def check_drift(samples, cap: float) -> tuple[dict, Rejection | None]:
     return stats, None
 
 
-def recommend_run_count(
-    ratios_by_cell: dict, delta: float, minimum: int = MIN_RUNS_FOR_BOUND
-) -> dict | None:
-    """Smallest run count with every calibration cell's HL bound at most log(1+d/2)."""
-    if not ratios_by_cell:
-        return None
-    available = min(len(values) for values in ratios_by_cell.values())
-    limit = math.log1p(delta / 2.0)
-    for runs in range(minimum, available + 1):
-        results = {
-            cell: hl_upper_bound(values[:runs])
-            for cell, values in ratios_by_cell.items()
-        }
-        bounds = {
-            cell: result["upper_bound"] for cell, result in results.items()
-        }
-        if all(bound <= limit for bound in bounds.values()):
-            return {
-                "runs": runs,
-                "limit": limit,
-                "max_bound": max(bounds.values()),
-                "bounds": bounds,
-                "estimates": {
-                    cell: result["estimate"]
-                    for cell, result in results.items()
-                },
-                "cells": {
-                    cell: {
-                        "estimate": result["estimate"],
-                        "upper_bound": result["upper_bound"],
-                    }
-                    for cell, result in results.items()
-                },
-            }
-    return None
-
-
 def recommend_drift_cap(
     observed: float | None, safety_factor: float = 1.25
 ) -> float:
@@ -682,149 +646,102 @@ def calibration_recommendation(
     drift_safety_factor: float = 1.25,
     prior_drift: float = 0.0,
 ):
-    """Overall run count and drift cap from one calibration session's ratios.
+    """Smallest common passing prefix and drift cap for a calibration.
 
-    Unstable cells are those whose full-budget HL upper bound exceeds
-    log(1 + delta/2); they are reported but do not make the session fail.
-    The run count is the smallest prefix for which every non-unstable cell's
-    bound is within that limit.
+    Unstable cells exceed log(1 + delta/2) at their tier's full budget.
+    Every remaining cell must pass at the same recommended prefix: signed-rank
+    bounds need not be monotone as another run is added.
     """
     per_tier = {}
-    recommended_runs = 0
+    full_by_tier = {}
     observed_drift = float(prior_drift or 0.0)
-    healthy = True
-    stable_bounds = []
     limit = math.log1p(delta / 2.0)
     for tier, ratios in ratios_by_tier.items():
         observed_drift = max(
             observed_drift, (drift_by_tier.get(tier) or {}).get("drift") or 0.0
         )
         available = min((len(values) for values in ratios.values()), default=0)
-        if available < MIN_RUNS_FOR_BOUND:
-            per_tier[tier] = {
-                "runs": None,
-                "available_runs": available,
-                "limit": limit,
-                "unstable_cells": [],
-                "stable_cells": sorted(ratios),
-                "max_bound": None,
-                "max_bound_signed": None,
-                "cells_over_limit": 0,
-                "worst_cells": [],
-                "cells": {},
-                "estimates": {},
-                "bounds": {},
-            }
-            healthy = False
-            continue
-        full = {
-            cell: hl_upper_bound(values[:available])
-            for cell, values in ratios.items()
-        }
-        unstable = sorted(
-            cell for cell, result in full.items()
-            if result["upper_bound"] > limit
+        full = (
+            {cell: hl_upper_bound(values[:available]) for cell, values in ratios.items()}
+            if available >= MIN_RUNS_FOR_BOUND else {}
         )
-        stable = sorted(set(ratios) - set(unstable))
-        stable_runs = None
-        chosen = {}
-        if not stable:
-            stable_runs = MIN_RUNS_FOR_BOUND
-        else:
-            for runs in range(MIN_RUNS_FOR_BOUND, available + 1):
-                candidate = {
-                    cell: hl_upper_bound(ratios[cell][:runs])
-                    for cell in stable
+        full_by_tier[tier] = full
+        unstable = sorted(
+            cell for cell, result in full.items() if result["upper_bound"] > limit
+        )
+        per_tier[tier] = {
+            "available_runs": available,
+            "limit": limit,
+            "unstable_cells": unstable,
+            "stable_cells": sorted(set(ratios) - set(unstable)),
+        }
+
+    common_available = min(
+        (record["available_runs"] for record in per_tier.values()), default=0
+    )
+    recommended_runs = None
+    chosen = {}
+    for runs in range(MIN_RUNS_FOR_BOUND, common_available + 1):
+        candidate = {
+            tier: {
+                cell: hl_upper_bound(ratios_by_tier[tier][cell][:runs])
+                for cell in record["stable_cells"]
+            }
+            for tier, record in per_tier.items()
+        }
+        chosen = candidate
+        if all(
+            result["upper_bound"] <= limit
+            for cells in candidate.values() for result in cells.values()
+        ):
+            recommended_runs, chosen = runs, candidate
+            break
+
+    stable_bounds = []
+    diagnostic_runs = recommended_runs or (
+        common_available if common_available >= MIN_RUNS_FOR_BOUND else None
+    )
+    for tier, record in per_tier.items():
+        full = full_by_tier[tier]
+        results = chosen.get(tier, {})
+        bounds = {cell: result["upper_bound"] for cell, result in results.items()}
+        reached = (
+            max(bounds.values(), default=0.0)
+            if diagnostic_runs is not None else None
+        )
+        if reached is not None:
+            stable_bounds.append(reached)
+        record.update({
+            "runs": recommended_runs,
+            "diagnostic_runs": diagnostic_runs,
+            "max_bound": max(0.0, reached) if reached is not None else None,
+            "max_bound_signed": reached,
+            "cells_over_limit": sum(bound > limit for bound in bounds.values()),
+            "worst_cells": [
+                [cell, bound] for cell, bound in
+                sorted(bounds.items(), key=lambda item: item[1], reverse=True)[:10]
+            ],
+            "cells": {
+                cell: {
+                    "estimate": results.get(cell, result)["estimate"],
+                    "upper_bound": bounds.get(cell, result["upper_bound"]),
+                    "unstable": cell in record["unstable_cells"],
+                    "at_runs": (
+                        diagnostic_runs if cell in results
+                        else record["available_runs"]
+                    ),
                 }
-                if all(
-                    result["upper_bound"] <= limit
-                    for result in candidate.values()
-                ):
-                    stable_runs = runs
-                    chosen = candidate
-                    break
-        if stable_runs is None:
-            healthy = False
-            stable_results = {cell: full[cell] for cell in stable}
-            bounds = {
-                cell: result["upper_bound"]
-                for cell, result in stable_results.items()
-            }
-            worst = sorted(bounds.items(), key=lambda item: item[1], reverse=True)
-            reached = max(bounds.values()) if bounds else None
-            per_tier[tier] = {
-                "runs": None,
-                "available_runs": available,
-                "limit": limit,
-                "unstable_cells": unstable,
-                "stable_cells": stable,
-                "max_bound": max(0.0, reached) if reached is not None else 0.0,
-                "max_bound_signed": reached if reached is not None else 0.0,
-                "cells_over_limit": sum(1 for b in bounds.values() if b > limit),
-                "worst_cells": [[cell, bound] for cell, bound in worst[:10]],
-                "cells": {
-                    cell: {
-                        "estimate": result["estimate"],
-                        "upper_bound": result["upper_bound"],
-                        "unstable": cell in unstable,
-                        "at_runs": available,
-                    }
-                    for cell, result in full.items()
-                },
-                "estimates": {
-                    cell: result["estimate"] for cell, result in full.items()
-                },
-                "bounds": {
-                    cell: result["upper_bound"] for cell, result in full.items()
-                },
-            }
-            if reached is not None:
-                stable_bounds.append(reached)
-        else:
-            chosen = chosen or {cell: full[cell] for cell in stable}
-            bounds = {
-                cell: result["upper_bound"]
-                for cell, result in chosen.items()
-            }
-            worst = sorted(bounds.items(), key=lambda item: item[1], reverse=True)
-            reached = max(bounds.values()) if bounds else 0.0
-            per_tier[tier] = {
-                "runs": stable_runs,
-                "available_runs": available,
-                "limit": limit,
-                "unstable_cells": unstable,
-                "stable_cells": stable,
-                "max_bound": max(0.0, reached),
-                "max_bound_signed": reached,
-                "cells_over_limit": 0,
-                "worst_cells": [[cell, bound] for cell, bound in worst[:10]],
-                "cells": {
-                    cell: {
-                        "estimate": full[cell]["estimate"],
-                        "upper_bound": (
-                            bounds[cell] if cell in bounds else full[cell]["upper_bound"]
-                        ),
-                        "unstable": cell in unstable,
-                        "at_runs": stable_runs,
-                    }
-                    for cell in sorted(full)
-                },
-                "estimates": {
-                    cell: full[cell]["estimate"] for cell in sorted(full)
-                },
-                "bounds": {
-                    cell: (
-                        bounds[cell] if cell in bounds else full[cell]["upper_bound"]
-                    )
-                    for cell in sorted(full)
-                },
-            }
-            if reached is not None:
-                stable_bounds.append(reached)
-            recommended_runs = max(recommended_runs, stable_runs)
-    signed = max(stable_bounds) if stable_bounds else 0.0
+                for cell, result in full.items()
+            },
+            "estimates": {cell: result["estimate"] for cell, result in full.items()},
+            "bounds": {
+                cell: bounds.get(cell, result["upper_bound"])
+                for cell, result in full.items()
+            },
+        })
+    signed = max(stable_bounds, default=0.0)
     return {
-        "runs": recommended_runs if healthy else None,
+        "runs": recommended_runs,
         "estimator": ESTIMATOR,
         "confidence": CONFIDENCE,
         "drift_cap": recommend_drift_cap(observed_drift, drift_safety_factor),
@@ -833,7 +750,7 @@ def calibration_recommendation(
         "limit": limit,
         "drift_safety_factor": drift_safety_factor,
         "per_tier": per_tier,
-    }, healthy
+    }, recommended_runs is not None
 
 
 def layout_spreads(
@@ -1088,9 +1005,17 @@ def _same_number(left, right) -> bool:
     )
 
 
-def threshold_route_differs(axis_value: float, old: float, new: float) -> bool:
-    """Whether a cutoff change moves this axis value to the other route side."""
-    return (axis_value < old) != (axis_value < new)
+def threshold_route_differs(
+    axis_value: float, old: float, new: float, comparison: str
+) -> bool:
+    """Whether the source-derived cutoff predicate changes at this axis value."""
+    if comparison == "<":
+        return (axis_value < old) != (axis_value < new)
+    if comparison == "<=":
+        return (axis_value <= old) != (axis_value <= new)
+    if comparison == "==":
+        return (axis_value == old) != (axis_value == new)
+    raise ValueError(f"unsupported cutoff comparison {comparison!r}")
 
 
 def inventory_digest(entries, order: list[str]) -> str:
@@ -1337,6 +1262,10 @@ def validate_threshold_declaration(declaration: dict, items: list[dict]):
             f"declared unit {declared_unit!r} differs from the inventory unit {item_unit!r}",
         )
     unit = item_unit or declared_unit or "other"
+    if unit not in {"bytes", "lanes", "elements", "rows", "terms", "count", "other"}:
+        return None, reject(
+            "threshold_unit_unsupported", f"unsupported threshold unit {unit!r}",
+        )
     old = declaration.get("old", declaration.get("old_value"))
     new = declaration.get("new", declaration.get("new_value"))
     if old is None or new is None:
@@ -1355,11 +1284,21 @@ def validate_threshold_declaration(declaration: dict, items: list[dict]):
         return None, reject(
             "declaration_invalid", "threshold cutoffs must be nonnegative"
         )
+    if not old_value.is_integer() or not new_value.is_integer():
+        return None, reject(
+            "threshold_integer_cutoff", "threshold cutoffs must be finite integers"
+        )
     if not _same_number(old_value, item_value):
         return None, reject(
             "threshold_old_mismatch",
             f"declared old cutoff {old_value:g} differs from the inventory "
             f"item value {item_value:g}",
+        )
+    comparison = item.get("comparison")
+    if not isinstance(comparison, str) or comparison not in {"<", "<=", "=="}:
+        return None, reject(
+            "threshold_comparison_unknown",
+            f"inventory item {item_key!r} has no unambiguous source comparison",
         )
     cells = declaration.get("cells")
     if not isinstance(cells, list) or not cells:
@@ -1426,7 +1365,9 @@ def validate_threshold_declaration(declaration: dict, items: list[dict]):
                         "declaration_invalid",
                         f"threshold cell entry {index} has an invalid axis value",
                     )
-        derived_differs = threshold_route_differs(axis, old_value, new_value)
+        derived_differs = threshold_route_differs(
+            axis, old_value, new_value, comparison
+        )
         declared_differs = route_old != route_new
         if derived_differs != declared_differs:
             return None, reject(
@@ -1474,9 +1415,14 @@ def validate_threshold_declaration(declaration: dict, items: list[dict]):
             entry["cell"] for entry in entries if entry["route_differs"]
         )
     )
+    if not targets:
+        return None, reject(
+            "threshold_no_changed_cell", "no declared cell changes its source predicate"
+        )
     return {
         "item_key": item_key,
         "unit": unit,
+        "comparison": comparison,
         "axis": item_axis,
         "old": old_value,
         "new": new_value,
@@ -2560,15 +2506,6 @@ def summarize_timed_protocol(parsed: dict, order: list[str], rounds: int, arm: s
     return cells, None
 
 
-def parse_route_diagnostic(text: str) -> dict:
-    fields = {}
-    for line in text.splitlines():
-        match = re.match(r"^backend\s+([^=]+)=(.*)$", line.strip())
-        if match:
-            fields[match.group(1)] = match.group(2)
-    return fields
-
-
 # --------------------------------------------------------------------------
 # Process execution
 # --------------------------------------------------------------------------
@@ -2581,20 +2518,31 @@ def run_process(
     env: dict | None = None,
     timeout: float | None = None,
     log_path: Path | None = None,
+    new_process_group: bool = False,
 ):
     if log_path is not None:
         log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        process = subprocess.run(
-            [str(part) for part in command],
-            cwd=str(cwd) if cwd is not None else None,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            errors="replace",
-            timeout=timeout,
-        )
+        argv = [str(part) for part in command]
+        options = {
+            "cwd": str(cwd) if cwd is not None else None,
+            "env": env, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE,
+            "text": True, "errors": "replace",
+        }
+        if new_process_group:
+            with subprocess.Popen(argv, start_new_session=True, **options) as child:
+                try:
+                    stdout, stderr = child.communicate(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(child.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    stdout, stderr = child.communicate()
+                    raise subprocess.TimeoutExpired(argv, timeout, output=stdout, stderr=stderr)
+                process = subprocess.CompletedProcess(argv, child.returncode, stdout, stderr)
+        else:
+            process = subprocess.run(argv, timeout=timeout, **options)
     except subprocess.TimeoutExpired as expired:
         if log_path is not None:
             with open(log_path, "w", encoding="utf-8") as handle:
@@ -3362,11 +3310,11 @@ class Campaign:
 
     def build_route_diagnostic(self, arm: str, arm_record: dict, snapshot: Snapshot):
         target_dir = arm_record.get("target_dir")
-        if target_dir is None:
+        toolchain = self.args.route_toolchain
+        if target_dir is None or not toolchain:
             return None
         env = os.environ.copy()
         env.pop("CARGO_ENCODED_RUSTFLAGS", None)
-        env["CARGO_TARGET_DIR"] = target_dir
         flags = snapshot.rustflags
         seed = arm_record.get("metadata_seed")
         if seed:
@@ -3375,49 +3323,33 @@ class Campaign:
         else:
             env.pop("__CARGO_DEFAULT_LIB_METADATA", None)
         env["RUSTFLAGS"] = flags
-        command = ["cargo"]
-        if snapshot.toolchain:
-            command.append(f"+{snapshot.toolchain}")
-        command += [
-            "build",
-            "--profile",
-            "bench",
-            "--locked",
-            "--message-format=json-render-diagnostics",
-            "--manifest-path",
-            str(Path(arm_record["checkout"]) / "Cargo.toml"),
-            "--example",
-            "backend_report",
-            "--all-features",
+        output = self.session_dir / f"diagnostic-build-{arm}.json"
+        diagnostic_target = str(Path(target_dir) / "routes")
+        command = [
+            sys.executable, str(Path(__file__).with_name("route_probe.py")),
+            "--root", arm_record["checkout"], "--toolchain", toolchain,
+            "--bench", snapshot.bench, "--features", ",".join(snapshot.features),
+            "--target-dir", diagnostic_target, "--out", str(output), "--build-only",
         ]
+        if snapshot.no_default_features:
+            command.append("--no-default-features")
         process = run_process(
-            command,
-            env=env,
-            timeout=self.args.timeout,
+            command, env=env, timeout=self.args.timeout,
             log_path=self.session_dir / f"diagnostic-build-{arm}.log",
+            new_process_group=True,
         )
         if process.returncode != 0:
-            return {
-                "status": "build_failed",
-                "stderr": process.stderr[-2000:],
-            }
-        executables = []
-        for line in process.stdout.splitlines():
-            line = line.strip()
-            if not line.startswith("{"):
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if record.get("reason") != "compiler-artifact":
-                continue
-            target = record.get("target") or {}
-            if target.get("name") == "backend_report" and record.get("executable"):
-                executables.append(Path(record["executable"]))
-        if not executables:
-            return {"status": "build_failed", "stderr": "no backend_report executable"}
-        return {"status": "built", "executable": str(executables[-1])}
+            return {"status": "build_failed", "stderr": process.stderr[-2000:]}
+        try:
+            binary = json.loads(output.read_text(encoding="utf-8"))["binary"]
+            if not isinstance(binary, str) or not Path(binary).is_file():
+                raise ValueError("no diagnostic executable")
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            return {"status": "build_failed", "stderr": str(error)}
+        return {
+            "status": "built", "executable": binary,
+            "toolchain": toolchain, "target_dir": diagnostic_target,
+        }
 
     # -- harness execution ------------------------------------------------
 
@@ -3564,28 +3496,41 @@ class Campaign:
             return None
         return parsed["outputs"]
 
-    def run_route_diagnostic(self, tier: str, arm: str, arm_record: dict):
+    def run_route_diagnostic(
+        self, tier: str, arm: str, arm_record: dict, cells: list[str]
+    ):
         build = arm_record.get("diagnostic")
-        record = {"status": "unavailable"}
+        record = {"detail": "per-row", "status": "unavailable"}
         if build is None:
-            record["stderr"] = "diagnostic build not attempted"
+            record["stderr"] = "diagnostic build not attempted; nightly toolchain required"
         elif build.get("status") != "built":
             record.update(build)
         else:
-            process = self.run_harness(
-                Path(build["executable"]),
-                [],
-                tier,
-                f"diagnostic-{arm}-{tier}",
+            output = self.session_dir / f"diagnostic-{arm}-{tier}.json"
+            scope = self.session_dir / f"diagnostic-{arm}-{tier}.cells"
+            scope.write_text("".join(cell + "\n" for cell in cells), encoding="utf-8")
+            command = [
+                sys.executable, str(Path(__file__).with_name("route_probe.py")),
+                "--root", arm_record["checkout"], "--tier", tier,
+                "--toolchain", build["toolchain"], "--binary", build["executable"],
+                "--target-dir", build["target_dir"], "--cells", str(scope),
+                "--out", str(output),
+            ]
+            process = run_process(
+                command, env=self.harness_env(tier), timeout=self.args.timeout,
+                log_path=self.session_dir / f"diagnostic-{arm}-{tier}.log",
+                new_process_group=True,
             )
-            record = {
-                "detail": "per-field",
-                "status": "ok" if process.returncode == 0 else "failed",
-                "exit": process.returncode,
-                "fields": parse_route_diagnostic(process.stdout),
-                "stdout": process.stdout[-2000:],
-                "stderr": process.stderr[-2000:],
-            }
+            if process.returncode == 0:
+                try:
+                    record = json.loads(output.read_text(encoding="utf-8"))
+                    record["path"] = str(output)
+                except (OSError, ValueError, TypeError) as error:
+                    record = {"detail": "per-row", "status": "failed", "stderr": str(error)}
+            else:
+                record.update(
+                    status="failed", exit=process.returncode, stderr=process.stderr[-2000:],
+                )
         self.session["route_diagnostics"].setdefault(tier, {})[arm] = record
 
     def check_preconditions(
@@ -4024,6 +3969,12 @@ class Campaign:
 
             targets = None
             if getattr(args, "targets", None):
+                if mode == "threshold":
+                    self.reject(reject(
+                        "declaration_invalid",
+                        "threshold targets are derived from source predicates; --targets is incompatible",
+                    ))
+                    return 1
                 try:
                     targets = parse_targets_file(Path(args.targets))
                 except (OSError, ValueError) as error:
@@ -4082,6 +4033,7 @@ class Campaign:
                     "old_value": info["old"],
                     "new_value": info["new"],
                     "unit": info["unit"],
+                    "comparison": info["comparison"],
                     "axis": info["axis"],
                     "declared_cells": [
                         entry["cell"] for entry in info["cells"]
@@ -4100,6 +4052,7 @@ class Campaign:
                     "old": info["old"],
                     "new": info["new"],
                     "unit": info["unit"],
+                    "comparison": info["comparison"],
                     "axis": info["axis"],
                     "declared_cells": [
                         entry["cell"] for entry in info["cells"]
@@ -4253,15 +4206,6 @@ class Campaign:
                 if argv_problem is not None:
                     self.reject(argv_problem)
                     return 1
-                for arm in ("base", "candidate"):
-                    self.run_route_diagnostic(tier, arm, session["arms"][arm])
-
-            session["route_detail"] = "per-field"
-            session["route_limitation"] = (
-                "the stable-API bench and backend_report expose process and "
-                "field backends only; per-cell route selectors are not "
-                "available for every cell geometry without production changes"
-            )
             order_cells = session["inventory"]["order"]
             scope_cells, scope_file = self.apply_scope(order_cells, scope_declaration)
             if scope_cells is None:
@@ -4352,6 +4296,15 @@ class Campaign:
             }
             session["config"]["unstable_file"] = str(args.unstable_file)
             session["config"]["unstable_target_runs"] = args.unstable_target_runs
+            for tier in tiers:
+                for arm in ("base", "candidate"):
+                    self.run_route_diagnostic(tier, arm, session["arms"][arm], scope_cells)
+            session["route_detail"] = "per-row"
+            session["route_limitation"] = (
+                "separate instrumented artifacts report compiler-mapped function "
+                "counters per checked row, not complete traces of timed artifacts; "
+                "diagnostic failures never enter measurement decisions"
+            )
 
             drift_by_tier = {}
             decisions = {}
@@ -4543,6 +4496,7 @@ class Campaign:
                 )
             )
         recommendation["drift_sources"] = drift_sources
+        recommendation["prior_drift"] = prior_drift
         unstable_by_tier = {
             tier: list(record.get("unstable_cells") or [])
             for tier, record in recommendation["per_tier"].items()
@@ -5006,6 +4960,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_execution_arguments(parser)
     parser.add_argument("--tiers", default=DEFAULT_TIERS,
                         help="backend tiers to measure, strongest first")
+    parser.add_argument("--route-toolchain", default=None,
+                        help="nightly toolchain for optional per-row route diagnostics")
     parser.add_argument("--runs", default=PLACEHOLDER,
                         help="independent runs per tier (calibrated for acceptance)")
     parser.add_argument("--rounds", default="7",
@@ -5363,15 +5319,20 @@ def reanalyze_session(path: Path, args) -> int:
         "insufficient_runs": False,
     }
     if kind == "calibration":
+        prior_drift = (
+            (source.get("calibration") or {}).get("recommendation") or {}
+        ).get("prior_drift")
         recommendation, healthy = calibration_recommendation(
             ratios_by_tier,
             delta,
             drift_by_tier,
             drift_safety_factor=factor,
+            prior_drift=0.0 if prior_drift is None else float(prior_drift),
         )
         output["calibration"] = {
             "mode": (source.get("calibration") or {}).get("mode"),
             "recommendation": recommendation,
+            "prior_drift_available": prior_drift is not None,
             "healthy": healthy,
         }
         output["insufficient_runs"] = any(

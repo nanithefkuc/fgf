@@ -297,23 +297,6 @@ class DriftTests(unittest.TestCase):
         _, rejection = pair.check_drift([], 0.01)
         self.assertEqual(rejection.code, "drift_control_invalid")
 
-    def test_recommendation_is_the_smallest_sufficient_run_count(self):
-        noisy = [0.02, 0.0, 0.0, 0.0, 0.0, 0.0]
-        recommendation = pair.recommend_run_count({"cell": noisy}, 0.03)
-        self.assertIsNotNone(recommendation)
-        self.assertEqual(recommendation["runs"], 6)
-        self.assertLessEqual(recommendation["max_bound"], math.log1p(0.015))
-
-    def test_constant_ratios_recommend_five_runs(self):
-        recommendation = pair.recommend_run_count({"cell": [0.0] * 5}, 0.03)
-        self.assertEqual(recommendation["runs"], 5)
-
-    def test_recommendation_returns_none_when_no_count_is_sufficient(self):
-        recommendation = pair.recommend_run_count(
-            {"cell": [0.1, -0.1, 0.1, -0.1, 0.1]}, 0.03
-        )
-        self.assertIsNone(recommendation)
-
     def test_drift_cap_uses_prior_calibration_drift_and_the_factor(self):
         recommendation, healthy = pair.calibration_recommendation(
             {"v4x": {"cell": [0.0] * 5}},
@@ -424,6 +407,7 @@ class ThresholdTests(unittest.TestCase):
                 "file": "src/kernel/quad_mersenne31.rs",
                 "name_or_expr": "ROW_THRESHOLD",
                 "value": value,
+                "comparison": "<",
                 "unit": unit,
                 "axis": axis,
                 "class": item_class,
@@ -460,6 +444,75 @@ class ThresholdTests(unittest.TestCase):
         }
         value.update(overrides)
         return value
+
+    def test_inclusive_cutoff_targets_the_new_endpoint_not_the_old_one(self):
+        inventory = self.inventory()
+        inventory[0]["comparison"] = "<="
+        declaration = self.declaration()
+        declaration["cells"][0].update(route_old="below", route_new="below")
+        declaration["cells"][2].update(route_old="above", route_new="below")
+        info, rejection = pair.validate_threshold_declaration(declaration, inventory)
+        self.assertIsNone(rejection)
+        self.assertEqual(
+            set(info["target_set"]),
+            {entry["cell"] for entry in declaration["cells"][1:]},
+        )
+        declaration["cells"][0].update(route_old="above", route_new="below")
+        _, rejection = pair.validate_threshold_declaration(declaration, inventory)
+        self.assertEqual(rejection.code, "threshold_route_mismatch")
+
+    def test_unsupported_threshold_units_reject_before_measurement(self):
+        info, rejection = pair.validate_threshold_declaration(
+            self.declaration(), self.inventory(unit="cycles"),
+        )
+        self.assertIsNone(info)
+        self.assertEqual(rejection.code, "threshold_unit_unsupported")
+
+    def test_cutoff_without_source_comparison_cannot_be_measured(self):
+        inventory = self.inventory()
+        del inventory[0]["comparison"]
+        _, rejection = pair.validate_threshold_declaration(
+            self.declaration(), inventory,
+        )
+        self.assertEqual(rejection.code, "threshold_comparison_unknown")
+
+    def test_equality_cutoff_targets_both_endpoints_only(self):
+        inventory = self.inventory(unit="rows", value=4, axis="output row count")
+        inventory[0]["comparison"] = "=="
+        declaration = self.declaration(
+            old=4, new=8, unit="rows",
+            cells=[
+                {
+                    "cell": f"gf8-aes/mul_add_matrix/unprepared/64x{rows}x8/aligned",
+                    "axis_value": rows,
+                    "route_old": "selected" if rows == 4 else "other",
+                    "route_new": "selected" if rows == 8 else "other",
+                }
+                for rows in range(4, 9)
+            ],
+        )
+        info, rejection = pair.validate_threshold_declaration(declaration, inventory)
+        self.assertIsNone(rejection)
+        self.assertEqual(
+            set(info["target_set"]),
+            {declaration["cells"][0]["cell"], declaration["cells"][-1]["cell"]},
+        )
+
+    def test_noninteger_equality_cutoffs_are_not_measurement_candidates(self):
+        inventory = self.inventory(unit="rows", value=4.5, axis="output row count")
+        inventory[0]["comparison"] = "=="
+        declaration = self.declaration(
+            old=4.5, new=8.5, unit="rows",
+            cells=[
+                {
+                    "cell": f"gf8-aes/mul_add_matrix/unprepared/64x{rows}x8/aligned",
+                    "axis_value": rows, "route_old": "other", "route_new": "other",
+                }
+                for rows in range(5, 9)
+            ],
+        )
+        _, rejection = pair.validate_threshold_declaration(declaration, inventory)
+        self.assertEqual(rejection.code, "threshold_integer_cutoff")
 
     def test_valid_byte_declaration_and_route_targets(self):
         info, rejection = pair.validate_threshold_declaration(
@@ -1285,6 +1338,20 @@ class ReanalysisTests(unittest.TestCase):
             self.assertIsNotNone(analysis["calibration"]["recommendation"]["runs"])
             self.assertIn("cells", analysis["calibration"]["recommendation"]["per_tier"]["v4x"])
 
+    def test_calibration_reanalysis_retains_recorded_prior_drift(self):
+        for prior in (0.02, None):
+            with self.subTest(prior=prior), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory) / "session.json"
+                session = self.source_session("calibration")
+                session["calibration"]["recommendation"] = {"prior_drift": prior}
+                source.write_text(json.dumps(session), encoding="utf-8")
+                self.assertEqual(pair.reanalyze_session(source, self.args()), 0)
+                output = next(Path(directory).glob("session.reanalysis-*.json"))
+                calibration = json.loads(output.read_text())["calibration"]
+                self.assertEqual(calibration["prior_drift_available"], prior is not None)
+                if prior is not None:
+                    self.assertAlmostEqual(calibration["recommendation"]["drift_cap"], 0.025)
+
     def test_reanalysis_reads_v4_under_its_recorded_drift_method(self):
         session = self.source_session()
         session["method_version"] = "fgf-pair/4"
@@ -1537,19 +1604,43 @@ class ProtocolSummaryTests(unittest.TestCase):
 
 
 class CalibrationRecommendationTests(unittest.TestCase):
-    def test_overall_count_is_the_maximum_tier_recommendation(self):
+    def test_common_prefix_rechecks_tiers_with_nonmonotone_bounds(self):
+        ratios = {
+            "v3": {"cell": [0.0] * 5 + [0.04] + [0.0] * 18},
+            "v2": {"cell": [0.02] + [0.0] * 23},
+        }
         recommendation, healthy = pair.calibration_recommendation(
-            {
-                "v4x": {"cell": [0.02, 0.0, 0.0, 0.0, 0.0, 0.0]},
-                "v3": {"cell": [0.0, 0.0, 0.0, 0.0, 0.0]},
-            },
-            0.03,
-            {"v4x": {"drift": 0.004}, "v3": {"drift": 0.011}},
+            ratios, 0.03, {},
         )
         self.assertTrue(healthy)
-        self.assertEqual(recommendation["runs"], 6)
-        self.assertEqual(recommendation["per_tier"]["v3"]["runs"], 5)
-        self.assertGreaterEqual(recommendation["drift_cap"], 0.011)
+        runs = recommendation["runs"]
+        self.assertGreater(runs, 6)
+        for tier, cells in ratios.items():
+            self.assertEqual(recommendation["per_tier"][tier]["runs"], runs)
+            bound = pair.hl_upper_bound(cells["cell"][:runs])["upper_bound"]
+            self.assertLessEqual(bound, recommendation["limit"])
+        for shorter in range(pair.MIN_RUNS_FOR_BOUND, runs):
+            self.assertTrue(any(
+                pair.hl_upper_bound(cells["cell"][:shorter])["upper_bound"]
+                > recommendation["limit"] for cells in ratios.values()
+            ))
+
+    def test_common_prefix_requires_samples_from_every_tier(self):
+        recommendation, healthy = pair.calibration_recommendation(
+            {
+                "v3": {"cell": [0.02] + [0.0] * 5},
+                "v2": {"cell": [0.0] * 5},
+            }, 0.03, {},
+        )
+        self.assertFalse(healthy)
+        self.assertIsNone(recommendation["runs"])
+        record = recommendation["per_tier"]["v3"]
+        self.assertEqual(record["diagnostic_runs"], 5)
+        self.assertEqual(record["cells_over_limit"], 1)
+        bound = pair.hl_upper_bound([0.02] + [0.0] * 4)
+        self.assertEqual(record["max_bound_signed"], bound["upper_bound"])
+        self.assertEqual(record["cells"]["cell"]["estimate"], bound["estimate"])
+        self.assertEqual(record["cells"]["cell"]["at_runs"], 5)
 
     def test_run_count_ignores_unstable_cells(self):
         recommendation, healthy = pair.calibration_recommendation(
@@ -2006,6 +2097,7 @@ class CampaignFailureTests(unittest.TestCase):
                 recommendation = campaign.session["calibration"]["recommendation"]
                 self.assertGreaterEqual(recommendation["drift_cap"], 0.025)
                 self.assertEqual(recommendation["drift_safety_factor"], 1.25)
+                self.assertAlmostEqual(recommendation["prior_drift"], 0.02)
             finally:
                 campaign.close()
 
@@ -2442,7 +2534,8 @@ class MockedSessionTests(unittest.TestCase):
         pair.shutil.which = self.original_which
         self.directory.cleanup()
 
-    def fake_run_process(self, command, *, cwd=None, env=None, timeout=None, log_path=None):
+    def fake_run_process(self, command, *, cwd=None, env=None, timeout=None, log_path=None,
+                         new_process_group=False):
         command = [str(part) for part in command]
         if command[:2] == ["git", "-C"]:
             rest = command[3:]
@@ -2608,8 +2701,6 @@ class MockedSessionTests(unittest.TestCase):
         self.assertIn("sibling_busy", record)
         self.assertEqual(session["config"]["smt_window"], 0.2)
         self.assertEqual(session["config"]["smt_busy_threshold"], 0.05)
-        self.assertEqual(session["route_detail"], "per-field")
-        self.assertIn("per-cell", session["route_limitation"])
         self.assertTrue(session["execution"]["aslr_disabled"])
         self.assertTrue(session["execution"]["setarch"].startswith("setarch "))
         self.assertIn("environment_digest", session["runs"][0])
@@ -2919,6 +3010,27 @@ class MockedSessionTests(unittest.TestCase):
         self.assertEqual(filter_path.read_text(encoding="utf-8").split(), record["cells"])
         publish.validate_session(session, "acceptance")
 
+    def test_optional_route_build_failure_does_not_change_acceptance(self):
+        self.assertEqual(pair.run(self.args("--route-toolchain", "missing-nightly")), 0)
+        session = self.session()
+        self.assertFalse(session["rejected"])
+        self.assertTrue(session["decisions"]["noninferiority"]["passed"])
+        for diagnostic in session["route_diagnostics"]["v4x"].values():
+            self.assertEqual(diagnostic["status"], "build_failed")
+
+    def test_threshold_mode_refuses_an_independent_target_declaration(self):
+        targets = self.root / "targets.txt"
+        targets.write_text(self.cells[0]["id"] + "\n", encoding="utf-8")
+        self.assertEqual(
+            pair.run(self.args("--mode", "threshold", "--targets", str(targets))), 1,
+        )
+        session = self.session()
+        self.assertIn(
+            "declaration_invalid",
+            [rejection["code"] for rejection in session["rejections"]],
+        )
+        self.assertEqual(session["runs"], [])
+
     def test_cells_scope_is_rejected_for_calibration(self):
         scope = self.scope_file([self.cells[0]["id"]])
         self.assertEqual(
@@ -3013,6 +3125,7 @@ class MockedSessionTests(unittest.TestCase):
             "unit": "bytes",
             "axis": "row length",
             "class": "routing_threshold",
+            "comparison": "<",
             "routes": True,
             "citation": None,
         }]
@@ -3118,6 +3231,7 @@ class MockedSessionTests(unittest.TestCase):
             "unit": "bytes",
             "axis": "row length",
             "class": "routing_threshold",
+            "comparison": "<",
             "routes": True,
             "citation": None,
         }]

@@ -1,354 +1,6 @@
 {
   "exceptions": [
     {
-      "key": "src/kernel/routing.rs::HALF_LANE_PEEL_MIN",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
-        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ],
-      "item": "src/kernel/routing.rs::HALF_LANE_PEEL_MIN"
-    },
-    {
-      "key": "src/kernel/x86.rs::PREFETCH_AHEAD",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
-        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/routing.rs::XOR_PEEL_MIN",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
-        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ],
-      "item": "src/kernel/routing.rs::XOR_PEEL_MIN"
-    },
-    {
-      "key": "src/kernel/x86/gf16.rs::TERM_TILE",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_matrix/unprepared/16384x8x33/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf16/avx512.rs::fn matrix_group::TERM_BLOCK",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_matrix/unprepared/16384x8x33/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf16/avx512.rs::fn mul_add_matrix_avx512_with::cmp:2<=nrows:left",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf16/avx512.rs::fn mul_add_matrix_avx512_with::cmp:4<=nrows:left",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf16/gfni/gather.rs::SOURCE_GROUP",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf16/gfni/matrix.rs::TERM_BLOCK",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_matrix/unprepared/16384x8x33/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf16/gfni/matrix.rs::fn mul_add_matrix_gfni_with::cmp:2<=nrows:left",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf16/gfni/matrix.rs::fn mul_add_matrix_gfni_with::cmp:4<=nrows:left",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8.rs::RESOLVE_CHUNK",
-      "class": "unmapped_arcane",
-      "reason": "some sites have no compiler mapping; every mapped site passed",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_matrix/unprepared/16384x8x33/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/routing.rs::GATHER_PEEL_MIN",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
-        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ],
-      "item": "src/kernel/routing.rs::GATHER_PEEL_MIN"
-    },
-    {
-      "key": "src/kernel/routing.rs::MATRIX_PEEL_MIN",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
-        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ],
-      "item": "src/kernel/routing.rs::MATRIX_PEEL_MIN"
-    },
-    {
-      "key": "src/kernel/routing.rs::MATRIX_RESOLVE_MIN",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
-        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ],
-      "item": "src/kernel/routing.rs::MATRIX_RESOLVE_MIN"
-    },
-    {
-      "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_at_block::cmp:2<=nrows:left",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_at_block::cmp:4<=nrows:left",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_block::cmp:2<=nrows:left",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_block::cmp:4<=nrows:left",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/routing.rs::SCATTER_PEEL_MIN",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
-        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ],
-      "item": "src/kernel/routing.rs::SCATTER_PEEL_MIN"
-    },
-    {
-      "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled==1:right",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled==3:right",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled==4:right",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled>=2:right",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/gfni/gather.rs::fn mul_add_gather_gfni::cmp:coeffs.count()>2:right",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/gfni/gather.rs::fn mul_add_gather_gfni::cmp:dst.len()<128:right",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
-        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/gfni/gather.rs::fn mul_add_gather_gfni::cmp:remainder.trailing_zeros()>=5:right",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/gfni/rows.rs::MATRIX_PREFETCH_MIN",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/add_gather_offsets/unprepared/16x1x8/aligned",
-        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/gfni/rows.rs::MAX_GROUP_ROWS",
-      "class": "unmapped_arcane",
-      "reason": "some sites have no compiler mapping; every mapped site passed",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/gfni/scatter.rs::fn mul_add_scatter_impl::cmp:filled==1:right",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/gfni/scatter.rs::fn mul_add_scatter_impl::cmp:filled==3:right",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/gfni/scatter.rs::fn mul_add_scatter_impl::cmp:filled==4:right",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/gf8/gfni/scatter.rs::fn mul_add_scatter_impl::cmp:filled>=2:right",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/mersenne31/avx512.rs::SCREEN_LANES",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/quad_mersenne31/avx512.rs::SCREEN_LANES",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/residue/avx2/matrix.rs::TILE",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
-      ]
-    },
-    {
-      "key": "src/kernel/x86/residue/avx512/matrix.rs::TILE",
-      "class": "unmapped_arcane",
-      "reason": "the pinned compiler emitted no mapping for any site",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned"
-      ]
-    },
-    {
-      "key": "src/ops/recip.rs::CHUNK_ELEMS",
-      "class": "unmapped_arcane",
-      "reason": "some sites have no compiler mapping; every mapped site passed",
-      "straddling_cells": [
-        "gf8-aes/mul_add/unprepared/64x1x1/aligned",
-        "gf8-aes/mul_add/unprepared/4096x1x1/aligned"
-      ]
-    },
-    {
       "item": "src/kernel/routing.rs::DELAYED_MIN_SOURCES",
       "key": "src/kernel/routing.rs::DELAYED_MIN_SOURCES",
       "class": "unmapped_branch",
@@ -359,26 +11,559 @@
       ]
     },
     {
+      "key": "src/kernel/routing.rs::GATHER_PEEL_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited gather cells run 2304-byte destinations below the 3072-byte peel floor and 4608-byte destinations above it",
+      "straddling_cells": [
+        "gf8-aes/mul_add_gather/unprepared/2304x1x8/aligned",
+        "gf8-aes/mul_add_gather/unprepared/4608x1x8/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/routing.rs::HALF_LANE_PEEL_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler omits mappings for these Arcane bodies. At v3 and v3_gfni_crypto the byte-XOR witnesses pass full 384- and 768-byte rows at offset16 to xor_avx2. At v4x the Rijndael scatter witnesses use three rows: x86/gf16/gfni/scatter.rs processes a pair, then passes the remaining full row to mul_add_gfni in single.rs. Both row lengths are multiples of the alignment, so the final row remains offset16. The 384-byte row fails the length conjunct; the 768-byte row satisfies both the length and alignment conjuncts. The nested Arcane call has no mapped call-site counter: via_entry declares the measured scatter caller and its direct source edge, not execution credit for the callee. The reason supplies the source proof of the odd-row branch and unchanged full-row geometry",
+      "straddling_cells": {
+        "v3": [
+          "gf8-aes/add_assign/unprepared/384x1x1/offset16",
+          "gf8-aes/add_assign/unprepared/768x1x1/offset16"
+        ],
+        "v3_gfni_crypto": [
+          "gf8-aes/add_assign/unprepared/384x1x1/offset16",
+          "gf8-aes/add_assign/unprepared/768x1x1/offset16"
+        ],
+        "v4x": [
+          "gf16-rijndael/mul_add_scatter/unprepared/384x3x1/offset16",
+          "gf16-rijndael/mul_add_scatter/unprepared/768x3x1/offset16"
+        ]
+      },
+      "via_entry": {
+        "v4x": {
+          "entry": "fgf::kernel::x86::gf16::gfni::scatter::mul_add_scatter_gfni",
+          "sources": {
+            "src/kernel/x86/gf16/gfni/scatter.rs": "c5cec7a413765818b18c655538d3ae29d475b1fe3a2614264eb7018c63727485",
+            "src/kernel/x86/gf16/gfni/single.rs": "b3e4ea6930a48c40ca272ce0014fac1e28be8bf60582124ad6cf867d2ac02f53"
+          }
+        }
+      },
+      "tiers": [
+        "v3",
+        "v3_gfni_crypto",
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/routing.rs::MATRIX_PEEL_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited matrix cells run 6144-byte rows below the 8192-byte peel floor and 12288-byte rows above it",
+      "straddling_cells": [
+        "gf8-aes/mul_add_matrix/unprepared/6144x8x8/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/12288x8x8/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/routing.rs::MATRIX_RESOLVE_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited matrix cells run 64-byte rows below the 512-byte resolve floor and 4096-byte rows above it",
+      "straddling_cells": [
+        "gf8-aes/mul_add_matrix/unprepared/64x16x8/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/4096x8x8/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/routing.rs::SCATTER_PEEL_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited scatter cells run 384-byte rows below the 512-byte peel floor and 768-byte rows above it",
+      "straddling_cells": [
+        "gf8-aes/mul_add_scatter/unprepared/384x8x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/768x8x1/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/routing.rs::XOR_PEEL_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited byte-XOR cells run 384-byte destinations below the 512-byte peel floor and 768-byte destinations above it",
+      "straddling_cells": [
+        "gf8-aes/add_assign/unprepared/384x1x1/aligned",
+        "gf8-aes/add_assign/unprepared/768x1x1/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86.rs::PREFETCH_AHEAD",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited GF(2^8) overwrite cells enable prefetching at and above PREFETCH_MIN. The shrinking destination suffix starts above PREFETCH_AHEAD plus the prefetch tile and ends below it, so each complete walk takes the lookahead guard both ways while using the declared distance. The distance is a tuning value, not a bare row-length cutoff",
+      "straddling_cells": [
+        "gf8-aes/mul_into/unprepared/24576x1x1/aligned",
+        "gf8-rs/mul_into/unprepared/32768x1x1/aligned"
+      ]
+    },
+    {
       "item": "src/kernel/x86.rs::PREFETCH_MIN",
       "key": "src/kernel/x86.rs::PREFETCH_MIN",
       "class": "unmapped_branch",
-      "reason": "the comparison is in the `#[inline] fn prefetch_dst` (`src/kernel/x86.rs:69-72`, comparison at `:71`) and is reached only from the gf8/gf16 vector `mul_into` bodies (`x86/gf8/avx2.rs:108`, `x86/gf8/gfni/single.rs:236`, `x86/gf8/avx512/single.rs:165`, `x86/gf16/gfni/single.rs:343`); the pinned compiler emitted no branch record at the helper's span though the containing position is mapped. The straddling cells execute a 4096-byte destination (below the 24 KiB floor) and a 65536-byte destination (above it)",
+      "reason": "the comparison is in prefetch_dst (src/kernel/x86.rs:61-63) and is reached from the gf8/gf16 vector mul_into bodies; the pinned compiler emitted no branch record at the helper span though the containing position is mapped. The cited non-streaming overwrites execute a 4096-byte destination below the prefetch floor and a 65536-byte destination above it",
       "straddling_cells": [
         "gf8-aes/mul_into/unprepared/4096x1x1/aligned",
         "gf8-aes/mul_into/unprepared/65536x1x1/aligned"
       ]
     },
     {
+      "key": "src/kernel/x86/gf16.rs::TERM_TILE",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; `TERM_TILE` is the blocked GF(2^16) tile width and steps only the SSSE3 walks, folding `min(remaining, 8)` terms per tile in the matrix body (`x86/gf16/ssse3.rs:478-480`) and in the gather body (`:344-346`). The GF(2^16) matrix dispatch reaches the SSSE3 walk through the prepared `mul_add_matrix_with` route, so the cited prepared matrix cells run eight terms (one complete tile in each four-row group) and sixteen terms (two complete tiles per group)",
+      "straddling_cells": [
+        "gf16-rijndael/mul_add_matrix/prepared/4096x8x8/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x8x16/aligned"
+      ],
+      "tiers": [
+        "v2"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/avx512.rs::fn matrix_group::TERM_BLOCK",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the destination-block loop in `matrix_group` (`x86/gf16/avx512.rs:383-385`) steps `TERM_BLOCK` terms at a time and folds `min(remaining, 16)` of them into the held broadcast pairs. The loop hangs off the prepared `mul_add_matrix_with` route, so the cited prepared matrix cells run eight terms (a truncated prefix, one partial block), sixteen terms (one complete block), and thirty-two terms (two complete blocks) through the same loop",
+      "straddling_cells": [
+        "gf16-rijndael/mul_add_matrix/prepared/4096x8x8/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x8x16/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x8x32/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/avx512.rs::fn mul_add_matrix_avx512_with::cmp:4<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the four-row group walk in `mul_add_matrix_avx512_with` compares `first + 4 <= nrows`, reached through the prepared `mul_add_matrix_with` route. The cited prepared matrix cells carry one row (a single-row residual only), three rows (a two-row group plus the single, below the four-row group), four rows (one complete four-row group), five rows (a four-row group plus a single), and eight rows (two complete groups)",
+      "straddling_cells": [
+        "gf16-rijndael/mul_add_matrix/prepared/4096x1x16/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x3x16/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x4x16/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x5x16/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x8x16/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/gfni/gather.rs::SOURCE_GROUP",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the group walk in `mul_add_gather_gfni` (`x86/gf16/gfni/gather.rs:66-88`) compares `i + SOURCE_GROUP <= coeffs.count()` per four-source register group, then serves the remainder through a two-source group and the single-source kernel. Six sources run one complete four-source group and then a complete two-source group — the partial final group the whole-group-only eight- and sixteen-source cells never reach — and three sources fail the group comparison outright, folding through the two-source group and the single-source kernel",
+      "straddling_cells": [
+        "gf16-rijndael/mul_add_gather/unprepared/4096x1x3/aligned",
+        "gf16-rijndael/mul_add_gather/unprepared/4096x1x6/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto",
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/gfni/matrix.rs::TERM_BLOCK",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; matrix_group steps TERM_BLOCK terms per destination block and folds min(remaining, 16) terms into the held broadcast pairs. The cited full-length prepared matrices select the GFNI matrix body at the GFNI tier and the AVX-512 body at its tier. The GFNI cells run eight terms (a partial block), sixteen terms (one complete block), and thirty-two terms (two complete blocks)",
+      "straddling_cells": [
+        "gf16-rijndael/mul_add_matrix/prepared/4096x8x8/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x8x16/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x8x32/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/gfni/matrix.rs::fn mul_add_matrix_gfni_with::cmp:4<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; mul_add_matrix_gfni_with walks four-row groups while j + 4 <= nrows. The cited full-length prepared matrices select this body at the GFNI tier. They cover one row (single residual), three rows (two-row group plus single), four rows (one full group), five rows (full group plus single), and eight rows (two full groups)",
+      "straddling_cells": [
+        "gf16-rijndael/mul_add_matrix/prepared/4096x1x16/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x3x16/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x4x16/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x5x16/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x8x16/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/gfni/matrix.rs::fn mul_add_matrix_gfni_with::cmp:2<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the prepared one-row matrix takes the single residual and the three-row matrix takes the two-row group followed by a single residual",
+      "straddling_cells": [
+        "gf16-rijndael/mul_add_matrix/prepared/4096x1x16/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x3x16/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8.rs::RESOLVE_CHUNK",
+      "class": "unmapped_arcane",
+      "reason": "some sites have no compiler mapping; every mapped site passed; the cited matrix cells resolve eight terms inside one 32-term chunk and thirty-three terms across two chunks",
+      "straddling_cells": [
+        "gf8-aes/mul_add_matrix/unprepared/4096x8x8/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/16384x8x33/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto",
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_at_block::cmp:4<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the offset-addressed walk gates a four-row group, so the three-row cell runs below that floor and the eight-row cell above it",
+      "straddling_cells": [
+        "gf8-aes/mul_add_matrix_at/unprepared/4096x3x3/offset32",
+        "gf8-aes/mul_add_matrix_at/unprepared/4096x8x8/offset32"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_at_block::cmp:2<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the offset-addressed walk gates a two-row group, so the one-row cell runs below that floor and the three-row cell above it",
+      "straddling_cells": [
+        "gf8-aes/mul_add_matrix_at/unprepared/4096x1x1/offset32",
+        "gf8-aes/mul_add_matrix_at/unprepared/4096x3x3/offset32"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_block::cmp:2<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the contiguous walk gates a two-row group, so the one-row cell runs below that floor and the two-row cell above it",
+      "straddling_cells": [
+        "gf8-aes/mul_add_matrix/unprepared/4096x1x1/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/4096x2x4/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/matrix.rs::fn matrix_block::cmp:4<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited matrix cells carry two rows (below the four-row group) and eight rows (above it)",
+      "straddling_cells": [
+        "gf8-aes/mul_add_matrix/unprepared/4096x2x4/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/4096x8x8/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled==1:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited scatter cells fill one and two cohort rows",
+      "straddling_cells": [
+        "gf8-aes/mul_add_scatter/unprepared/4096x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x2x1/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled==3:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited scatter cells fill three and one cohort rows",
+      "straddling_cells": [
+        "gf8-aes/mul_add_scatter/unprepared/4096x3x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x1x1/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled==4:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited scatter cells fill four and one cohort rows",
+      "straddling_cells": [
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x1x1/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/avx512/scatter.rs::fn mul_add_scatter_impl::cmp:filled>=2:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited scatter cells fill two and one cohort rows",
+      "straddling_cells": [
+        "gf8-aes/mul_add_scatter/unprepared/4096x2x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x1x1/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/gather.rs::fn mul_add_gather_gfni::cmp:dst.len()<128:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited gather cells run 64-byte destinations below the 128-byte fused gate and 1536-byte destinations above it",
+      "straddling_cells": [
+        "gf8-aes/mul_add_gather/unprepared/64x1x16/aligned",
+        "gf8-aes/mul_add_gather/unprepared/1536x1x8/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto",
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/gather.rs::fn mul_add_gather_gfni::cmp:coeffs.count()>2:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; both short gathers evaluate the source-count guard, with two sources rejecting fusion and three sources reaching the remainder guards",
+      "straddling_cells": [
+        "gf8-aes/mul_add_gather/unprepared/48x1x2/aligned",
+        "gf8-aes/mul_add_gather/unprepared/48x1x3/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/gather.rs::fn mul_add_gather_gfni::cmp:remainder.trailing_zeros()>=5:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; both three-source gathers pass the preceding guards, with the 32-byte remainder having alignment exponent five and the 48-byte remainder having exponent four",
+      "straddling_cells": [
+        "gf8-aes/mul_add_gather/unprepared/32x1x3/aligned",
+        "gf8-aes/mul_add_gather/unprepared/48x1x3/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/rows.rs::MATRIX_PREFETCH_MIN",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited matrix cells run 4096-byte rows below the 8192-byte prefetch floor and 12288-byte rows above it, both within one resolve chunk",
+      "straddling_cells": [
+        "gf8-aes/mul_add_matrix/unprepared/4096x8x8/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/12288x8x8/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto",
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/rows.rs::MAX_GROUP_ROWS",
+      "class": "unmapped_arcane",
+      "reason": "some sites have no compiler mapping; every mapped site passed; the cited matrix cells walk sixteen rows in groups that include the six-row width and eight rows in four-row groups",
+      "straddling_cells": [
+        "gf8-aes/mul_add_matrix/unprepared/64x16x8/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/4096x8x8/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto",
+        "v4x"
+      ]
+    },
+    {
       "item": "src/kernel/x86/gf8/gfni/rows.rs::THREE_LANE_MAX_ROW",
       "key": "src/kernel/x86/gf8/gfni/rows.rs::THREE_LANE_MAX_ROW",
       "class": "unmapped_branch",
-      "reason": "the comparison is the last conjunct of `const fn three_lanes` (`src/kernel/x86/gf8/gfni/rows.rs:354-360`, comparison at `:358`), called only from the `#[archmage::rite(v3_gfni_crypto)] matrix_group` ritual body at `:400`; the pinned compiler emitted no branch record inside that mapped ritual body. The straddling cells execute 3-row matrix groups at 65536-byte rows (below the 128 KiB bound) and 131136-byte rows (above it)",
+      "reason": "the comparison is the last conjunct of `const fn three_lanes` (`src/kernel/x86/gf8/gfni/rows.rs:354-360`, comparison at `:358`), called only from the `#[archmage::rite(v3_gfni_crypto)] matrix_group` ritual body at `:400`; the pinned compiler emitted no branch record inside that mapped ritual body. The straddling cells execute three-row matrix groups at 512-byte rows (inside the three-lane window) and 131136-byte rows (past the 128 KiB bound)",
       "straddling_cells": [
-        "gf8-aes/mul_add_matrix/unprepared/65536x8x8/aligned",
+        "gf8-aes/mul_add_matrix/unprepared/512x3x6/aligned",
         "gf8-aes/mul_add_matrix/unprepared/131136x3x6/aligned"
       ],
       "tiers": [
         "v3_gfni_crypto",
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/scatter.rs::fn mul_add_scatter_impl::cmp:filled==1:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited scatter cells fill one and two cohort rows",
+      "straddling_cells": [
+        "gf8-aes/mul_add_scatter/unprepared/4096x1x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x2x1/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto",
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/scatter.rs::fn mul_add_scatter_impl::cmp:filled==3:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited scatter cells fill three and one cohort rows",
+      "straddling_cells": [
+        "gf8-aes/mul_add_scatter/unprepared/4096x3x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x1x1/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto",
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/scatter.rs::fn mul_add_scatter_impl::cmp:filled==4:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited scatter cells fill four and one cohort rows",
+      "straddling_cells": [
+        "gf8-aes/mul_add_scatter/unprepared/4096x16x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x1x1/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto",
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf8/gfni/scatter.rs::fn mul_add_scatter_impl::cmp:filled>=2:right",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited scatter cells fill two and one cohort rows",
+      "straddling_cells": [
+        "gf8-aes/mul_add_scatter/unprepared/4096x2x1/aligned",
+        "gf8-aes/mul_add_scatter/unprepared/4096x1x1/aligned"
+      ],
+      "tiers": [
+        "v3_gfni_crypto",
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/mersenne31/avx512.rs::SCREEN_LANES",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited cells run the AVX-512 fused multiply and in-place scale bodies that screen four lanes per register group",
+      "straddling_cells": [
+        "m31/mul_add/unprepared/4096x1x1/aligned",
+        "m31/mul_assign/unprepared/4096x1x1/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/quad_mersenne31/avx512.rs::SCREEN_LANES",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited cells run the AVX-512 fused multiply body that screens four lanes per register group",
+      "straddling_cells": [
+        "qm31/mul_add/unprepared/4096x1x1/aligned",
+        "qm31/mul_add/unprepared/65536x1x1/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/residue/avx2/matrix.rs::TILE",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited prepared matrix cells run delayed tiles of exactly four output rows",
+      "straddling_cells": [
+        "residue-1000000007/mul_add_matrix/prepared/256x4x8/aligned",
+        "residue-1000000007/mul_into_matrix/prepared/256x4x8/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/residue/avx512/matrix.rs::TILE",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the cited prepared matrix cells run delayed tiles of exactly four output rows",
+      "straddling_cells": [
+        "residue-1000000007/mul_add_matrix/prepared/256x4x8/aligned",
+        "residue-1000000007/mul_into_matrix/prepared/256x4x8/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/ops/recip.rs::CHUNK_ELEMS",
+      "class": "unmapped_arcane",
+      "reason": "some sites have no compiler mapping; every mapped site passed; the cited batch-inversion cells stage 64-element chunks on both registered fields",
+      "straddling_cells": [
+        "gf8-aes/inv_into/unprepared/4096x1x1/aligned",
+        "m31/inv_into/unprepared/4096x1x1/aligned"
+      ]
+    },
+    {
+      "key": "src/kernel/x86/gf16/avx512.rs::fn mul_add_matrix_avx512_with::cmp:2<=nrows:left",
+      "class": "unmapped_arcane",
+      "reason": "the pinned compiler emitted no mapping for any site; the prepared one-row matrix takes the single residual and the three-row matrix takes the two-row group followed by a single residual",
+      "straddling_cells": [
+        "gf16-rijndael/mul_add_matrix/prepared/4096x1x16/aligned",
+        "gf16-rijndael/mul_add_matrix/prepared/4096x3x16/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/routing.rs::GF8_NIBBLE_MUL_ASSIGN_MIN",
+      "class": "unmapped_branch",
+      "reason": "the nibble-shuffle switch sits in the non-AVX-512 scale arm of the byte-field dispatch (`src/kernel/gf8.rs:434`); the v4x strategy never selects that arm, and the pinned compiler emitted no branch record for the span the v4x arm does execute. The straddling cells run the same scale operation below and at the 65536-byte floor",
+      "straddling_cells": [
+        "gf8-aes/mul_assign/unprepared/4096x1x1/aligned",
+        "gf8-aes/mul_assign/unprepared/65536x1x1/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/routing.rs::NT_STORE_MIN",
+      "class": "unmapped_branch",
+      "reason": "the streaming-store split (`src/kernel/x86.rs:93`, `:104`) keeps its region mapping at v4x through the overwrite bodies that consult it, but the pinned compiler emitted no branch record for the sub-floor arm and the v4x dispatch routes sub-floor overwrites through the AVX-512 body instead. The straddling cells run the overwrite operation below and at the 2 MiB floor",
+      "straddling_cells": [
+        "gf8-aes/mul_into/prepared/4096x1x1/aligned",
+        "gf8-aes/mul_into/unprepared/2097152x1x1/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/routing.rs::QUAD_VECTOR_ADD_MIN_BYTES",
+      "class": "unmapped_branch",
+      "reason": "the vector-floor comparison sits in the Quad-Mersenne addition arms (`src/kernel/quad_mersenne31.rs:104`, `:115`, `:147`, `:158`, `:417`, `:433`); the v4x session executes the containing arms through the sub-floor scalar and at-floor vector routes, but the pinned compiler emitted no branch record for the remaining spans. The straddling cells run the same addition below and at the 64-byte floor",
+      "straddling_cells": [
+        "qm31/add_assign/unprepared/32x1x1/aligned",
+        "qm31/add_assign/unprepared/128x1x1/aligned"
+      ],
+      "tiers": [
+        "v4x"
+      ]
+    },
+    {
+      "key": "src/kernel/routing.rs::QUAD_VECTOR_MUL_MIN_BYTES",
+      "class": "unmapped_branch",
+      "reason": "the vector-floor comparison sits in the Quad-Mersenne multiply arms (`src/kernel/quad_mersenne31.rs:207` through `:399`); the v4x session executes the containing arms through the sub-floor scalar and at-floor vector routes, but the pinned compiler emitted no branch record for the remaining spans. The straddling cells run the same multiply below and at the 32-byte floor",
+      "straddling_cells": [
+        "qm31/mul_add/unprepared/16x1x1/aligned",
+        "qm31/mul_add/unprepared/64x1x1/aligned"
+      ],
+      "tiers": [
         "v4x"
       ]
     }

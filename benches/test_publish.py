@@ -220,7 +220,8 @@ def make_runner_session(session_id: str = "20261107T050000Z-willow", *,
                         tier: str = "v4x", cell: str = CELL_A,
                         base_ns: float = 101.0,
                         candidate_ns: float = 100.0,
-                        confirmation_ns: float | None = None) -> dict:
+                        confirmation_ns: float | None = None,
+                        targets: list[str] | None = None) -> dict:
     args = argparse.Namespace(
         mode="acceptance", runs="5", rounds="3", delta="0.03", gamma="0.03",
         drift_cap="0.01", features="simd512",
@@ -288,7 +289,7 @@ def make_runner_session(session_id: str = "20261107T050000Z-willow", *,
         "base": {tier: {cell: base_ns}},
         "candidate": {tier: {cell: candidate_ns}},
     }
-    decision = bench_pair.recorded_staged_decision(session, tier)
+    decision = bench_pair.recorded_staged_decision(session, tier, targets)
     session["decisions"] = bench_pair.publishable_decisions({tier: decision})
     session["confirmed_failures"] = {tier: decision["confirmed_failures"]}
     session["rows"] = bench_pair.build_rows(session, [tier], [cell])
@@ -841,25 +842,26 @@ class PublisherTests(unittest.TestCase):
         threshold = {
             "inventory_path": "inventory.json",
             "item_key": "cutoff",
-            "old_value": 16,
-            "new_value": 32,
+            "old_value": 2048,
+            "new_value": 8192,
             "unit": "bytes",
+            "comparison": "<",
             "axis": "row_len",
             "declared_cells": [CELL_B],
             "target_set": [CELL_B],
             "span_ok": True,
             "path": "threshold.json",
             "digest": "e" * 64,
-            "grid": [16, 32],
+            "grid": [2048, 4096, 8192],
             "cells": [{
                 "cell": CELL_B,
-                "axis_value": 16,
+                "axis_value": 4096,
                 "route_old": "v2",
                 "route_new": "v4x",
                 "route_differs": True,
             }],
-            "old": 16,
-            "new": 32,
+            "old": 2048,
+            "new": 8192,
         }
         session = make_session(
             "20261107T040000Z-willow", kind="threshold",
@@ -887,8 +889,13 @@ class PublisherTests(unittest.TestCase):
             )
             session["kind"], session["acceptance"] = "threshold", False
             session["threshold"] = {
-                "item_key": "cutoff", "unit": "bytes", "old": 64, "new": 128,
-                "cells": [{"cell": CELL_A}, {"cell": CELL_B}], "target_set": [CELL_A],
+                "item_key": "cutoff", "unit": "bytes", "old": 32768, "new": 131072,
+                "comparison": "<",
+                "cells": [
+                    {"cell": CELL_A, "axis_value": 65536},
+                    {"cell": CELL_B, "axis_value": 4096},
+                ],
+                "target_set": [CELL_A],
             }
             for run in session["runs"]:
                 if run["stage"] == "main":
@@ -913,6 +920,75 @@ class PublisherTests(unittest.TestCase):
             self.assertIn("| confirmed_regression |", page)
             self.assertIn("| unconfirmed_main_failure |", page)
             self.assertFalse(sessions[1]["decisions"]["superiority"]["passed"])
+
+    def test_unsuccessful_thresholds_publish_as_evidence_not_current_results(self):
+        for candidate_ns in (102.0, 108.0):
+            with self.subTest(candidate_ns=candidate_ns):
+                session = make_runner_session(
+                    f"unsuccessful-threshold-{candidate_ns}", cell=CELL_B,
+                    base_ns=100.0, candidate_ns=candidate_ns,
+                    targets=[CELL_B],
+                )
+                session["kind"], session["acceptance"] = "threshold", False
+                session["threshold"] = {
+                    "item_key": "cutoff", "unit": "bytes", "old": 2048, "new": 8192,
+                    "comparison": "<",
+                    "cells": [{"cell": CELL_B, "axis_value": 4096}],
+                    "target_set": [CELL_B],
+                }
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    manifest = write_manifest(root, [session])
+                    code, _, stderr = run_publish(root, manifest)
+                    self.assertEqual(code, 0, stderr)
+                    page = read_page(root, "benchmarks/thresholds.md")
+                    declaration = next(
+                        line for line in page.splitlines()
+                        if 'id="threshold-' in line
+                    )
+                    self.assertEqual(
+                        [cell.strip() for cell in declaration.split("|")][-3:-1],
+                        ["yes" if candidate_ns == 102.0 else "no", "no"],
+                    )
+                    self.assertNotIn(CELL_B, read_page(root, "BENCHMARKS.md"))
+                    self.assertNotIn(CELL_B, read_page(root, "benchmarks/history.md"))
+                    self.assertNotIn("| accepted |", page)
+                    self.assertEqual(run_publish(root, manifest, "--verify")[0], 0)
+                session["runs"].pop()
+                with self.assertRaises(publish.PublishError):
+                    publish.validate_session(session, "incomplete threshold evidence")
+                session["rejected"] = True
+                with self.assertRaises(publish.PublishError):
+                    publish.validate_session(session, "rejected threshold measurement")
+
+    def test_threshold_predicate_provenance_is_required_and_rechecks_targets(self):
+        session = make_runner_session(
+            "predicate-provenance", cell=CELL_B, base_ns=100.0,
+            candidate_ns=95.0, targets=[CELL_B],
+        )
+        session["kind"], session["acceptance"] = "threshold", False
+        session["threshold"] = {
+            "item_key": "inclusive-cutoff", "unit": "bytes",
+            "old": 4096, "new": 8192,
+            "cells": [{"cell": CELL_B, "axis_value": 4096}],
+            "target_set": [CELL_B],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = write_manifest(root, [session])
+            capture = root / "records" / "pair" / session["session_id"] / "session.json"
+            captured_bytes = capture.read_bytes()
+            self.assertNotEqual(run_publish(root, manifest)[0], 0)
+            document = json.loads(manifest.read_text(encoding="utf-8"))
+            document["sessions"][0]["threshold_comparison"] = "<="
+            manifest.write_text(json.dumps(document), encoding="utf-8")
+            self.assertNotEqual(run_publish(root, manifest)[0], 0)
+            document["sessions"][0]["threshold_comparison"] = "<"
+            manifest.write_text(json.dumps(document), encoding="utf-8")
+            code, _, stderr = run_publish(root, manifest)
+            self.assertEqual(code, 0, stderr)
+            self.assertEqual(run_publish(root, manifest, "--verify")[0], 0)
+            self.assertEqual(capture.read_bytes(), captured_bytes)
 
 
 class IncrementalDescriptiveTests(unittest.TestCase):

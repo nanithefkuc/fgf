@@ -43,6 +43,126 @@
     {
       "path": "baseline/20261108T060927Z-Comet/session.json",
       "sha256": "2f0f5671886735ccd0a1e380fce139425d3d705ffd2a650aa285835f149da87b"
+    },
+    {
+      "path": "pair/20261108T142601Z-Comet/session.json",
+      "threshold_comparison": "<",
+      "sha256": "c58b3cfdaefbba014d5e16a48efad62696e39166eec2f779d17f5570dda2d68e"
+    },
+    {
+      "path": "pair/20261108T142824Z-Comet/session.json",
+      "threshold_comparison": "<",
+      "sha256": "35e3bc121d498544275604f77ff073ef618bd72b88cea57e99e1c0a50b46bf55"
+    },
+    {
+      "path": "pair/20261108T143048Z-Comet/session.json",
+      "threshold_comparison": "<",
+      "sha256": "40a5abfd2cfe770b25d49e7f09ddd99d17db10d7c0bf1909c5a31df4f438acbc"
+    },
+    {
+      "path": "pair/20261108T143928Z-Comet/session.json",
+      "threshold_comparison": "<",
+      "sha256": "fded42f184db101279276df3425bab760b239d4ed63f444b17a67c50fabbc7d6"
+    },
+    {
+      "path": "pair/20261108T144139Z-Comet/session.json",
+      "threshold_comparison": "<",
+      "sha256": "aba22be9a510d32a7a0b37b7960a8207ea4c87136f288c556b684d78dd9d3b81"
+    },
+    {
+      "path": "pair/20261108T144349Z-Comet/session.json",
+      "threshold_comparison": "<",
+      "sha256": "4a851465d317cb38672756e746ccf6669a1f85406ac4f267d719f6362ed0ee0f"
+    },
+    {
+      "path": "pair/20261108T144611Z-Comet/session.json",
+      "threshold_comparison": "<",
+      "sha256": "2457f2c5caccfe65af17182968c7d04af37b572f337cbe7fe427678237874f52"
+    },
+    {
+      "path": "pair/20261108T144836Z-Comet/session.json",
+      "threshold_comparison": "<",
+      "sha256": "8ab888978bb8d3be92b2c1f4b93a387e14b09b839a528bb02682ba7bd368e662"
+    },
+    {
+      "path": "pair/20261108T140932Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "64fbb6bbcea7a943d14ceec58f3e4da8295f156669f228e3d634e26503817ebe"
+    },
+    {
+      "path": "pair/20261108T141302Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "7666fbf65611f798eb4e31728ff4ba7c885f489008655ecc63b09299e70186e2"
+    },
+    {
+      "path": "pair/20261108T141632Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "ba53721ac0a92467499c641d56cc62f4022ac201c82daf6db601e76b65a9ad3a"
+    },
+    {
+      "path": "pair/20261108T142008Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "c59f31dd7ef2fffc2b32db90e8cdf39a1a3861545808f7f48ae76189eecce98a"
+    },
+    {
+      "path": "pair/20261108T142346Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "0e81b1311be25cc74efc1099a0d8545992740e1e0e95938adb275b29061ff7c8"
+    },
+    {
+      "path": "pair/20261108T142959Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "627ce92a47c8d81d020d9a84657c042085ac67d794016e94fa5fdf7b1d719ab0"
+    },
+    {
+      "path": "pair/20261108T143933Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "3a6d6387a2aaf31e9d9801c89115488f8c9b82ad70cd645e83647f8a6a56fb43"
+    },
+    {
+      "path": "pair/20261108T144257Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "3732a3097c9e1c9114486b1b682e45995567e94ea3985106ad3394bda93da23a"
+    },
+    {
+      "path": "pair/20261108T144625Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "a58e81b49ab819a7e2cae76a70d6ff2fe6251f8a671316bce1acb60a6d370445"
+    },
+    {
+      "path": "pair/20261108T144955Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "f2d050b59d98c8675d3182b954c31bca0d510f73218869f2e02af13fceb048ed"
+    },
+    {
+      "path": "pair/20261108T145319Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "d06f74d9d30e943d57938b95f4db77be819d16225ac6f1b9adfdcbec79579fdf"
+    },
+    {
+      "path": "pair/20261108T145638Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "faa395925d00ee05a823d04521e208083418f97eb7f30aac7692560f62f535ca"
+    },
+    {
+      "path": "pair/20261108T150003Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "8c169d4363ade55def7adae65c82264e47f0c10df0d01f6d55a0ac39c9984ecb"
+    },
+    {
+      "path": "pair/20261108T150325Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "c2ba8c75f43a723ad2c7ac3c6d85868242e4febb9724a85a29f8bcb2961e276c"
+    },
+    {
+      "path": "pair/20261108T150643Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "6932113b9d8a2923835a0d46453a75af1e03c79e82f573d362ddedf08b34f1ec"
+    },
+    {
+      "path": "pair/20261108T151003Z-zbox/session.json",
+      "threshold_comparison": "<",
+      "sha256": "53bae8dfd20ab3216a84965dc0b2bc24df1c6578e84ea65844efedb230fb8df6"
     }
   ],
   "competitors": []

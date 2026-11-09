@@ -245,7 +245,7 @@ ROW_KEYS = (
 CALIBRATION_KEYS = ("mode", "recommendation")
 RECOMMENDATION_KEYS = ("runs", "drift_cap", "per_tier")
 THRESHOLD_KEYS = (
-    "item_key", "unit", "old", "new", "cells", "target_set",
+    "item_key", "unit", "old", "new", "comparison", "cells", "target_set",
 )
 
 
@@ -658,8 +658,11 @@ def validate_session(session: dict, where: str) -> None:
                 tier: record["confirmed_failures"] for tier, record in recomputed.items()
             }:
                 fail(f"{where}.confirmed_failures disagree with staged runs")
-    _check_decisions(decisions, f"{where}.decisions",
-                     allow_layout_exception=True, session=session)
+    # A completed threshold comparison records evidence even when its candidate
+    # is not superior; measurement rejection and staged-run validation still apply.
+    if kind != "threshold":
+        _check_decisions(decisions, f"{where}.decisions",
+                         allow_layout_exception=True, session=session)
     rejections = session["rejections"]
     if not isinstance(rejections, list):
         fail(f"{where}.rejections must be a list")
@@ -719,17 +722,30 @@ def validate_session(session: dict, where: str) -> None:
             fail(f"{where}.threshold.unit is unsupported")
         if threshold.get("axis") is not None:
             _require_string(threshold["axis"], f"{where}.threshold.axis")
+        comparison = threshold["comparison"]
+        if not isinstance(comparison, str) or comparison not in {"<", "<=", "=="}:
+            fail(f"{where}.threshold.comparison has no supported source predicate")
+        derived_targets = set()
         cells = threshold["cells"]
         if not isinstance(cells, list) or not cells:
             fail(f"{where}.threshold.cells must be a non-empty list")
         for index, entry in enumerate(cells):
             entry = _require_mapping(entry, f"{where}.threshold.cells[{index}]")
             _require_string(entry.get("cell"), f"{where}.threshold.cells[{index}].cell")
+            axis = _require_nonnegative_number(
+                entry.get("axis_value"), f"{where}.threshold.cells[{index}].axis_value"
+            )
+            if bench_pair.threshold_route_differs(
+                axis, threshold["old"], threshold["new"], comparison
+            ):
+                derived_targets.add(entry["cell"])
         targets = threshold["target_set"]
         if not isinstance(targets, list):
             fail(f"{where}.threshold.target_set must be a list")
         for index, cell in enumerate(targets):
             _require_string(cell, f"{where}.threshold.target_set[{index}]")
+        if not derived_targets or set(targets) != derived_targets:
+            fail(f"{where}.threshold.target_set disagrees with its source predicate")
 
     if "layout_only" in session and session["layout_only"] is not None:
         layout = _require_mapping(session["layout_only"], f"{where}.layout_only")
@@ -1064,6 +1080,15 @@ def load_manifest(manifest_path: Path, records_root: Path) -> tuple[
             session = json.loads(content.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             fail(f"cannot read {path}: {exc}")
+        if entry.get("threshold_comparison") is not None:
+            if session.get("kind") != "threshold":
+                fail(f"{where}.threshold_comparison requires a threshold session")
+            threshold = _require_mapping(session.get("threshold"), f"{where}.threshold")
+            supplied = entry["threshold_comparison"]
+            if threshold.get("comparison", supplied) != supplied:
+                fail(f"{where}.threshold_comparison conflicts with the captured predicate")
+            # Supplemental source evidence never rewrites the digested capture.
+            session["threshold"] = {**threshold, "comparison": supplied}
         validate_session(session, f"session {relative}")
         session_id = session["session_id"]
         if session_id in seen_ids:
@@ -1246,6 +1271,8 @@ def _measurement_record(row: PublishedRow) -> str:
             return "confirmed_regression"
         if row.cell in noninferiority.get("unconfirmed_failures", []):
             return "unconfirmed_main_failure"
+    if session["kind"] == "threshold":
+        return "threshold_evidence"
     if row.arm == "layout_control":
         return "layout_control"
     return "descriptive" if session["kind"] == "descriptive" else "accepted"
@@ -1523,24 +1550,41 @@ def render_thresholds(hosts: list[HostSpec], sessions: list[PublishedSession],
             threshold = session.data["threshold"]
             old = fmt_cutoff(float(threshold["old"]), digits)
             new = fmt_cutoff(float(threshold["new"]), digits)
+            records = _decision_records(session.data["decisions"])
+            noninferior = all(
+                record["noninferiority"]["passed"] is True for _, record in records
+            )
+            superiority = [
+                record["superiority"]["passed"] for _, record in records
+                if (record.get("superiority") or {}).get("declared")
+            ]
+            session_id = html.escape(session.data["session_id"], quote=True)
             declarations.append([
-                f"`{session.data['session_id']}`",
+                f'<a id="threshold-{session_id}"></a>`{session_id}`',
                 f"`{threshold['item_key']}`",
+                f"`{threshold['comparison']}`",
                 old,
                 new,
                 str(len(threshold["cells"])),
                 str(len(threshold["target_set"])),
+                "yes" if records and noninferior else "no",
+                ("yes" if all(superiority) else "no") if superiority else "-",
             ])
         lines += [
             "",
             f"## Declarations ({unit})",
             "",
             render_markdown_table(
-                ["Session", "Item", f"Old cutoff ({unit})",
-                 f"New cutoff ({unit})", "Declared cells", "Target cells"],
+                ["Session", "Item", "Predicate", f"Old cutoff ({unit})",
+                 f"New cutoff ({unit})", "Declared cells", "Target cells",
+                 "Noninferior", "Superior"],
                 declarations),
         ]
     _append_caveats(lines, hosts)
+    lines.append(
+        "- Threshold tables retain unsuccessful candidate comparisons; their "
+        "decision columns do not assert adoption or update current results."
+    )
     return "\n".join(lines).rstrip() + "\n"
 
 

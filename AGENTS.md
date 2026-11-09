@@ -619,6 +619,14 @@ Before any timing, both arms must expose the same cell inventory, their
 sets must match the snapshot's, and the effective flags must carry the
 required alignment tokens.
 
+A separate instrumented artifact is built per arm on `API_NIGHTLY` with the
+snapshot's features. Before timing, the optional diagnostic checks each
+selected row and records compiler-mapped kernel function counts after
+subtracting the inventory-only startup counts. These observations are not
+complete traces of the timed artifacts. An unmapped row does not imply a
+scalar route; a diagnostic failure is recorded without entering a rule.
+`just bench-route-probe TIER --out FILE` runs the same diagnostic independently.
+
 The runners take one exclusive `bench-records/.campaign.lock` in the crate
 root for the whole session, regardless of capture destination, then re-probe
 the host before the preflight and before every
@@ -637,15 +645,17 @@ rounds, and its session summary is the median of main-stage run summaries.
 Every run is bracketed by the harness's start and end controls. In acceptance and
 threshold modes, drift is the interquartile range divided by the median of
 every arm's start control within each tier and stage. The recorded
-`drift_method` is `iqr_over_median`; drift must not exceed the calibrated cap.
+`drift_method` is `iqr_over_median`; drift must not exceed the configured cap.
 
 The estimator is the per-run log ratio `log(candidate / base)` for every cell.
 Each cell's location estimate is the Hodges–Lehmann estimate of its ratios,
-and its upper bound is the one-sided 95% distribution-free Wilcoxon
-signed-rank bound, an order statistic of the Walsh averages. The exact null
-distribution supplies the order statistic up to the enumeration limit; larger
-run counts use a continuity-corrected normal approximation. A cell needs at
-least the estimator's minimum paired-run count before a bound is defined.
+and its upper bound is the one-sided Wilcoxon signed-rank bound, an order
+statistic of the Walsh averages, with nominal confidence 95%. Its coverage
+assumes independent log ratios symmetric about a common location. The exact
+null distribution supplies the order statistic up to the enumeration limit;
+larger run counts use a continuity-corrected normal approximation with
+approximate coverage. A cell needs at least the estimator's minimum paired-run
+count before a bound is defined.
 Noninferiority compares the upper bound with `log(1 + PAIR_DELTA)`.
 Acceptance and threshold sessions confirm eligible main-stage failures in
 fresh processes within the same session, using the built arms and the host's
@@ -673,13 +683,18 @@ base against a layout control rebuilt from the same revision with a different
 Cargo metadata seed. A calibration session reports, per tier, every cell whose
 Hodges–Lehmann upper bound at the full calibration budget exceeds
 `log(1 + PAIR_DELTA / 2)` as unstable, and recommends a stable-cell run count:
-the smallest run count, at or above the estimator's minimum, that puts every
-stable cell's bound at or below that limit. Unstable cells do not make the
-session fail; a tier below the estimator's minimum run count is rejected as
-insufficient. The recommendation also reports the largest observed drift
+the smallest common prefix, at or above the estimator's minimum, that puts
+every stable cell's bound at or below that limit across all measured tiers.
+Unstable cells do not make the session fail; no common passing prefix within
+the collected samples is reported as insufficient.
+An insufficient recommendation reports the bounds and estimates at the
+largest common prefix, rather than a different full budget for each tier.
+Recorded prior-calibration drift is retained by reanalysis; older captures
+without that provenance explicitly report it unavailable.
+The recommendation also reports the largest observed drift
 times `PAIR_DRIFT_SAFETY_FACTOR` as a diagnostic; the configured
 `PAIR_DRIFT_CAP` is half the noninferiority margin (`PAIR_DELTA / 2`) on every
-host, so admitted drift cannot create or hide a decision.
+host as a policy budget, not a guarantee that drift cannot affect decisions.
 `PAIR_CALIBRATION_RUNS` bounds how many runs it collects. The recommendation binds the exact
 hostnames, measured tiers, toolchain identity, and effective flags, which the
 recipe carries as `PAIR_CALIBRATED_HOSTS`, `PAIR_CALIBRATED_TIERS`,
@@ -724,6 +739,12 @@ becomes the cell's spread. The record is
 `spread_unavailable`, `regression_exceeds_spread`, or
 `owner_exception_required`, and an owner signs the exception in the published
 layout table. The procedure never records a pass for a failed cell.
+Layout spreads bind the entire immutable measurement snapshot. Signing an
+unstable list or exporting its catalogue does not require changing that
+snapshot: the live policy files are separate runner inputs. A changed harness
+snapshot invalidates the spread even when existing cell metadata is unchanged;
+the signed cell exclusions and measured binary-layout spreads have distinct
+invalidation rules.
 
 `--mode threshold` measures threshold evidence. Its declaration names one
 inventory item, the old and new cutoff values, and the cells with their axis
@@ -734,6 +755,18 @@ cutoffs), and the integral midpoints between adjacent grid values. A
 declaration with no cell strictly between the old and new cutoff is rejected,
 as is a declared route that disagrees with the cutoff comparison. The measured
 target set is every declared cell whose route changes.
+The inventory records the source-derived low-side predicate (`<`, `<=`, or
+`==`); ambiguous or missing comparisons are refused. Cutoffs are integers and
+at least one declared cell must change route.
+
+Threshold publication retains unsuccessful comparisons as evidence, not as
+adopted current results. Each capture supplies its comparison; a capture
+without one needs an explicit, source-checked `threshold_comparison`
+annotation in the session manifest. The publisher re-derives targets and
+rejects a missing, conflicting, or inconsistent predicate. Supplemental
+evidence does not rewrite a captured file or its digest. Historical item keys
+identify their measured source revision rather than a later file layout.
+
 
 `--reanalyze SESSION_JSON` recomputes a stored session's rule outcomes from
 its per-run summaries under the current estimator and drift method, without
@@ -785,13 +818,56 @@ relates every kernel-registry entry and threshold-inventory branch to the
 cells that execute it, and it exits non-zero for an unexecuted required entry
 or a one-sided required branch unless `benches/coverage_exceptions.json`
 records the item with a reason. Exception classes are `unreachable`,
-`unmapped_arcane`, and `ambiguous`; a stale exception is itself a failure. The
-recipe needs `FGF_THRESHOLD_INVENTORY`, reads `scan.py` beside the inventory,
-and regenerates the kernel registry when its identity does not match the tree.
+`unmapped_arcane`, and `unmapped_branch`; invalid declarations fail, while
+exceptions unnecessary at a particular tier remain diagnostic. The recipe
+needs `FGF_THRESHOLD_INVENTORY`, reads `scan.py` beside the inventory, and
+regenerates the kernel registry when its identity does not match the tree.
+Ambiguous attribution is never excused.
+Exception declarations may key `straddling_cells` by tier; the keys must
+then match the entry's `tiers` scope exactly, so a witness set cannot be
+reused at a tier whose routes differ. An `unmapped_arcane` entry may
+additionally declare a `via_entry` proof per tier: a measured caller entry
+plus SHA-256 fingerprints of the caller's and the site owners' sources. The
+proof witnesses that the named caller executed with the declared geometry;
+it grants the opaque callee no execution credit and fails closed on
+fingerprint drift, entries that are not direct source callers, and
+incomplete scopes.
 The pinned compiler emits little or no mapping for `#[archmage::arcane]` kernel
-bodies, so entry evidence is the wrapper's count or the nearest mapped caller
-region, and an `unmapped_arcane` exception names the cells that straddle both
-sides of the unmapped site.
+bodies. Entry evidence uses a wrapper counter or an attributed call-site
+counter, not an unrelated nearby region. Scalar public operations also supply
+exact compiler function counters. An inventory-only run records startup
+counts; operation and helper counters must exceed that footprint and have a
+uniquely resolved public operation matching the cell's operation and
+preparation mode. These counters are direct evidence, not roots for inferred
+callee execution. Resolved calls from registry entries identify potential
+serving routes, not missing dynamic branch counts. Each declared exception
+cell must belong to its source owner's route and satisfy the operation's
+geometry. Boundary declarations cover both source-predicate outcomes;
+schedule declarations execute a complete group or block. Element schedules
+use compiler-owned `FIELD_ELEMENT_BYTES` records rather than treating bytes
+as elements. The packed-bit row has no byte-sized element record.
+Short-gather alignment exceptions use the remainder's trailing-zero count,
+only for cells that pass the preceding length and source-count guards.
+`just bench-threshold-scan` tests the external scanner beside
+`FGF_THRESHOLD_INVENTORY` and regenerates its inventory, positions, and
+checksum. Compound constant expressions retain comparison sites but do not
+claim that the parameter alone is a scalar cutoff.
+
+An entry is required at its declared tier. A tier-specific site with no
+observed execution at another tier is deferred to its own tier session and
+listed as a mapping limitation, never as covered. Stronger-tier execution
+requires a direct measured witness, not a potential call through an untaken
+dispatch arm. A fallback with observed entry or site execution remains
+required at the requesting tier. Unknown site owners remain required.
+Closed strategy-enum inequalities and immutable early-return guards constrain
+applicability; those facts propagate only through fully enumerable helper
+chains. Continuation proofs require immutable, unshadowed bindings and exclude
+else-if bypasses. Unknown enum variants, disjunctions, aliases, glob imports,
+and generic contexts do not establish a capability floor.
+Complete acceptance includes the native tier matrix, rather than treating one
+zero-gap map as complete coverage. Aggregation requires every required input
+row to pass or have a valid exception; a passing host or tier cannot hide
+another input's failure.
 
 ### Publication
 
