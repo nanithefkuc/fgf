@@ -1660,9 +1660,10 @@ def _caller_tier(file: str, model, index: int) -> str | None:
 def configure_caller_tiers(models: dict[str, object]) -> None:
     """Hint enumerable helpers only when every reference has a known tier.
 
-    Hints propagate through complete helper chains. Imports do not execute a
-    helper; indirect uses, duplicate names, macros, stable-reachable functions,
-    and unknown-tier callers stay unresolved.
+    Hints propagate through complete helper chains. Same-named functions use
+    lexical call resolution. Imports do not execute a helper; ambiguous calls,
+    indirect uses, macros, stable-reachable functions, and unknown-tier callers
+    stay unresolved.
     """
 
     global _SOURCE_GENERATION
@@ -1697,43 +1698,56 @@ def configure_caller_tiers(models: dict[str, object]) -> None:
             )
             end = ends.get(index)
             declarations[name].append((file, index, end, enumerable))
+    reach = None
     while True:
         inferred = {}
         for name, choices in declarations.items():
-            if len(choices) != 1:
-                continue
-            file, declaration, end, enumerable = choices[0]
-            if not enumerable or end is None:
-                continue
-            model = models[file]
-            start_line, _ = scan_line_column(model.source, model.tokens[declaration].start)
-            end_line, _ = scan_line_column(model.source, end)
-            key = (file, start_line, end_line)
-            if key in _CALLER_TIERS:
-                continue
-            tiers = []
-            for caller_file, index in references[name]:
-                if caller_file == file and index == declaration + 1:
+            declarations_for_name = {(file, index + 1) for file, index, _, _ in choices}
+            if len(choices) > 1 and reach is None:
+                reach = reachability_index([], [])
+            for file, declaration, end, enumerable in choices:
+                if not enumerable or end is None:
                     continue
-                model = models[caller_file]
-                if any(scope.startswith("macro_rules! ") for scope in model.scopes[index]):
-                    break
-                if _in_use_item(model.tokens, index):
-                    import_end = index
-                    while import_end < len(model.tokens) and model.tokens[import_end].text != ";":
-                        import_end += 1
-                    if any(t.text == "as" for t in model.tokens[index:import_end]):
+                model = models[file]
+                start_line, _ = scan_line_column(model.source, model.tokens[declaration].start)
+                end_line, _ = scan_line_column(model.source, end)
+                key = (file, start_line, end_line)
+                if key in _CALLER_TIERS:
+                    continue
+                tiers = []
+                for caller_file, index in references[name]:
+                    if (caller_file, index) in declarations_for_name:
+                        continue
+                    model = models[caller_file]
+                    if any(scope.startswith("macro_rules! ") for scope in model.scopes[index]):
                         break
-                    continue
-                if _call_path(model.tokens, index) is None:
-                    break
-                hint = _caller_tier(caller_file, model, index)
-                if hint is None:
-                    break
-                tiers.append(hint)
-            else:
-                if tiers:
-                    inferred[key] = min(tiers, key=TIER_RANK.get)
+                    if _in_use_item(model.tokens, index):
+                        import_end = index
+                        while import_end < len(model.tokens) and model.tokens[import_end].text != ";":
+                            import_end += 1
+                        if any(t.text == "as" for t in model.tokens[index:import_end]):
+                            break
+                        continue
+                    call = _call_path(model.tokens, index)
+                    if call is None:
+                        break
+                    if len(choices) > 1:
+                        caller = reach.owner.get((caller_file, index))
+                        resolved = (
+                            _resolve_call(reach, caller_file, caller.module, call[0])
+                            if caller is not None else None
+                        )
+                        if resolved is None:
+                            break
+                        if resolved.key != (file, declaration):
+                            continue
+                    hint = _caller_tier(caller_file, model, index)
+                    if hint is None:
+                        break
+                    tiers.append(hint)
+                else:
+                    if tiers:
+                        inferred[key] = min(tiers, key=TIER_RANK.get)
         if not inferred:
             break
         _CALLER_TIERS.update(inferred)

@@ -1350,6 +1350,57 @@ class TierHintTests(unittest.TestCase):
             "v3",
         )
 
+    def test_qualified_shared_helpers_keep_distinct_tier_requirements(self):
+        lower = "src/kernel/x86/gf8/rows.rs"
+        wider = "src/kernel/x86/gf8/wide_rows.rs"
+        helper = (
+            "const CUTOFF: usize = 8;\n"
+            "pub(super) fn group(n: usize) -> bool { guard(n) }\n"
+            "fn guard(n: usize) -> bool { n < CUTOFF }\n"
+        )
+        sources = {
+            lower: helper,
+            wider: helper,
+            "src/kernel/x86/gf8/gfni/matrix.rs": (
+                "fn dispatch(n: usize) -> bool { super::super::rows::group(n) }\n"
+            ),
+            "src/kernel/x86/gf8/avx512/matrix.rs": (
+                "fn dispatch(n: usize) -> bool { super::super::wide_rows::group(n) }\n"
+            ),
+        }
+        for portable in (False, True):
+            world = dict(sources)
+            if portable:
+                world["src/kernel/x86/gf8/portable.rs"] = (
+                    "fn dispatch(n: usize) -> bool { super::rows::group(n) }\n"
+                )
+            coverage_map.configure_caller_tiers({
+                name: source_model(text) for name, text in world.items()
+            })
+            try:
+                for file, own_tier in ((lower, "v3_gfni_crypto"), (wider, "v4x")):
+                    site = coverage_map.SiteTarget(
+                        site_id=0, item_key=file + "::CUTOFF",
+                        file=file, line=3, column=32, role="branch",
+                    )
+                    item = {
+                        "key": site.item_key, "class": "tuning_parameter", "value": 8,
+                        "unit": "bytes", "axis": "row length", "routes": "row schedule",
+                        "site_ids": [0], "mapped": False,
+                    }
+                    for requested in ("v3_gfni_crypto", "v4x"):
+                        with self.subTest(file=file, tier=requested, portable=portable):
+                            row, = coverage_map.summarize_thresholds(
+                                [item], [site], [], {}, requested
+                            )
+                            required = requested == own_tier or (portable and file == lower)
+                            self.assertEqual(row["required"], required)
+                            self.assertEqual(
+                                len(coverage_map.failures([], [row])), int(required)
+                            )
+            finally:
+                coverage_map.configure_sources()
+
     def test_unresolved_or_indirect_helper_callers_prevent_a_tier_hint(self):
         for text in (
             "fn portable() {\n    blocked();\n}\n",
