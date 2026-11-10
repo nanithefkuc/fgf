@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Portable benchmark builds retain the residue strategy type used by scalar
+  route reporting, including all-feature i686 builds.
+
 ### Added
 
 - `just bench-baseline` records standalone descriptive measurements across

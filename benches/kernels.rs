@@ -30,7 +30,6 @@ use std::time::{Duration, Instant};
 use fgf::binary::AES;
 use fgf::binary::{Polynomial, RS};
 use fgf::extension::QuadMersenne31;
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use fgf::internals::kernel::ResidueStrategy;
 use fgf::prime::{Goldilocks, Mersenne31};
 use fgf::{Elem, FieldBuffer, FiniteField, backend, backend_for, ops};
