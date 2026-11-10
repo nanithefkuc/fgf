@@ -49,7 +49,9 @@ use crate::kernel::{ResidueStrategy, residue_strategy};
 /// Buffers at most this long skip the dispatched SIMD XOR for the inline
 /// portable one: below a single vector the out-of-line SIMD entry boundary
 /// costs more than the body saves, and short GF(2) rows (eight elements per
-/// byte) sit almost entirely under it.
+/// byte) sit almost entirely under it. The short-row crossover is the 3.0.2
+/// record at
+/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/gf8.md>.
 pub(super) const XOR_INLINE_MAX: usize = 31;
 
 /// Shortest destination a fused overwrite serves with non-temporal stores.
@@ -61,7 +63,9 @@ pub(super) const XOR_INLINE_MAX: usize = 31;
 ///
 /// Non-temporal stores evict the written destination from cache, so a
 /// subsequent read pays to fetch it again. `mul_add` and `mul_assign` read
-/// their destination and keep ordinary stores.
+/// their destination and keep ordinary stores. The large-destination
+/// crossover is the 3.0.2 record at
+/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/gf8.md>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(super) const NT_STORE_MIN: usize = 2 << 20;
 
@@ -87,7 +91,9 @@ pub(super) const ALIGN_PEEL_MIN: usize = 16 * 128;
 /// Shortest destination the 64-byte byte XOR serves.
 ///
 /// Shorter destinations run [`crate::kernel::x86::bytes::xor_avx2`], which
-/// covers them in one out-of-line call.
+/// covers them in one out-of-line call. The crossover is the 3.0.2 record
+/// at
+/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/gf8.md>.
 #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 pub(super) const XOR_AVX512_MIN: usize = 256;
 
@@ -96,7 +102,8 @@ pub(super) const XOR_AVX512_MIN: usize = 256;
 /// The peel is one out-of-line AVX2 call, which short buffers do not
 /// repay; from this floor head bytes up to the destination's first 64-byte
 /// boundary run there so every 64-byte access on the destination stays
-/// within one cache line.
+/// within one cache line. The crossover is the 3.0.2 record at
+/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/gf8.md>.
 #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 pub(super) const XOR_PEEL_MIN: usize = 512;
 
@@ -108,7 +115,10 @@ pub(super) const XOR_PEEL_MIN: usize = 512;
 /// non-AES representation.
 ///
 /// The affine in-place GFNI form serves shorter buffers; the native AES
-/// multiply stays on the GFNI body at every size.
+/// multiply stays on the GFNI body at every size. The halved 32768
+/// candidate fails superiority, so the cutoff stays; the two-arm evidence
+/// is the threshold record at
+/// <https://github.com/nanithefkuc/fgf/blob/3e95f90b68ab4d48279df503aceb2ac2e3b69443/benchmarks/thresholds.md#threshold-20261108T143928Z-Comet>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(super) const GF8_NIBBLE_MUL_ASSIGN_MIN: usize = 65_536;
 
@@ -124,21 +134,25 @@ pub(super) const MATRIX_RESOLVE_MIN: usize = 512;
 /// Shortest matrix row that peels its head to a 64-byte boundary.
 ///
 /// The peel runs one sub-lane AXPY per row per term, so it repays only
-/// once the tile body is long enough.
+/// once the tile body is long enough. The crossover is the 3.0.2 record
+/// at
+/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/gf8.md>.
 #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 pub(super) const MATRIX_PEEL_MIN: usize = 8192;
 
 /// Shortest scatter row that peels its head to a 64-byte boundary.
 ///
 /// Below this the scalar/AVX2 head costs more than the split-line loads it
-/// removes.
+/// removes. The crossover is the 3.0.2 record at
+/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/gf8.md>.
 #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 pub(super) const SCATTER_PEEL_MIN: usize = 512;
 
 /// Shortest gather destination that peels its head to a 64-byte boundary.
 ///
 /// The peel runs one sub-lane AXPY per source, so it repays only once the
-/// tile body is long enough.
+/// tile body is long enough. The crossover is the 3.0.2 record at
+/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/gf8.md>.
 #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 pub(super) const GATHER_PEEL_MIN: usize = 3072;
 
@@ -159,12 +173,18 @@ pub(super) const MUL_ADD_PEEL_MIN: usize = 3584;
 // ---------------------------------------------------------------------------
 
 /// Row length in bytes at or above which the vector multiplies take over;
-/// one full vector of four complex elements.
+/// one full vector of four complex elements. Both halved and doubled
+/// neighbours fail superiority on both hosts; the two-arm evidence is the
+/// threshold record at
+/// <https://github.com/nanithefkuc/fgf/blob/3e95f90b68ab4d48279df503aceb2ac2e3b69443/benchmarks/thresholds.md#threshold-20261108T142824Z-Comet>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(super) const QUAD_VECTOR_MUL_MIN_BYTES: usize = 32;
 
 /// Row length in bytes at or above which the vector add and sub take over;
-/// the mixed vector-plus-tail rows below this stay scalar.
+/// the mixed vector-plus-tail rows below this stay scalar. The halved
+/// neighbour passes on Willow and fails on Golden Cove, so the cutoff
+/// stays; the two-arm evidence is the threshold record at
+/// <https://github.com/nanithefkuc/fgf/blob/3e95f90b68ab4d48279df503aceb2ac2e3b69443/benchmarks/thresholds.md#threshold-20261108T142601Z-Comet>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(super) const QUAD_VECTOR_ADD_MIN_BYTES: usize = 64;
 
