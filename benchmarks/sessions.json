@@ -163,6 +163,22 @@
       "path": "pair/20261108T151003Z-zbox/session.json",
       "threshold_comparison": "<",
       "sha256": "53bae8dfd20ab3216a84965dc0b2bc24df1c6578e84ea65844efedb230fb8df6"
+    },
+    {
+      "path": "calibration/20261109T161518Z-Comet/session.json",
+      "sha256": "d9be96760714b265bd32c4af74dc7b20bd4efc3d59a34d4942badd86fd3270ca"
+    },
+    {
+      "path": "calibration/20261109T190026Z-Comet/session.json",
+      "sha256": "2b2ead02efb79ac65f6b092aec72d626749076b7cd612b8abee85e18a7417bd7"
+    },
+    {
+      "path": "calibration/20261109T183818Z-zbox/session.json",
+      "sha256": "65b39bbb0af14b0e2858696d30626109c4940e20e14be5115f1a1f9e1d87d608"
+    },
+    {
+      "path": "calibration/20261109T233036Z-zbox/session.json",
+      "sha256": "2188b1dfe74e4946003cf14bc7e2142c880b63e5fa40efcbd2f1ec1bb2870d79"
     }
   ],
   "competitors": []
