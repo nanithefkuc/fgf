@@ -116,6 +116,7 @@ impl Relation {
     ///
     /// Panics when the coordinate count is not a multiple of `B::DEGREE`, or
     /// a coordinate is not a bit.
+    #[must_use = "the word iterator is lazy; nothing is read unless it is consumed"]
     pub fn to_binary_words<B: BinaryField>(&self) -> impl ExactSizeIterator<Item = u64> + '_ {
         let degree = <B as Field>::DEGREE as usize;
         let coordinates = self.to_coordinates();
