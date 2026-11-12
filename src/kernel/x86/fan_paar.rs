@@ -1,4 +1,4 @@
-//! Canonical Fan–Paar tower kernels for x86 / `x86_64`.
+//! Canonical Fan–Paar tower kernels for `x86_64`.
 //!
 //! A Fan–Paar GF(2^16) multiply is the same four-nibble-shuffle shape as the
 //! polynomial GF(2^16) kernel: two alternating `fp8` byte multiplies of the

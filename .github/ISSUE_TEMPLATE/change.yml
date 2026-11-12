@@ -1,0 +1,38 @@
+name: Change, specification, or blocker
+description: Record a substantive change and its acceptance criteria.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or specification
+      description: Describe the observable problem or required behavior and its scope.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and alternatives
+      description: State compatibility constraints, viable alternatives, and their tradeoffs.
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: Decision and rationale
+      description: Record the chosen direction and evidence, or explicitly identify the unresolved choice.
+    validations:
+      required: true
+  - type: textarea
+    id: blockers
+    attributes:
+      label: Blockers and dependencies
+      description: Link public dependencies and blockers, or state that none are known. Public records must stand alone without local planning references.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable conditions. Linked PRs record resolutions, deviations, and verification; partial work does not close this Issue.
+    validations:
+      required: true

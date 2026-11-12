@@ -81,8 +81,7 @@ PRESENTATION_SCOPES = ("native", "end_to_end", "setup")
 CONTROL_PHASES = ("entry", "exit")
 # Dispatch tags a current artifact may report for an fgf arm or inventory
 # entry.
-KNOWN_BACKENDS = frozenset({"v2", "v3", "v3_gfni_crypto", "v4x", "neon_aes",
-                            "neon", "wasm128", "scalar"})
+KNOWN_BACKENDS = frozenset({"v2", "v3", "v3_gfni_crypto", "v4x", "scalar"})
 
 # Surfaces-section payload: no backend, no timing; `control`/`phase` are
 # always present.

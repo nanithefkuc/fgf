@@ -1,7 +1,31 @@
 # Contributing
 
-Thanks for your interest. Contributions go through Pull Requests; what changed
-and why belong in the PR and in `CHANGELOG.md`.
+Contributions start with an Issue and resolve through a linked Pull Request.
+`CHANGELOG.md` is a concise release index, not a decision or implementation log.
+
+## Issues, resolutions, and release notes
+
+Every substantive change has an Issue describing the problem or specification,
+constraints, alternatives, decision rationale, blockers, and observable
+acceptance criteria. Keep the Issue current when the scope or decision changes.
+Unresolved choices remain explicit rather than appearing as completed work.
+
+The PR records the implemented resolution, deviations from the Issue, tradeoffs,
+and verification actually exercised, including failures and limits. Partial work
+uses `Refs #N`; a PR closes an Issue only when all its acceptance criteria are
+resolved. Declined or superseded work closes with a reason and any replacement
+link, not a claim of successful implementation.
+
+Release entries use short, categorized user-facing summaries with Issue and PR
+links as available. Breaking entries keep `**Breaking:**` and a migration
+pointer. Detailed rationale and implementation belong in the Issue/PR; usage
+and migration contracts belong in rustdoc or public guides. Retrospective
+release-record Issues identify their source and do not invent missing PRs or
+verification.
+
+Public Issues and PRs stand alone: distill local development notes into a
+reviewable specification or decision record without local document IDs, paths,
+transcripts, or inaccessible evidence.
 
 ## Running the tests
 
@@ -30,8 +54,12 @@ git-ignored `bench-records/`. `just benchmark-check` validates
 portable fixtures and their compiler-derived public API inventory;
 `just benchmark-check-native` validates native GF16 fixtures on capable hosts.
 
-The competitor harnesses in `external/` need their toolchains: Intel ISA-L
-discoverable through pkg-config, and the Go toolchain in PATH.
+The unpublished competitor packages in `benches/compare/` keep native build
+scripts and dependencies separate from the library. `just comparisons-check`
+checks all three packages. Their toolchains include Intel ISA-L discoverable
+through pkg-config, Go, and C/C++ compilers.
+Public measurement records use processor-architecture labels and sanitized
+environment facts, never SSH aliases, hostnames, or local account paths.
 
 ## SIMD kernels and routing
 
@@ -85,6 +113,6 @@ newer standard-library APIs without raising it deliberately.
 ## Commit messages
 
 Subject lines are at most ~10 words and carry the change at a glance
-(`fgf: short verb phrase`). Implementation detail belongs in the Pull Request
-and `CHANGELOG.md`, not the message, and messages never reference planning
-artifacts.
+(`fgf: short verb phrase`). What changed and why belong in the Issue; the
+linked PR records the resolution and verification. Neither the commit message
+nor the changelog duplicates those details or references planning artifacts.

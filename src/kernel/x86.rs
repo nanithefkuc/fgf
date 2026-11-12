@@ -1,4 +1,4 @@
-//! x86 / `x86_64` SIMD kernels.
+//! `x86_64` SIMD kernels.
 //!
 //! One submodule per field family, plus `bytes` for the field-independent
 //! byte kernels. This module-named file

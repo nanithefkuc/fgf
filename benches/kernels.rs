@@ -2577,7 +2577,7 @@ fn run_panels() {
         bench_blocked_vs_axpy();
         return;
     }
-    println!("  (override with SIMD_BACKEND=v3_gfni_crypto|v3|v2|neon|scalar)\n");
+    println!("  (override with SIMD_BACKEND=v4x|v3_gfni_crypto|v3|v2|scalar)\n");
 
     if gf {
         bench_preparation_crossover();

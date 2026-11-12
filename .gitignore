@@ -1,7 +1,7 @@
 /target
 /.lucid/
 /bench-records/
-/external/*/target
-/external/*/Cargo.lock
+/benches/compare/*/target
+/benches/compare/*/Cargo.lock
 /coverage.lcov
 __pycache__/

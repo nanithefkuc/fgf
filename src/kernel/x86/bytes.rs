@@ -1,4 +1,4 @@
-//! Field-independent byte kernels for x86 / `x86_64`.
+//! Field-independent byte kernels for `x86_64`.
 //!
 //! XOR is the additive operation of every binary field in the crate, so it
 //! reads no field layout and needs no coefficient; the population count
