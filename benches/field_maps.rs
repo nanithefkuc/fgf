@@ -1358,7 +1358,7 @@ fn run_panels() {
         run_iso_pair::<Fp64, Gf64>("fp64-gf64-iso");
         return;
     }
-    println!("  (override with SIMD_BACKEND=v3_gfni_crypto|v3|v2|neon|scalar)\n");
+    println!("  (override with SIMD_BACKEND=v4x|v3_gfni_crypto|v3|v2|scalar)\n");
 
     run_emb_pair::<Gf32, Gf64>("gf32-gf64");
     run_emb_pair::<Gf16, Gf64>("gf16-gf64");

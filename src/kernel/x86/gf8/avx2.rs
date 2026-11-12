@@ -598,8 +598,8 @@ pub fn mul_add_gather_avx2(
 /// Lane-parallel GF(2^8) multiplication of two varying byte vectors.
 ///
 /// Without `GF2P8MULB` there is no fixed coefficient to build a nibble table
-/// from, so the product comes from eight branchless shift/reduce rounds — the
-/// sequence already proven on NEON and wasm. x86 has no byte shift: `PADDB`
+/// from, so the product comes from eight branchless shift/reduce rounds.
+/// `x86_64` has no byte shift: `PADDB`
 /// doubles each lane (a left shift that drops the carry) and the signed
 /// `PCMPGTB` against zero recovers the bit it dropped.
 #[archmage::rite(v3)]

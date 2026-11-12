@@ -94,8 +94,8 @@ pub mod gf16 {
         /// Native byte multiply (GFNI) for the Rijndael tower: a pair of
         /// broadcast words.
         Compact(TowerCoeff),
-        /// Shuffle backends (AVX2, SSSE3, NEON, Wasm) for the Rijndael
-        /// tower: four nibble tables.
+        /// Shuffle backends (AVX2, SSSE3) for the Rijndael tower: four nibble
+        /// tables.
         Tables(TowerTables),
         /// Shuffle backends (AVX2, SSSE3) for the Fan-Paar tower: its four
         /// nibble tables over the Fan-Paar byte subfield.

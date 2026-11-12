@@ -76,17 +76,11 @@ jobs:
         with:
           targets: aarch64-unknown-linux-gnu,wasm32-unknown-unknown
       - uses: extractions/setup-just@v2
-      # The recipe checks the non-x86 library paths with --all-features,
-      # including Wasm's explicit `simd128` compile lane.
+      # Every feature combination retains portable scalar compilation here.
       - run: just cross-check
       # Default-feature link builds per target, mirroring the release matrix.
       - run: cargo build --target aarch64-unknown-linux-gnu
       - run: cargo build --target wasm32-unknown-unknown
-      # Explicit compile validation of the wasm `simd128` lane: the
-      # `wasm128` backend needs the target feature enabled at compile time.
-      - run: cargo build --target wasm32-unknown-unknown --features simd
-        env:
-          RUSTFLAGS: -D warnings -C target-feature=+simd128
 
   msrv:
     name: msrv 1.93
@@ -150,15 +144,15 @@ jobs:
   # ISA-L for the bench-trio c-archive, C/C++ compilers and Git for the
   # gf16-bench native build. Native competitor work stays on Linux: macOS
   # and Windows runners cannot be assumed to carry these toolchains.
-  external-check:
-    name: external packages
+  comparisons-check:
+    name: comparison packages
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: sudo apt-get update && sudo apt-get install -y pkg-config libisal-dev golang-go gcc g++
       - uses: extractions/setup-just@v2
-      - run: just external-check
+      - run: just comparisons-check
 
   # Portable benchmark fixtures plus a compiler-derived API inventory.
   # Native GF16 execution belongs to benchmark-check-native on capable hosts.
