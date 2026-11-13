@@ -56,10 +56,10 @@ macro_rules! wide_tower_dispatch {
                 Backend::Scalar
             }
 
-            // As the bridge's `prepare`: inlined so the GFNI tile
-            // derivation is hoisted out of loops holding the coefficient
-            // fixed.
-            #[inline(always)]
+            // Ordinary inlining: forcing this body into every caller expands
+            // coefficient decomposition and GFNI tile packing into one-shot
+            // operations, where an outlined preparation call is cheaper.
+            #[inline]
             fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> Prepared {
                 let raw = coeff.to_raw();
                 if $pred::<F>() {
