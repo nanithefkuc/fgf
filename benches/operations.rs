@@ -141,6 +141,7 @@ impl Ctx {
         }
 
         let mut samples = Vec::with_capacity(MAX_SAMPLES);
+        let pmu_before = pmu::read();
         let started = Instant::now();
         while samples.len() < MAX_SAMPLES {
             let start = Instant::now();
@@ -152,6 +153,12 @@ impl Ctx {
                 break;
             }
         }
+        pmu::report(
+            &pmu_before,
+            &pmu::read(),
+            reps * samples.len() as u64,
+            &samples,
+        );
         samples.sort_unstable_by(f64::total_cmp);
         samples[samples.len() / 2]
     }
@@ -317,4 +324,131 @@ fn main() {
         }
     }
     println!("CONTROL\tend\t{:.9}", control_ns(&ctx));
+}
+
+/// Diagnostic per-round hardware counters (user space only), selected by
+/// `FGF_PMU` as comma-separated raw `cpu_core` configs.
+mod pmu {
+    use std::sync::OnceLock;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct Attr {
+        type_: u32,
+        size: u32,
+        config: u64,
+        sample_period: u64,
+        sample_type: u64,
+        read_format: u64,
+        flags: u64,
+        wakeup: u32,
+        bp_type: u32,
+        config1: u64,
+        config2: u64,
+        branch_sample_type: u64,
+        sample_regs_user: u64,
+        sample_stack_user: u32,
+        clockid: i32,
+        sample_regs_intr: u64,
+        aux_watermark: u32,
+        sample_max_stack: u16,
+        reserved: u16,
+        aux_sample_size: u32,
+        reserved3: u32,
+        sig_data: u64,
+        config3: u64,
+    }
+
+    struct Counter {
+        name: String,
+        fd: i32,
+    }
+
+    fn counters() -> &'static [Counter] {
+        static C: OnceLock<Vec<Counter>> = OnceLock::new();
+        C.get_or_init(|| {
+            let Ok(list) = std::env::var("FGF_PMU") else {
+                return Vec::new();
+            };
+            let ty: u32 = std::fs::read_to_string("/sys/bus/event_source/devices/cpu_core/type")
+                .or_else(|_| std::fs::read_to_string("/sys/bus/event_source/devices/cpu/type"))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            list.split(',')
+                .map(|item| {
+                    let (name, hex) = item.split_once('=').unwrap();
+                    let config = u64::from_str_radix(hex.trim_start_matches("0x"), 16).unwrap();
+                    let mut attr = Attr {
+                        type_: ty,
+                        size: std::mem::size_of::<Attr>() as u32,
+                        config,
+                        // TOTAL_TIME_ENABLED | TOTAL_TIME_RUNNING
+                        read_format: 1 | 2,
+                        // exclude_kernel (bit 5) | exclude_hv (bit 6)
+                        flags: (1 << 5) | (1 << 6),
+                        ..Attr::default()
+                    };
+                    let fd = unsafe {
+                        libc::syscall(
+                            libc::SYS_perf_event_open,
+                            &mut attr as *mut Attr,
+                            0,
+                            -1,
+                            -1,
+                            0,
+                        )
+                    } as i32;
+                    assert!(
+                        fd >= 0,
+                        "perf_event_open {name}: {}",
+                        std::io::Error::last_os_error()
+                    );
+                    Counter {
+                        name: name.to_string(),
+                        fd,
+                    }
+                })
+                .collect()
+        })
+    }
+
+    pub fn read() -> Vec<[u64; 3]> {
+        counters()
+            .iter()
+            .map(|c| {
+                let mut v = [0u64; 3];
+                let n = unsafe { libc::read(c.fd, v.as_mut_ptr().cast(), 24) };
+                assert_eq!(n, 24);
+                v
+            })
+            .collect()
+    }
+
+    pub fn report(before: &[[u64; 3]], after: &[[u64; 3]], calls: u64, samples: &[f64]) {
+        if before.is_empty() {
+            return;
+        }
+        let mut line = format!("PMU\tcalls={calls}");
+        for ((c, b), a) in counters().iter().zip(before).zip(after) {
+            let enabled = (a[1] - b[1]) as f64;
+            let running = (a[2] - b[2]) as f64;
+            let scaled = (a[0] - b[0]) as f64
+                * if running > 0.0 {
+                    enabled / running
+                } else {
+                    0.0
+                };
+            line.push_str(&format!("\t{}={:.3}", c.name, scaled / calls as f64));
+        }
+        let mut sorted = samples.to_vec();
+        sorted.sort_unstable_by(f64::total_cmp);
+        line.push_str(&format!(
+            "\tns_min={:.2}\tns_max={:.2}",
+            sorted[0],
+            sorted[sorted.len() - 1]
+        ));
+        println!("{line}");
+    }
 }

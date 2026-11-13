@@ -52,6 +52,7 @@ archmage = { version = "=0.9.29", optional = true }
 # Benchmarks only; scoping them off wasm keeps `cargo test --target wasm32-*`
 # buildable.
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+libc = "=0.2.191"
 # The QuadMersenne31 harness (`benches/prime_ntt.rs`) is the one statistical
 # measurement in the crate; x86_64-only, gated on `internals`.
 criterion = "0.8"
