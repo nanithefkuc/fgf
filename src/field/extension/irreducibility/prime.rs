@@ -1,26 +1,22 @@
-//! Odd-prime relative degrees at least six.
+//! Normalized streaming rank over odd-prime coefficients.
 //!
 //! The square-free Euclidean pass accumulates the resultant, including swap
-//! signs, leading-coefficient powers, and degree drops. The odd-parity
-//! discriminant gate is a rejection filter only: passing it never proves
-//! irreducibility. Only a passing relation reaches the normalized skyline
-//! rank, which uses support shifts when the prime is below the relation
-//! degree, zero-guarded reductions, row skylines, and bounded lazy `u128`
-//! sums when the prime bound allows them.
+//! signs, leading-coefficient powers, and degree drops. At relative degrees
+//! at least six, the discriminant gate rejects incompatible parity before
+//! rank testing. It never proves irreducibility. The rank test uses support
+//! shifts when the prime is below the relation degree, zero-guarded
+//! reductions, row skylines, and bounded lazy `u128` corrections.
 
 use super::super::descriptor::{COORDINATES, Descriptor};
 use super::coefficient::{Shape, prefix, prefix_mut};
 use super::polynomial::{mulmod, powmod};
-
-/// Capacity of the flat echelon basis.
-const RANK: usize = COORDINATES * COORDINATES;
 
 /// `left - right` modulo an odd prime.
 const fn sub_mod(left: u64, right: u64, modulus: u64) -> u64 {
     if left >= right {
         left - right
     } else {
-        left.wrapping_add(modulus).wrapping_sub(right)
+        modulus - (right - left)
     }
 }
 
@@ -44,27 +40,6 @@ const fn pow_mod(base: u64, mut exponent: u128, modulus: u64) -> u64 {
         }
     }
     result
-}
-
-/// Inverse of a nonzero residue modulo an odd prime.
-#[allow(clippy::cast_possible_truncation)]
-pub(super) const fn inverse_mod(value: u64, modulus: u64) -> u64 {
-    if value == 0 {
-        return 0;
-    }
-    let prime = modulus as u128;
-    let (mut remainder, mut next_remainder) = (prime, value as u128);
-    let (mut cofactor, mut next_cofactor) = (0u128, 1u128);
-    while next_remainder != 0 {
-        let quotient = remainder / next_remainder;
-        let step = remainder - quotient * next_remainder;
-        let next = (cofactor + prime - quotient * next_cofactor % prime) % prime;
-        remainder = next_remainder;
-        next_remainder = step;
-        cofactor = next_cofactor;
-        next_cofactor = next;
-    }
-    cofactor as u64
 }
 
 /// Formal derivative of a monic prime relation, without its leading term.
@@ -111,37 +86,37 @@ const fn resultant_parts(
     degree: usize,
     modulus: u64,
 ) -> (bool, u64) {
-    let mut current = [0u64; COORDINATES + 2];
-    let mut divisor = [0u64; COORDINATES + 2];
-    let mut remainder = [0u64; COORDINATES + 2];
-    copy_polynomial(&mut current, relation, degree + 1);
-    copy_polynomial(&mut divisor, formal_derivative, degree);
+    let mut current_buffer = [0u64; COORDINATES + 2];
+    let mut divisor_buffer = [0u64; COORDINATES + 2];
+    let mut current = &mut current_buffer;
+    let mut divisor = &mut divisor_buffer;
+    copy_polynomial(current, relation, degree + 1);
+    copy_polynomial(divisor, formal_derivative, degree);
     let mut current_degree = degree as isize;
-    let mut divisor_degree = self::degree(&divisor, degree - 1);
+    let mut divisor_degree = self::degree(divisor, degree - 1);
     let mut result = 1;
     if divisor_degree < 0 {
         return (false, 0);
     }
     while divisor_degree > 0 {
         let lead = divisor[divisor_degree as usize];
-        let lead_inverse = inverse_mod(lead, modulus);
-        copy_polynomial(&mut remainder, &current, degree + 1);
+        let lead_inverse = super::coefficient::prime_inverse(modulus, lead);
         let mut top = current_degree;
         while top >= divisor_degree {
-            let value = remainder[top as usize];
+            let value = current[top as usize];
             if value != 0 {
                 let factor = mul_mod(value, lead_inverse, modulus);
                 let mut j = 0;
                 while j <= divisor_degree as usize {
                     let target = top as usize - divisor_degree as usize + j;
                     let product = mul_mod(factor, divisor[j], modulus);
-                    remainder[target] = sub_mod(remainder[target], product, modulus);
+                    current[target] = sub_mod(current[target], product, modulus);
                     j += 1;
                 }
             }
             top -= 1;
         }
-        let next = self::degree(&remainder, divisor_degree as usize - 1);
+        let next = self::degree(current, divisor_degree as usize - 1);
         if next < 0 {
             return (false, 0);
         }
@@ -150,8 +125,7 @@ const fn resultant_parts(
             result = sub_mod(0, result, modulus);
         }
         result = mul_mod(result, pow_mod(lead, power as u128, modulus), modulus);
-        copy_polynomial(&mut current, &divisor, degree + 1);
-        copy_polynomial(&mut divisor, &remainder, degree + 1);
+        (current, divisor) = (divisor, current);
         current_degree = divisor_degree;
         divisor_degree = next;
     }
@@ -168,6 +142,8 @@ const fn resultant_parts(
 }
 
 /// `Res(f, f')` for a monic prime relation.
+///
+/// Nonzero is equivalent to square-free, without applying a parity filter.
 #[must_use]
 pub(super) const fn resultant(relation: &[u64], degree: usize, modulus: u64) -> u64 {
     let mut formal_derivative = [0u64; COORDINATES];
@@ -246,6 +222,22 @@ const fn shift_support_assign(
     }
 }
 
+/// Normalized rank after the scalar square-free test, without parity.
+pub(super) const fn normalized(
+    descriptor: &Descriptor,
+    modulus: u64,
+    degree: usize,
+    relation: &[u64],
+) -> bool {
+    let mut monic = [0u64; COORDINATES + 2];
+    copy_polynomial(&mut monic, relation, degree);
+    monic[degree] = 1;
+    if resultant(prefix(&monic, degree + 1), degree, modulus) == 0 {
+        return false;
+    }
+    rank(descriptor, prefix(&monic, degree + 1), degree, modulus)
+}
+
 /// Normalized skyline rank for an odd prime relation.
 // Const validation keeps the bounded echelon workspace on the stack.
 #[allow(clippy::large_stack_arrays)]
@@ -268,17 +260,17 @@ const fn rank(descriptor: &Descriptor, relation: &[u64], degree: usize, modulus:
         let mut t = [0u64; COORDINATES];
         t[1] = 1;
         powmod(
-            prefix_mut(&mut frobenius, degree),
+            &mut frobenius,
             descriptor,
             shape,
             relation,
             degree,
-            prefix(&t, degree),
+            &t,
             order,
         );
     }
     let lazy = wide_safe(modulus, degree);
-    let mut basis = [0u64; RANK];
+    let mut basis = [[0u64; COORDINATES]; COORDINATES];
     let mut high = [0usize; COORDINATES];
     let mut occupied = [false; COORDINATES];
     let mut column = [0u64; COORDINATES];
@@ -303,38 +295,36 @@ const fn rank(descriptor: &Descriptor, relation: &[u64], degree: usize, modulus:
             }
         } else {
             mulmod(
-                prefix_mut(&mut product, degree),
+                &mut product,
                 descriptor,
                 shape,
                 relation,
                 degree,
-                prefix(&column, degree),
-                prefix(&frobenius, degree),
+                &column,
+                &frobenius,
             );
             copy_polynomial(&mut column, &product, degree);
         }
-        copy_polynomial(&mut value, &column, degree);
-        value[j] = sub_mod(value[j], 1, modulus);
+        let saved = column[j];
+        column[j] = sub_mod(saved, 1, modulus);
         let mut end = degree;
-        while end > 0 && value[end - 1] == 0 {
+        while end > 0 && column[end - 1] == 0 {
             end -= 1;
         }
+        // Lazy entries contain only row corrections; the column is read
+        // when a residual is needed and restored before advancing it.
         let mut acc = [0u128; COORDINATES];
-        if lazy {
-            let mut l = 0;
-            while l < end {
-                acc[l] = value[l] as u128;
-                l += 1;
-            }
+        if !lazy {
+            copy_polynomial(&mut value, &column, degree);
         }
         let mut pivot = 0;
         let mut found = false;
         while pivot < end {
             let remainder = if lazy {
                 if acc[pivot] == 0 {
-                    0
+                    column[pivot]
                 } else {
-                    (acc[pivot] % modulus as u128) as u64
+                    ((acc[pivot] + column[pivot] as u128) % modulus as u128) as u64
                 }
             } else {
                 value[pivot]
@@ -345,11 +335,12 @@ const fn rank(descriptor: &Descriptor, relation: &[u64], degree: usize, modulus:
                     if row_high > end {
                         end = row_high;
                     }
+                    let row = &basis[pivot];
                     if lazy {
                         let factor = (modulus - remainder) as u128;
                         let mut l = pivot + 1;
                         while l < row_high {
-                            let entry = basis[pivot * degree + l];
+                            let entry = row[l];
                             if entry != 0 {
                                 acc[l] += factor * entry as u128;
                             }
@@ -358,7 +349,7 @@ const fn rank(descriptor: &Descriptor, relation: &[u64], degree: usize, modulus:
                     } else {
                         let mut l = pivot + 1;
                         while l < row_high {
-                            let entry = basis[pivot * degree + l];
+                            let entry = row[l];
                             if entry != 0 {
                                 value[l] =
                                     sub_mod(value[l], mul_mod(remainder, entry, modulus), modulus);
@@ -367,20 +358,21 @@ const fn rank(descriptor: &Descriptor, relation: &[u64], degree: usize, modulus:
                         }
                     }
                 } else {
-                    let inverse = inverse_mod(remainder, modulus);
-                    basis[pivot * degree + pivot] = 1;
+                    let inverse = super::coefficient::prime_inverse(modulus, remainder);
+                    let row = &mut basis[pivot];
+                    row[pivot] = 1;
                     let mut l = pivot + 1;
                     while l < end {
                         let current = if lazy {
                             if acc[l] == 0 {
-                                0
+                                column[l]
                             } else {
-                                (acc[l] % modulus as u128) as u64
+                                ((acc[l] + column[l] as u128) % modulus as u128) as u64
                             }
                         } else {
                             value[l]
                         };
-                        basis[pivot * degree + l] = if current == 0 {
+                        row[l] = if current == 0 {
                             0
                         } else {
                             mul_mod(current, inverse, modulus)
@@ -388,7 +380,7 @@ const fn rank(descriptor: &Descriptor, relation: &[u64], degree: usize, modulus:
                         l += 1;
                     }
                     let mut row_high = end;
-                    while row_high > pivot + 1 && basis[pivot * degree + row_high - 1] == 0 {
+                    while row_high > pivot + 1 && row[row_high - 1] == 0 {
                         row_high -= 1;
                     }
                     high[pivot] = row_high;
@@ -402,6 +394,7 @@ const fn rank(descriptor: &Descriptor, relation: &[u64], degree: usize, modulus:
         if !found {
             return false;
         }
+        column[j] = saved;
         j += 1;
     }
     true

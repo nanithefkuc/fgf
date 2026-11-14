@@ -48,16 +48,8 @@ pub(super) const fn block_mut(data: &mut [u64], index: usize, words: usize) -> &
 
 /// Copy `count` blocks from `from` into `to`.
 pub(super) const fn copy_blocks(to: &mut [u64], from: &[u64], shape: Shape, count: usize) {
-    let words = shape.words();
-    let mut index = 0;
-    while index < count {
-        copy(
-            block_mut(to, index, words),
-            block(from, index, words),
-            shape,
-        );
-        index += 1;
-    }
+    let used = count * shape.words();
+    prefix_mut(to, used).copy_from_slice(prefix(from, used));
 }
 
 /// Zero `count` blocks of `out`.
@@ -190,9 +182,8 @@ pub(super) const fn zero(out: &mut [u64], shape: Shape) {
 
 /// Copy one occupied coefficient from `from` into `to`.
 pub(super) const fn copy(to: &mut [u64], from: &[u64], shape: Shape) {
-    let words = shape.words();
     let mut k = 0;
-    while k < words {
+    while k < shape.words {
         to[k] = from[k];
         k += 1;
     }
@@ -228,13 +219,12 @@ pub(super) const fn eq(shape: Shape, left: &[u64], right: &[u64]) -> bool {
 
 /// `left + right` modulo the odd characteristic.
 #[must_use]
-#[allow(clippy::cast_possible_truncation)]
 const fn add_mod(left: u64, right: u64, modulus: u64) -> u64 {
-    let (value, carry) = left.overflowing_add(right);
-    if carry || value >= modulus {
-        value.wrapping_sub(modulus)
+    let complement = modulus - right;
+    if left >= complement {
+        left - complement
     } else {
-        value
+        left + right
     }
 }
 
@@ -244,7 +234,7 @@ const fn sub_mod(left: u64, right: u64, modulus: u64) -> u64 {
     if left >= right {
         left - right
     } else {
-        left.wrapping_add(modulus).wrapping_sub(right)
+        modulus - (right - left)
     }
 }
 
@@ -264,6 +254,18 @@ pub(super) const fn prime_mulmod(
     left: &[u64],
     right: &[u64],
 ) {
+    if degree == 2 {
+        let low = mul_mod(left[0], right[0], modulus);
+        let high = mul_mod(left[1], right[1], modulus);
+        let cross = add_mod(
+            mul_mod(left[0], right[1], modulus),
+            mul_mod(left[1], right[0], modulus),
+            modulus,
+        );
+        out[0] = sub_mod(low, mul_mod(relation[0], high, modulus), modulus);
+        out[1] = sub_mod(cross, mul_mod(relation[1], high, modulus), modulus);
+        return;
+    }
     let mut left_degree = degree - 1;
     while left_degree > 0 && left[left_degree] == 0 {
         left_degree -= 1;
@@ -621,7 +623,7 @@ const fn poly_divmod(
     }
 }
 
-/// Inverse of a relation-node coefficient by extended polynomial Euclid.
+/// Inverse of a relation-node coefficient by its quadratic norm or polynomial Euclid.
 #[allow(clippy::too_many_lines)]
 const fn extension_inverse(out: &mut [u64], descriptor: &Descriptor, shape: Shape, value: &[u64]) {
     let (base, relative_degree, base_words, coefficients) = match shape.source() {
@@ -638,6 +640,29 @@ const fn extension_inverse(out: &mut [u64], descriptor: &Descriptor, shape: Shap
         Source::Prime(_) => panic!("unsupported coefficient shape"),
     };
     let base_shape = Shape::of_node(descriptor, base);
+    if relative_degree == 2
+        && let Some(modulus) = base_shape.prime_modulus(descriptor)
+    {
+        let low = value[0];
+        let high = value[1];
+        let norm = add_mod(
+            sub_mod(
+                mul_mod(low, low, modulus),
+                mul_mod(coefficients[1], mul_mod(low, high, modulus), modulus),
+                modulus,
+            ),
+            mul_mod(coefficients[0], mul_mod(high, high, modulus), modulus),
+            modulus,
+        );
+        let inverse = prime_inverse(modulus, norm);
+        out[0] = mul_mod(
+            sub_mod(low, mul_mod(coefficients[1], high, modulus), modulus),
+            inverse,
+            modulus,
+        );
+        out[1] = sub_mod(0, mul_mod(high, inverse, modulus), modulus);
+        return;
+    }
     let count = relative_degree + 1;
     let mut r0 = [0u64; SCRATCH];
     let mut r1 = [0u64; SCRATCH];
@@ -850,22 +875,29 @@ pub(super) const fn inverse(out: &mut [u64], descriptor: &Descriptor, shape: Sha
 }
 
 /// Inverse of a nonzero residue modulo an odd prime.
-#[allow(clippy::cast_possible_truncation)]
-const fn prime_inverse(modulus: u64, value: u64) -> u64 {
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub(super) const fn prime_inverse(modulus: u64, value: u64) -> u64 {
     if value == 0 {
         return 0;
     }
-    let prime = modulus as u128;
-    let (mut remainder, mut next_remainder) = (prime, value as u128);
-    let (mut cofactor, mut next_cofactor) = (0u128, 1u128);
+    // Euclidean cofactors have magnitude at most the modulus. Their signed
+    // updates fit i128 for every u64 modulus, without reducing each update.
+    let prime = modulus as i128;
+    let (mut remainder, mut next_remainder) = (prime, value as i128);
+    let (mut cofactor, mut next_cofactor) = (0i128, 1i128);
     while next_remainder != 0 {
         let quotient = remainder / next_remainder;
         let step = remainder - quotient * next_remainder;
-        let next = (cofactor + prime - quotient * next_cofactor % prime) % prime;
+        let next = cofactor - quotient * next_cofactor;
         remainder = next_remainder;
         next_remainder = step;
         cofactor = next_cofactor;
         next_cofactor = next;
     }
-    cofactor as u64
+    let reduced = cofactor % prime;
+    if reduced < 0 {
+        (reduced + prime) as u64
+    } else {
+        reduced as u64
+    }
 }

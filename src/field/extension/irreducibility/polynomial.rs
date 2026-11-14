@@ -159,40 +159,33 @@ pub(super) const fn powmod(
     mut exponent: u128,
 ) {
     let words = shape.words();
-    let used = degree * words;
-    let mut result = [0u64; COORDINATES];
-    let mut square = [0u64; COORDINATES];
-    let mut product = [0u64; COORDINATES];
-    identity(prefix_mut(&mut result, words), descriptor, shape);
-    copy_blocks(&mut square, base, shape, degree);
+    let mut result_buffer = [0u64; COORDINATES];
+    let mut square_buffer = [0u64; COORDINATES];
+    let mut product_buffer = [0u64; COORDINATES];
+    let mut result = &mut result_buffer;
+    let mut square = &mut square_buffer;
+    let mut product = &mut product_buffer;
+    identity(prefix_mut(result, words), descriptor, shape);
+    copy_blocks(square, base, shape, degree);
+    let prime = shape.prime_modulus(descriptor);
     while exponent > 0 {
         if exponent & 1 == 1 {
-            mulmod(
-                prefix_mut(&mut product, used),
-                descriptor,
-                shape,
-                relation,
-                degree,
-                prefix(&result, used),
-                prefix(&square, used),
-            );
-            copy_blocks(&mut result, &product, shape, degree);
+            match prime {
+                Some(modulus) => prime_mulmod(product, modulus, relation, degree, result, square),
+                None => mulmod(product, descriptor, shape, relation, degree, result, square),
+            }
+            (result, product) = (product, result);
         }
         exponent >>= 1;
         if exponent > 0 {
-            mulmod(
-                prefix_mut(&mut product, used),
-                descriptor,
-                shape,
-                relation,
-                degree,
-                prefix(&square, used),
-                prefix(&square, used),
-            );
-            copy_blocks(&mut square, &product, shape, degree);
+            match prime {
+                Some(modulus) => prime_mulmod(product, modulus, relation, degree, square, square),
+                None => mulmod(product, descriptor, shape, relation, degree, square, square),
+            }
+            (square, product) = (product, square);
         }
     }
-    copy_blocks(out, &result, shape, degree);
+    copy_blocks(out, result, shape, degree);
 }
 
 /// Formal derivative of the monic relation, without its leading term.
@@ -239,13 +232,14 @@ pub(super) const fn gcd_unit(
     other: &[u64],
 ) -> bool {
     let words = shape.words();
-    let mut left = [0u64; SCRATCH];
-    let mut right = [0u64; SCRATCH];
-    let mut remainder = [0u64; SCRATCH];
-    copy_blocks(&mut left, relation, shape, degree + 1);
-    copy_blocks(&mut right, other, shape, degree);
-    let mut left_degree = self::degree(descriptor, shape, &left, degree);
-    let mut right_degree = self::degree(descriptor, shape, &right, degree - 1);
+    let mut left_buffer = [0u64; SCRATCH];
+    let mut right_buffer = [0u64; SCRATCH];
+    let mut left = &mut left_buffer;
+    let mut right = &mut right_buffer;
+    copy_blocks(left, relation, shape, degree + 1);
+    copy_blocks(right, other, shape, degree);
+    let mut left_degree = self::degree(descriptor, shape, left, degree);
+    let mut right_degree = self::degree(descriptor, shape, right, degree - 1);
     if right_degree < 0 {
         return false;
     }
@@ -256,36 +250,35 @@ pub(super) const fn gcd_unit(
             prefix_mut(&mut inverse, words),
             descriptor,
             shape,
-            block(&right, divisor_degree, words),
+            block(right, divisor_degree, words),
         );
-        copy_blocks(&mut remainder, &left, shape, degree + 1);
         let mut current = left_degree;
         while current >= right_degree {
             let index = current as usize;
-            if !is_zero(shape, block(&remainder, index, words)) {
+            if !is_zero(shape, block(left, index, words)) {
                 let mut factor = [0u64; COORDINATES];
                 mul(
                     prefix_mut(&mut factor, words),
                     descriptor,
                     shape,
-                    block(&remainder, index, words),
+                    block(left, index, words),
                     prefix(&inverse, words),
                 );
                 let mut j = 0;
                 while j <= divisor_degree {
                     sub_mul_assign(
-                        block_mut(&mut remainder, index - divisor_degree + j, words),
+                        block_mut(left, index - divisor_degree + j, words),
                         descriptor,
                         shape,
                         prefix(&factor, words),
-                        block(&right, j, words),
+                        block(right, j, words),
                     );
                     j += 1;
                 }
             }
             current -= 1;
             while current >= 0 {
-                if !is_zero(shape, block(&remainder, current as usize, words)) {
+                if !is_zero(shape, block(left, current as usize, words)) {
                     break;
                 }
                 current -= 1;
@@ -297,8 +290,7 @@ pub(super) const fn gcd_unit(
         if current == 0 {
             return true;
         }
-        copy_blocks(&mut left, &right, shape, degree + 1);
-        copy_blocks(&mut right, &remainder, shape, degree + 1);
+        (left, right) = (right, left);
         left_degree = right_degree;
         right_degree = current;
     }
