@@ -252,17 +252,17 @@ fn whole_word_weight(words: &[u8]) -> u32 {
 
 /// Parity of the GF(2) inner product over the live bits: 0 or 1.
 ///
-/// Four independent XOR accumulators, folded once at the end: a single
+/// Eight independent XOR accumulators, folded once at the end: a single
 /// accumulator serializes every AND-XOR on one register. The whole words are
-/// walked in fixed 32-byte blocks, one word per accumulator, so the loop body
+/// walked in fixed 64-byte blocks, one word per accumulator, so the loop body
 /// carries no per-word end-of-slice check.
 pub(crate) fn parity(a: &[u8], b: &[u8], bits: usize) -> u32 {
     debug_assert_eq!(a.len(), b.len());
     let words = bits / 64;
-    let block_bytes = words / 4 * 32;
-    let (blocks_a, _) = a[..block_bytes].as_chunks::<32>();
-    let (blocks_b, _) = b[..block_bytes].as_chunks::<32>();
-    let mut lanes = [0u64; 4];
+    let block_bytes = words / 8 * 64;
+    let (blocks_a, _) = a[..block_bytes].as_chunks::<64>();
+    let (blocks_b, _) = b[..block_bytes].as_chunks::<64>();
+    let mut lanes = [0u64; 8];
     for (block_a, block_b) in blocks_a.iter().zip(blocks_b) {
         let (words_a, _) = block_a.as_chunks::<8>();
         let (words_b, _) = block_b.as_chunks::<8>();
@@ -270,7 +270,7 @@ pub(crate) fn parity(a: &[u8], b: &[u8], bits: usize) -> u32 {
             *lane ^= u64::from_ne_bytes(x) & u64::from_ne_bytes(y);
         }
     }
-    let mut acc = lanes[0] ^ lanes[1] ^ lanes[2] ^ lanes[3];
+    let mut acc = lanes.iter().fold(0, |acc, lane| acc ^ lane);
     let (tail_a, _) = a[block_bytes..words * 8].as_chunks::<8>();
     let (tail_b, _) = b[block_bytes..words * 8].as_chunks::<8>();
     for (&x, &y) in tail_a.iter().zip(tail_b) {
