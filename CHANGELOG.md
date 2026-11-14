@@ -62,6 +62,10 @@ All notable changes to this project are documented here. The format follows
   per-word end-of-input check in its loop.
   [#108](https://github.com/nanithefkuc/fgf/issues/108),
   [#109](https://github.com/nanithefkuc/fgf/pull/109).
+- `bits::weight` walks whole words in fixed blocks on every tier without the
+  AVX-512 popcount kernel, without a per-word end-of-input check in its loop.
+  [#108](https://github.com/nanithefkuc/fgf/issues/108),
+  [#110](https://github.com/nanithefkuc/fgf/pull/110).
 - Paired measurement preserves cross-arm output mismatch rejections, checks
   complete normal-dependency identities, requires verifiable SMT and snapshot
   runner state, and enforces drift limits on layout remeasurements.
