@@ -868,17 +868,20 @@ fn compact_odd_inverses_match_field_products_and_euclid() {
     let smaller = gf9();
     let relation = flatten_odd(2, &first_gf9_quadratics()[0], 2);
     let larger = extension(&smaller, 3, 4, 2, &relation[..4]);
-    for base in [smaller, larger] {
+    let shifted = extension(&prime_base(17), 17, 2, 2, &[3, 1]);
+    assert!(shifted.is_irreducible());
+    for base in [smaller, larger, shifted] {
         let node = base.root_index();
         let shape = coefficient::Shape::of_node(&base, node);
         let words = shape.words();
+        let characteristic = shape.characteristic();
         let order = crate::field::extension::arithmetic::order_of(&base, node);
         for index in 0..u64::try_from(order).unwrap() {
             let mut value = zero_element();
             let mut digits = index;
             for coordinate in value.iter_mut().take(words) {
-                *coordinate = digits % 3;
-                digits /= 3;
+                *coordinate = digits % characteristic;
+                digits /= characteristic;
             }
             let mut inverse = zero_element();
             coefficient::inverse(&mut inverse[..words], &base, shape, &value[..words]);
@@ -891,6 +894,20 @@ fn compact_odd_inverses_match_field_products_and_euclid() {
                 crate::field::extension::arithmetic::element_one(&base, node)
             };
             assert_eq!(&product[..words], &expected_product[..words]);
+        }
+    }
+}
+
+#[test]
+fn scalar_inverses_are_canonical_at_modulus_boundaries() {
+    for modulus in [3u64, 17, 0xFFFF_FFFB, u64::MAX - 58] {
+        for value in [0, 1, modulus / 2, modulus - 2, modulus - 1] {
+            let inverse = coefficient::prime_inverse(modulus, value);
+            assert!(inverse < modulus);
+            assert_eq!(
+                u128::from(value) * u128::from(inverse) % u128::from(modulus),
+                u128::from(value != 0),
+            );
         }
     }
 }

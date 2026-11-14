@@ -30,11 +30,12 @@ pub(super) const fn decide(
     if degree == 3 {
         return checkpoint::single(descriptor, shape, relation, degree);
     }
-    if degree <= 5 {
-        return rank::normalized(descriptor, shape, relation, degree);
+    if let Some(modulus) = shape.prime_modulus(descriptor) {
+        return if degree <= 5 {
+            prime::normalized(descriptor, modulus, degree, relation)
+        } else {
+            prime::decide(descriptor, modulus, degree, relation)
+        };
     }
-    match shape.prime_modulus(descriptor) {
-        Some(modulus) if modulus != 2 => prime::decide(descriptor, modulus, degree, relation),
-        _ => rank::normalized(descriptor, shape, relation, degree),
-    }
+    rank::normalized(descriptor, shape, relation, degree)
 }
