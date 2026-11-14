@@ -58,6 +58,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `bits::dot_product` walks whole words in fixed 64-byte blocks, without a
+  per-word end-of-input check in its loop.
+  [#108](https://github.com/nanithefkuc/fgf/issues/108),
+  [#109](https://github.com/nanithefkuc/fgf/pull/109).
 - Paired measurement preserves cross-arm output mismatch rejections, checks
   complete normal-dependency identities, requires verifiable SMT and snapshot
   runner state, and enforces drift limits on layout remeasurements.

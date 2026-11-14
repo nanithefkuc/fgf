@@ -57,10 +57,11 @@ fn live(bits: usize, seed: u64, pad_to_word: bool) -> Vec<u8> {
 }
 
 /// Bit counts straddling every boundary: empty, sub-byte, partial bytes,
-/// exact words, word-plus-partial-byte, and multi-word.
+/// exact words, word-plus-partial-byte, and multi-word, including whole
+/// blocks followed by whole tail words and a partial word.
 const BIT_LENGTHS: &[usize] = &[
     0, 1, 2, 3, 5, 6, 7, 8, 9, 13, 16, 17, 31, 32, 33, 63, 64, 65, 70, 100, 127, 128, 129, 191,
-    192, 193, 255, 256, 257, 300, 1024,
+    192, 193, 255, 256, 257, 300, 1000, 1024,
 ];
 
 /// Range pairs worth probing: the plan's frozen cross-byte case, byte and
