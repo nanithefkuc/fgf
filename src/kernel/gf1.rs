@@ -212,7 +212,9 @@ pub(crate) fn set_range(dst: &mut [u8], from: usize, to: usize) {
 /// On `V4x` the whole words are counted by the 64-byte `VPOPCNTQ` kernel.
 /// The portable fold runs eight independent popcount accumulators: a single
 /// `total += word.count_ones()` chain pins the loop to `popcnt` latency,
-/// while split accumulators keep independent dependency chains.
+/// while split accumulators keep independent dependency chains. It walks the
+/// whole words in fixed 64-byte blocks, one word per accumulator, so the loop
+/// body carries no per-word end-of-slice check.
 /// Either way the partial last word is masked to its live bits.
 ///
 /// The caller keeps `bits` within `u32::MAX`, so the count fits the return
@@ -235,40 +237,47 @@ fn whole_word_weight(words: &[u8]) -> u32 {
         #[allow(clippy::cast_possible_truncation)]
         return super::x86::bytes::count_ones_avx512(token, words) as u32;
     }
-    let mut w = words.chunks_exact(8);
-    let count = words.len() / 8;
+    let (blocks, tail) = words.as_chunks::<64>();
     let mut acc = [0u32; 8];
-    for _ in 0..count / 8 {
-        for lane in &mut acc {
-            *lane += next_word(&mut w).count_ones();
+    for block in blocks {
+        let (block_words, _) = block.as_chunks::<8>();
+        for (lane, &word) in acc.iter_mut().zip(block_words) {
+            *lane += u64::from_ne_bytes(word).count_ones();
         }
     }
     let mut total = acc.iter().sum::<u32>();
-    for _ in count / 8 * 8..count {
-        total += next_word(&mut w).count_ones();
+    let (tail_words, _) = tail.as_chunks::<8>();
+    for &word in tail_words {
+        total += u64::from_ne_bytes(word).count_ones();
     }
     total
 }
 
 /// Parity of the GF(2) inner product over the live bits: 0 or 1.
 ///
-/// Four independent XOR accumulators, folded once at the end: a single
-/// accumulator serializes every AND-XOR on one register.
+/// Eight independent XOR accumulators, folded once at the end: a single
+/// accumulator serializes every AND-XOR on one register. The whole words are
+/// walked in fixed 64-byte blocks, one word per accumulator, so the loop body
+/// carries no per-word end-of-slice check.
 pub(crate) fn parity(a: &[u8], b: &[u8], bits: usize) -> u32 {
     debug_assert_eq!(a.len(), b.len());
     let words = bits / 64;
-    let mut wa = a.chunks_exact(8);
-    let mut wb = b.chunks_exact(8);
-    let (mut a0, mut a1, mut a2, mut a3) = (0u64, 0u64, 0u64, 0u64);
-    for _ in 0..words / 4 {
-        a0 ^= next_word(&mut wa) & next_word(&mut wb);
-        a1 ^= next_word(&mut wa) & next_word(&mut wb);
-        a2 ^= next_word(&mut wa) & next_word(&mut wb);
-        a3 ^= next_word(&mut wa) & next_word(&mut wb);
+    let block_bytes = words / 8 * 64;
+    let (blocks_a, _) = a[..block_bytes].as_chunks::<64>();
+    let (blocks_b, _) = b[..block_bytes].as_chunks::<64>();
+    let mut lanes = [0u64; 8];
+    for (block_a, block_b) in blocks_a.iter().zip(blocks_b) {
+        let (words_a, _) = block_a.as_chunks::<8>();
+        let (words_b, _) = block_b.as_chunks::<8>();
+        for ((lane, &x), &y) in lanes.iter_mut().zip(words_a).zip(words_b) {
+            *lane ^= u64::from_ne_bytes(x) & u64::from_ne_bytes(y);
+        }
     }
-    let mut acc = a0 ^ a1 ^ a2 ^ a3;
-    for _ in words / 4 * 4..words {
-        acc ^= next_word(&mut wa) & next_word(&mut wb);
+    let mut acc = lanes.iter().fold(0, |acc, lane| acc ^ lane);
+    let (tail_a, _) = a[block_bytes..words * 8].as_chunks::<8>();
+    let (tail_b, _) = b[block_bytes..words * 8].as_chunks::<8>();
+    for (&x, &y) in tail_a.iter().zip(tail_b) {
+        acc ^= u64::from_ne_bytes(x) & u64::from_ne_bytes(y);
     }
     let rem = bits % 64;
     if rem != 0 {
@@ -285,12 +294,6 @@ pub(crate) fn xor_gather(dst: &mut [u8], srcs: &[&[u8]], mut selector: u64) {
         xor(dst, srcs[index]);
         selector &= selector - 1;
     }
-}
-
-/// The next whole little-endian word of a chunk walk.
-#[inline]
-fn next_word(words: &mut core::slice::ChunksExact<'_, u8>) -> u64 {
-    u64::from_ne_bytes(words.next().unwrap().try_into().unwrap())
 }
 
 /// Clears (`set == false`) or sets (`set == true`) the live bits of word `w`
