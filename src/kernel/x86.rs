@@ -3,7 +3,8 @@
 //! One submodule per field family, plus `bytes` for the field-independent
 //! byte kernels. This module-named file
 //! keeps only what the families share:
-//! the non-temporal store threshold and its alignment helpers, and the two
+//! the non-temporal store threshold and its alignment helpers, the frame
+//! realignment that keeps vector spill slots aligned, and the two
 //! width-parameterized store primitives every `mul_into` kernel calls.
 //!
 //! Selected entries use [`archmage`] capability tokens and reference-based
@@ -136,6 +137,23 @@ pub(super) fn peel_to_align(ptr: *const u8, len: usize, elem_bytes: usize) -> us
     } else {
         head
     }
+}
+
+/// Realign the calling frame to 64 bytes, so the vector spill slots of the
+/// enclosing kernel keep their natural 32- or 64-byte alignment.
+///
+/// LLVM aligns a vector spill slot beyond the 16-byte ABI stack alignment only
+/// in a frame it already realigns. A kernel whose hot loop reloads spilled
+/// table registers would otherwise read them at the caller's stack offset, and
+/// every reload from a misaligned slot splits a cache line. The escaped
+/// 64-byte-aligned local forces that realignment.
+///
+/// Always inlined: it acts on the frame of the function that calls it, which
+/// must be the function holding the loop.
+#[inline(always)]
+pub(super) fn align_spill_slots() {
+    let anchor = core::mem::MaybeUninit::<__m512i>::uninit();
+    core::hint::black_box(&anchor);
 }
 
 /// Store 32 bytes, non-temporally when `NT`.

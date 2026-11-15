@@ -9,6 +9,7 @@
 use core::arch::x86_64::*;
 
 use super::src_tail_avx2;
+use crate::kernel::x86::align_spill_slots;
 
 /// Negative inverse of an odd modulus modulo `2^64`: `p*ninv = -1
 /// (mod 2^64)`, by Newton doubling from one correct bit.
@@ -144,6 +145,7 @@ pub fn mul_into_u64_avx2(
     c_mont: u64,
     p: u64,
 ) {
+    align_spill_slots();
     assert_eq!(
         dst.len(),
         src.len(),
@@ -199,6 +201,7 @@ pub fn mul_add_u64_avx2(
     c_mont: u64,
     p: u64,
 ) {
+    align_spill_slots();
     assert_eq!(
         dst.len(),
         src.len(),
@@ -261,6 +264,7 @@ pub fn mul_add_u64_avx2(
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
 pub fn mul_assign_u64_avx2(_token: archmage::X64V3Token, dst: &mut [u8], c_mont: u64, p: u64) {
+    align_spill_slots();
     assert_eq!(
         dst.len() % 8,
         0,

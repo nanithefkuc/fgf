@@ -15,7 +15,7 @@ use crate::field::binary::byte::ScaleTable;
 use crate::kernel::gf16::{Coeffs, mul_add_scalar, mul_assign_scalar, mul_into_scalar};
 use crate::kernel::tables::{NibbleFactors, TowerTables};
 use crate::kernel::x86::gf8;
-use crate::kernel::x86::{nt_split, peel_to_align, store_avx2};
+use crate::kernel::x86::{align_spill_slots, nt_split, peel_to_align, store_avx2};
 
 use super::ssse3::{
     mul_elementwise_assign_ssse3, mul_elementwise_ssse3, nibble_ssse3, scale_ssse3,
@@ -327,12 +327,9 @@ unsafe fn scatter_rows(
 ) {
     let base = rows.as_mut_ptr();
     let src_ptr = src.as_ptr();
-    // A row group's tables outnumber the vector registers, so the hot loop
-    // reloads them from 32-byte spill slots. LLVM gives spill slots their
-    // full alignment only in a frame it already realigns; this escaped
-    // 32-byte-aligned local forces that realignment, so the reloads stay
-    // within one cache line at any caller stack offset.
-    core::hint::black_box(&_mm256_setzero_si256());
+    // A row group's tables outnumber the vector registers; the hot loop
+    // reloads them from spill slots.
+    align_spill_slots();
     for group in (0..coeffs.count()).step_by(4) {
         let count = (coeffs.count() - group).min(4);
         let vectors: [NibbleAvx2; 4] =

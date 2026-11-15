@@ -4,6 +4,7 @@ use crate::field::Elem;
 use crate::field::binary::tower::{FanPaar16Field, FanPaar32Field, FanPaar64Field};
 use crate::kernel::scalar;
 use crate::kernel::tables::FpTowerTables;
+use crate::kernel::x86::align_spill_slots;
 use crate::kernel::x86::gf16::{nibble_avx2, nibble_ssse3, scale_avx2, scale_ssse3};
 use crate::kernel::x86::gf32::{SWAP2, load_mask};
 use crate::kernel::x86::gf64::SWAP4;
@@ -35,6 +36,7 @@ pub fn mul_add_avx2_fp16(
         "fan_paar::mul_add_avx2_fp16: buffer of {} bytes is not a whole number of 2-byte elements",
         dst.len(),
     );
+    align_spill_slots();
     let vectors = nibble_avx2(tables);
     let (lanes, dst_rest) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_rest) = src.as_chunks::<32>();
@@ -208,6 +210,7 @@ pub fn mul_add_avx2_fp32(
         "fan_paar::mul_add_avx2_fp32: buffer of {} bytes is not a whole number of 4-byte elements",
         dst.len(),
     );
+    align_spill_slots();
     let l = fp32_lanes(coeff);
     let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
@@ -238,6 +241,7 @@ pub fn mul_assign_avx2_fp32(
         "fan_paar::mul_assign_avx2_fp32: buffer of {} bytes is not a whole number of 4-byte elements",
         dst.len(),
     );
+    align_spill_slots();
     let l = fp32_lanes(coeff);
     let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
     for dst_lane in lanes.iter_mut() {
@@ -271,6 +275,7 @@ pub fn mul_into_avx2_fp32(
         "fan_paar::mul_into_avx2_fp32: buffer of {} bytes is not a whole number of 4-byte elements",
         dst.len(),
     );
+    align_spill_slots();
     let l = fp32_lanes(coeff);
     let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();

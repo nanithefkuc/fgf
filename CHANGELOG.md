@@ -15,6 +15,9 @@ All notable changes to this project are documented here. The format follows
   [#106](https://github.com/nanithefkuc/fgf/issues/106).
 - GF(2^16) AVX2 scatter performance no longer depends on the caller's stack
   alignment. [#105](https://github.com/nanithefkuc/fgf/issues/105).
+- AVX2 Fan–Paar GF(2^16)/GF(2^32) and 64-bit residue performance no longer
+  depends on the caller's stack alignment.
+  [#115](https://github.com/nanithefkuc/fgf/issues/115).
 
 ### Added
 
