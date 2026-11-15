@@ -15,6 +15,9 @@ fresh verification.
 - Consolidate comparison packages under `benches/compare/`, trim repository
   instructions, and retire stale benchmark tooling and ISA descriptions.
   [#101](https://github.com/nanithefkuc/fgf/issues/101).
+- Use subfield descent and exact Frobenius rank for general extension
+  validation while preserving representation limits and field conventions.
+  [#103](https://github.com/nanithefkuc/fgf/issues/103).
 
 ## [4.0.0] - 2026-11-06
 

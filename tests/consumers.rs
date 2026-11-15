@@ -1743,6 +1743,14 @@ fn characteristic_two_extension_rows_join_the_binary_capability() {
     );
 }
 
+#[path = "compile_pass/extension_dense_relations.rs"]
+mod extension_dense_relations;
+
+#[test]
+fn dense_extension_relations_validate_under_default_lints() {
+    extension_dense_relations::exercise();
+}
+
 #[path = "compile_pass/binary_degree64.rs"]
 mod binary_degree64;
 
