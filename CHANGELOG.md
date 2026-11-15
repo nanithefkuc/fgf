@@ -13,6 +13,8 @@ All notable changes to this project are documented here. The format follows
 - Small unprepared GF(2^64) `mul_add` and `mul_into` calls no longer expand
   wide-tower coefficient preparation into each operation.
   [#106](https://github.com/nanithefkuc/fgf/issues/106).
+- GF(2^16) AVX2 scatter performance no longer depends on the caller's stack
+  alignment. [#105](https://github.com/nanithefkuc/fgf/issues/105).
 
 ### Added
 

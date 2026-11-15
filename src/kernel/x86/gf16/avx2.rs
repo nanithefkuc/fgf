@@ -327,6 +327,12 @@ unsafe fn scatter_rows(
 ) {
     let base = rows.as_mut_ptr();
     let src_ptr = src.as_ptr();
+    // A row group's tables outnumber the vector registers, so the hot loop
+    // reloads them from 32-byte spill slots. LLVM gives spill slots their
+    // full alignment only in a frame it already realigns; this escaped
+    // 32-byte-aligned local forces that realignment, so the reloads stay
+    // within one cache line at any caller stack offset.
+    core::hint::black_box(&_mm256_setzero_si256());
     for group in (0..coeffs.count()).step_by(4) {
         let count = (coeffs.count() - group).min(4);
         let vectors: [NibbleAvx2; 4] =
