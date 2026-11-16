@@ -222,12 +222,14 @@ def make_runner_session(session_id: str = "20261107T050000Z-willow", *,
                         candidate_ns: float = 100.0,
                         confirmation_ns: float | None = None,
                         targets: list[str] | None = None) -> dict:
+    """Construct a historical staged, single-placement measurement."""
     args = argparse.Namespace(
         mode="acceptance", runs="5", rounds="3", delta="0.03", gamma="0.03",
         drift_cap="0.01", features="simd512",
         rustflags=" ".join(publish.ALIGNMENT_FLAGS), toolchain="",
     )
     session = bench_pair.base_session(args, session_id)
+    session["method_version"] = "fgf-pair/5"
     session["config"].update({
         "runs": 5, "rounds": 3, "delta": 0.03, "gamma": 0.03,
         "drift_cap": 0.01, "features": ["simd512"],
@@ -734,7 +736,6 @@ class PublisherTests(unittest.TestCase):
 
     def test_publishes_runner_written_session(self) -> None:
         session = make_runner_session()
-        self.assertEqual(session["method_version"], "fgf-pair/5")
         self.assertEqual(session["drift_method"], "iqr_over_median")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -752,6 +753,12 @@ class PublisherTests(unittest.TestCase):
             page = read_page(root, "BENCHMARKS.md")
             self.assertIn("`" + CELL_A + "`", page)
             self.assertIn("`" + CANDIDATE_SHA + "`", page)
+
+    def test_single_placement_record_cannot_claim_distribution_measurement(self):
+        session = make_runner_session()
+        session["method_version"] = bench_pair.METHOD_VERSION
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(session, "missing placement measurements")
 
     def test_staged_diagnostics_render_without_disguising_confirmed_failure(self):
         unconfirmed = make_runner_session(

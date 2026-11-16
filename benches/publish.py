@@ -46,7 +46,7 @@ import bench_pair
 
 METHOD_VERSION = bench_pair.METHOD_VERSION
 SUPPORTED_METHODS = tuple(bench_pair.METHOD_DRIFT)
-STAGED_METHODS = ("fgf-pair/4", METHOD_VERSION)
+STAGED_METHODS = ("fgf-pair/4", "fgf-pair/5", METHOD_VERSION)
 SOURCE_DECIMALS = 9
 KINDS = ("acceptance", "calibration", "threshold", "descriptive")
 ARM_ORDER = ("base", "layout_control", "candidate")
@@ -532,6 +532,13 @@ def validate_session(session: dict, where: str) -> None:
         if session["method_version"] in STAGED_METHODS:
             if item.get("stage") not in ("main", "confirmation"):
                 fail(f"{where}.runs[{index}].stage is invalid")
+        if session["method_version"] == METHOD_VERSION:
+            if config.get("placement_method") != bench_pair.placement.METHOD:
+                fail(f"{where}.config has no matching placement method")
+            try:
+                bench_pair.placement.validate_run(item, int(config["rounds"]))
+            except (ValueError, TypeError, KeyError) as error:
+                fail(f"{where}.runs[{index}]: {error}")
 
     summaries = _require_mapping(session["arm_summaries"], f"{where}.arm_summaries")
     _require_keys(summaries, ("base", "candidate"), f"{where}.arm_summaries")

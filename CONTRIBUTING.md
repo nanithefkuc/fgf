@@ -33,6 +33,27 @@ portable fixtures and their compiler-derived public API inventory;
 The competitor harnesses in `external/` need their toolchains: Intel ISA-L
 discoverable through pkg-config, and the Go toolchain in PATH.
 
+`just bench-pair` compares equally weighted page-placement distributions.
+Each independent paired run measures a fixed stratified design: destination
+and source shifts cover every cache-line offset in a page, and unread
+environment padding covers every ABI-aligned initial stack offset. The
+source permutation changes between runs. This is not a Cartesian sweep of
+all interactions; source buffers retain their role-relative offsets.
+
+Each stratum runs both arms under disabled ASLR with identical environments
+and equal-length executable paths. Arm order alternates between strata and
+runs. Per-placement round medians, controls, observed stack offsets, and raw
+logs remain available. The arm's run summary is the median across placements;
+only independent run summaries enter the paired bound. A slow placement is
+not an individual noninferiority failure. Persistent code regressions still
+face the unchanged margin and confidence rule. Old single-placement sessions
+cannot establish a placement-distribution result.
+
+`just bench-placement-check` exercises the placement and decision rules;
+`just bench-placement-build` builds the operation harness used for native
+placement verification. The harness asserts actual fixture page offsets
+before timing and reports the observed stack page offset.
+
 ## SIMD kernels and routing
 
 Requests and Pull Requests for new specialized SIMD kernels, or for new
