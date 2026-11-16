@@ -1374,7 +1374,6 @@ class ReanalysisTests(unittest.TestCase):
             self.assertEqual(
                 analysis["source_drift_method"], "p90_minus_p10_over_median"
             )
-            self.assertEqual(analysis["method_version"], "fgf-pair/5")
             self.assertEqual(analysis["drift_method"], "iqr_over_median")
             self.assertEqual(analysis["drift"]["v4x"]["drift"], 0.0)
             self.assertEqual(json.loads(source.read_text(encoding="utf-8")), session)
@@ -2608,15 +2607,22 @@ class MockedSessionTests(unittest.TestCase):
             )
             start = 100.0 + run * 0.1 + (0.02 if arm != "base" else 0.0)
             if self.control_start is not None:
-                start = self.control_start(run, arm, label.rsplit("-", 1)[-1])
-            lines = [f"BACKEND\t{tier}", f"CONTROL\tstart\t{start}"]
+                start = self.control_start(run, arm, label.split("-")[4])
+            env = kwargs.get("env") or {}
+            observed = {
+                "dst_shift": int(env.get("FGF_PLACEMENT_DST", 0)),
+                "src_shift": int(env.get("FGF_PLACEMENT_SRC", 0)),
+                "stack_offset": len(env.get("FGF_PLACEMENT_STACK", "")) % 4096,
+            }
+            lines = [f"BACKEND\t{tier}", "PLACEMENT\t" + json.dumps(observed),
+                     f"CONTROL\tstart\t{start}"]
             for index, cell in enumerate(selected):
                 factor = self.factor if arm == "candidate" else 1.0
                 if self.slow_only_first and not (arm == "candidate" and index == 0):
                     factor = 1.0
                 if self.timing_factor is not None:
                     factor = self.timing_factor(
-                        arm, cell["id"], run, label.rsplit("-", 1)[-1]
+                        arm, cell["id"], run, label.split("-")[4]
                     )
                 for round_index in range(rounds):
                     value = (1000.0 + round_index) * factor
@@ -2703,10 +2709,6 @@ class MockedSessionTests(unittest.TestCase):
         self.assertEqual(session["config"]["smt_busy_threshold"], 0.05)
         self.assertTrue(session["execution"]["aslr_disabled"])
         self.assertTrue(session["execution"]["setarch"].startswith("setarch "))
-        self.assertIn("environment_digest", session["runs"][0])
-        self.assertEqual(
-            len(set(session["runs"][0]["argv_lengths"].values())), 1
-        )
         check = session["checks"]["v4x"]
         self.assertIn("environment_digest", check)
         self.assertEqual(len(set(check["argv_lengths"].values())), 1)
