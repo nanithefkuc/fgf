@@ -8,4 +8,4 @@ config portable --no-default-features
 config alloc --no-default-features --features alloc
 config default
 config all --no-default-features --features alloc,std,simd,simd512
-dependency simdispatch 0.2.0
+dependency simdispatch 0.3.0

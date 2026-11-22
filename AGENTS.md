@@ -187,10 +187,12 @@ Paths below are relative to `src/`, except the comparison package.
 subtrees (`x86/gf8`, `gf16`, `gf32`, `gf64`) and complete `kernel/gf8.rs` and
 `kernel/tower.rs` dispatch files also contain portable/narrower branches: the
 exclusion is broad, not a claim that every line needs GFNI. Native differentials
-provide separate execution evidence. AVX-512 QuadMersenne31 and residue bodies
-cannot run on the hosted coverage runner and are excluded; AVX2 residue and
-mixed-ISA prime dispatch remain included. The V4x weight arm in `kernel/gf1.rs`
-is unreachable there but is not excluded. The remaining scope has a 95% gate.
+provide separate execution evidence. AVX-512-only body files (`x86/bytes`,
+`goldilocks`, `mersenne31` and `quad_mersenne31` `avx512.rs`, and
+`x86/residue/avx512`) cannot run on the hosted coverage runner and are
+excluded. AVX2 residue and mixed-ISA prime dispatch remain included. The V4x
+weight arm in `kernel/gf1.rs` is unreachable there but is not excluded. The
+remaining scope has a 95% gate.
 Do not widen exclusions silently; document their justification here.
 
 ## Benchmarks

@@ -47,8 +47,8 @@ simd512 = ["simd", "archmage/avx512", "simdispatch/avx512"]
 internals = []
 
 [dependencies]
-simdispatch = { version = "=0.2.0", default-features = false }
-archmage = { version = "=0.9.29", optional = true }
+simdispatch = { version = "=0.3.0", default-features = false }
+archmage = { version = "=0.9.33", optional = true }
 
 # Benchmarks only; scoping them off wasm keeps `cargo test --target wasm32-*`
 # buildable.

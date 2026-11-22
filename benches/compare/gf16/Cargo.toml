@@ -9,7 +9,7 @@ description = "Matched native GF16 field operations across permissive competitor
 
 [dependencies]
 fgf = { path = "../../..", features = ["simd512"] }
-archmage = "=0.9.29"
+archmage = "=0.9.33"
 reed-solomon-simd = "=3.1.0"
 reed-solomon-erasure = { version = "=6.0.0", default-features = false }
 

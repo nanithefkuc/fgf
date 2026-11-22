@@ -21,7 +21,9 @@ use fgf::binary::{AES, Polynomial, RS};
 use fgf::internals::kernel::X64V4xToken;
 use fgf::internals::kernel::gf8::Prepared;
 use fgf::internals::kernel::scalar;
-use fgf::internals::kernel::tables::{TowerCoeff, TowerTables, isomorphism_to_aes, scale_table};
+use fgf::internals::kernel::tables::{
+    FpTowerTables, TowerCoeff, TowerTables, isomorphism_to_aes, scale_table,
+};
 use fgf::internals::kernel::{
     FlatMatrix, SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token, x86,
 };
@@ -1042,6 +1044,27 @@ fn rejects_geometry<T: SimdToken>(what: &str, body: impl FnOnce(T)) {
     };
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(token)));
     assert!(outcome.is_err(), "{what}: expected a geometry panic");
+}
+
+/// The message-matching form of [`rejects_geometry`]: same token-gated skip,
+/// but the panic must carry the operation-specific `fragment` so a different
+/// precondition firing cannot pass the case.
+fn rejects_geometry_naming<T: SimdToken>(what: &str, fragment: &str, body: impl FnOnce(T)) {
+    let Some(token) = T::summon() else {
+        eprintln!("skipping {what}: host cannot summon the required token");
+        return;
+    };
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(token)));
+    let err = outcome.expect_err(&format!("{what}: expected a geometry panic"));
+    let msg = err
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| err.downcast_ref::<&'static str>().copied())
+        .unwrap_or_else(|| panic!("{what}: panic payload is not a string"));
+    assert!(
+        msg.contains(fragment),
+        "{what}: panic message {msg:?} does not name {fragment:?}"
+    );
 }
 
 #[test]
@@ -2756,4 +2779,275 @@ fn vector_elementwise_report_matches_the_four_byte_class() {
     row!(FiniteField<1_000_000_007, 1>, is_vector_host);
     row!(FiniteField<4_294_967_291, 1>, is_vector_host);
     row!(FiniteField<18_446_744_073_709_551_557, 1>, is_vector_host);
+}
+
+// ---------------------------------------------------------------------------
+// Direct-kernel precondition panics.
+//
+// These guards live in executable x86 tier bodies, so a process-selected run
+// never reaches them. Each case summons the entry's proving token directly,
+// drives the boundary geometry, and matches the operation-specific fragment;
+// a host without the token reports a skip per case.
+// ---------------------------------------------------------------------------
+
+/// One direct-kernel geometry case: label, expected panic fragment, body.
+type GeometryCase<'a, T> = (&'a str, &'a str, &'a dyn Fn(T));
+
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>;
+
+/// AVX2 Fan–Paar kernels reject a destination/source length mismatch and a
+/// partial trailing element before the first lane.
+#[test]
+fn direct_geometry_panics_fan_paar_avx2() {
+    let tables = FpTowerTables::new(Elem::<FanPaar16Field>::from_raw(0x1234));
+    let c32 = Elem::<FanPaar32Field>::from_raw(0x1234_5678);
+    let c64 = Elem::<FanPaar64Field>::from_raw(0x0123_4567_89ab_cdef);
+
+    let cases: &[GeometryCase<'_, X64V3Token>] = &[
+        (
+            "fan_paar fp16 mul_add length",
+            "fan_paar::mul_add_avx2_fp16: dst is",
+            &|token| {
+                let mut dst = vec![0u8; 33];
+                let src = vec![0u8; 32];
+                x86::fan_paar::mul_add_avx2_fp16(token, &mut dst, &tables, &src);
+            },
+        ),
+        (
+            "fan_paar fp16 mul_add partial element",
+            "fan_paar::mul_add_avx2_fp16: buffer of",
+            &|token| {
+                let mut dst = vec![0u8; 3];
+                let src = vec![0u8; 3];
+                x86::fan_paar::mul_add_avx2_fp16(token, &mut dst, &tables, &src);
+            },
+        ),
+        (
+            "fan_paar fp16 mul_assign partial element",
+            "fan_paar::mul_assign_avx2_fp16: buffer of",
+            &|token| {
+                let mut dst = vec![0u8; 3];
+                x86::fan_paar::mul_assign_avx2_fp16(token, &mut dst, &tables);
+            },
+        ),
+        (
+            "fan_paar fp16 mul_into length",
+            "fan_paar::mul_into_avx2_fp16: dst is",
+            &|token| {
+                let mut dst = vec![0u8; 32];
+                let src = vec![0u8; 31];
+                x86::fan_paar::mul_into_avx2_fp16(token, &mut dst, &tables, &src);
+            },
+        ),
+        (
+            "fan_paar fp16 mul_into partial element",
+            "fan_paar::mul_into_avx2_fp16: buffer of",
+            &|token| {
+                let mut dst = vec![0u8; 3];
+                let src = vec![0u8; 3];
+                x86::fan_paar::mul_into_avx2_fp16(token, &mut dst, &tables, &src);
+            },
+        ),
+        (
+            "fan_paar fp32 mul_add length",
+            "fan_paar::mul_add_avx2_fp32: dst is",
+            &|token| {
+                let mut dst = vec![0u8; 16];
+                let src = vec![0u8; 12];
+                x86::fan_paar::mul_add_avx2_fp32(token, &mut dst, c32, &src);
+            },
+        ),
+        (
+            "fan_paar fp32 mul_add partial element",
+            "fan_paar::mul_add_avx2_fp32: buffer of",
+            &|token| {
+                let mut dst = vec![0u8; 6];
+                let src = vec![0u8; 6];
+                x86::fan_paar::mul_add_avx2_fp32(token, &mut dst, c32, &src);
+            },
+        ),
+        (
+            "fan_paar fp32 mul_assign partial element",
+            "fan_paar::mul_assign_avx2_fp32: buffer of",
+            &|token| {
+                let mut dst = vec![0u8; 6];
+                x86::fan_paar::mul_assign_avx2_fp32(token, &mut dst, c32);
+            },
+        ),
+        (
+            "fan_paar fp32 mul_into length",
+            "fan_paar::mul_into_avx2_fp32: dst is",
+            &|token| {
+                let mut dst = vec![0u8; 20];
+                let src = vec![0u8; 16];
+                x86::fan_paar::mul_into_avx2_fp32(token, &mut dst, c32, &src);
+            },
+        ),
+        (
+            "fan_paar fp32 mul_into partial element",
+            "fan_paar::mul_into_avx2_fp32: buffer of",
+            &|token| {
+                let mut dst = vec![0u8; 6];
+                let src = vec![0u8; 6];
+                x86::fan_paar::mul_into_avx2_fp32(token, &mut dst, c32, &src);
+            },
+        ),
+        (
+            "fan_paar fp64 mul_add length",
+            "fan_paar::mul_add_avx2_fp64: dst is",
+            &|token| {
+                let mut dst = vec![0u8; 24];
+                let src = vec![0u8; 16];
+                x86::fan_paar::mul_add_avx2_fp64(token, &mut dst, c64, &src);
+            },
+        ),
+        (
+            "fan_paar fp64 mul_add partial element",
+            "fan_paar::mul_add_avx2_fp64: buffer of",
+            &|token| {
+                let mut dst = vec![0u8; 12];
+                let src = vec![0u8; 12];
+                x86::fan_paar::mul_add_avx2_fp64(token, &mut dst, c64, &src);
+            },
+        ),
+        (
+            "fan_paar fp64 mul_assign partial element",
+            "fan_paar::mul_assign_avx2_fp64: buffer of",
+            &|token| {
+                let mut dst = vec![0u8; 12];
+                x86::fan_paar::mul_assign_avx2_fp64(token, &mut dst, c64);
+            },
+        ),
+        (
+            "fan_paar fp64 mul_into length",
+            "fan_paar::mul_into_avx2_fp64: dst is",
+            &|token| {
+                let mut dst = vec![0u8; 32];
+                let src = vec![0u8; 24];
+                x86::fan_paar::mul_into_avx2_fp64(token, &mut dst, c64, &src);
+            },
+        ),
+        (
+            "fan_paar fp64 mul_into partial element",
+            "fan_paar::mul_into_avx2_fp64: buffer of",
+            &|token| {
+                let mut dst = vec![0u8; 12];
+                let src = vec![0u8; 12];
+                x86::fan_paar::mul_into_avx2_fp64(token, &mut dst, c64, &src);
+            },
+        ),
+    ];
+
+    for &(what, fragment, case) in cases {
+        rejects_geometry_naming(what, fragment, case);
+    }
+}
+
+/// SSSE3 Fan–Paar GF(2^16) kernels reject a destination/source length
+/// mismatch and a partial trailing element before the first lane.
+#[test]
+fn direct_geometry_panics_fan_paar_ssse3() {
+    let tables = FpTowerTables::new(Elem::<FanPaar16Field>::from_raw(0x1234));
+
+    let cases: &[GeometryCase<'_, X64V2Token>] = &[
+        (
+            "fan_paar ssse3 fp16 mul_add length",
+            "fan_paar::mul_add_ssse3_fp16: dst is",
+            &|token| {
+                let mut dst = vec![0u8; 33];
+                let src = vec![0u8; 32];
+                x86::fan_paar::mul_add_ssse3_fp16(token, &mut dst, &tables, &src);
+            },
+        ),
+        (
+            "fan_paar ssse3 fp16 mul_add partial element",
+            "fan_paar::mul_add_ssse3_fp16: buffer of",
+            &|token| {
+                let mut dst = vec![0u8; 3];
+                let src = vec![0u8; 3];
+                x86::fan_paar::mul_add_ssse3_fp16(token, &mut dst, &tables, &src);
+            },
+        ),
+        (
+            "fan_paar ssse3 fp16 mul_assign partial element",
+            "fan_paar::mul_assign_ssse3_fp16: buffer of",
+            &|token| {
+                let mut dst = vec![0u8; 3];
+                x86::fan_paar::mul_assign_ssse3_fp16(token, &mut dst, &tables);
+            },
+        ),
+        (
+            "fan_paar ssse3 fp16 mul_into length",
+            "fan_paar::mul_into_ssse3_fp16: dst is",
+            &|token| {
+                let mut dst = vec![0u8; 32];
+                let src = vec![0u8; 31];
+                x86::fan_paar::mul_into_ssse3_fp16(token, &mut dst, &tables, &src);
+            },
+        ),
+        (
+            "fan_paar ssse3 fp16 mul_into partial element",
+            "fan_paar::mul_into_ssse3_fp16: buffer of",
+            &|token| {
+                let mut dst = vec![0u8; 3];
+                let src = vec![0u8; 3];
+                x86::fan_paar::mul_into_ssse3_fp16(token, &mut dst, &tables, &src);
+            },
+        ),
+    ];
+
+    for &(what, fragment, case) in cases {
+        rejects_geometry_naming(what, fragment, case);
+    }
+}
+
+/// The AVX2 residue single-row kernels reject a partial four-byte or
+/// eight-byte lane before the first lane.
+#[test]
+fn direct_geometry_panics_residue_single_avx2() {
+    const P32: u32 = 1_000_000_007;
+    const P64: u64 = 1_000_000_000_000_000_003;
+
+    let cases: &[GeometryCase<'_, X64V3Token>] = &[
+        (
+            "residue u32 mul_assign partial lane",
+            "residue::mul_assign_u32_avx2: dst lane width",
+            &|token| {
+                let mut dst = vec![0u8; 5];
+                x86::residue::mul_assign_u32_avx2(token, &mut dst, 2, 1, P32);
+            },
+        ),
+        (
+            "residue u64 mul_into partial lane",
+            "residue::mul_into_u64_avx2: dst length",
+            &|token| {
+                let mut dst = vec![0u8; 9];
+                let src = vec![0u8; 9];
+                x86::residue::mul_into_u64_avx2(token, &mut dst, &src, 2, P64);
+            },
+        ),
+        (
+            "residue u64 mul_add partial lane",
+            "residue::mul_add_u64_avx2: dst length",
+            &|token| {
+                let mut dst = vec![0u8; 9];
+                let src = vec![0u8; 9];
+                x86::residue::mul_add_u64_avx2(token, &mut dst, &src, 2, P64);
+            },
+        ),
+        (
+            "residue u64 mul_assign partial lane",
+            "residue::mul_assign_u64_avx2: dst length",
+            &|token| {
+                let mut dst = vec![0u8; 9];
+                x86::residue::mul_assign_u64_avx2(token, &mut dst, 2, P64);
+            },
+        ),
+    ];
+
+    for &(what, fragment, case) in cases {
+        rejects_geometry_naming(what, fragment, case);
+    }
 }

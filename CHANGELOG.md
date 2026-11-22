@@ -10,6 +10,10 @@ fresh verification.
 
 ### Changed
 
+- **Breaking:** Move to `simdispatch = "=0.3.0"` and `archmage = "=0.9.33"`;
+  consumers pinning either crate must upgrade together, and the re-exported
+  `Backend` is `simdispatch` 0.3's.
+  [#122](https://github.com/nanithefkuc/fgf/issues/122).
 - Use Issue/PR-backed release summaries and preserve historical details in
   linked release records. [#79](https://github.com/nanithefkuc/fgf/issues/79).
 - Consolidate comparison packages under `benches/compare/`, trim repository
