@@ -58,10 +58,10 @@ fn live(bits: usize, seed: u64, pad_to_word: bool) -> Vec<u8> {
 
 /// Bit counts straddling every boundary: empty, sub-byte, partial bytes,
 /// exact words, word-plus-partial-byte, and multi-word, including whole
-/// blocks followed by whole tail words and a partial word.
+/// 512-byte blocks followed by each remainder step and a partial word.
 const BIT_LENGTHS: &[usize] = &[
     0, 1, 2, 3, 5, 6, 7, 8, 9, 13, 16, 17, 31, 32, 33, 63, 64, 65, 70, 100, 127, 128, 129, 191,
-    192, 193, 255, 256, 257, 300, 1000, 1024,
+    192, 193, 255, 256, 257, 300, 1000, 1024, 4031, 4095, 4096, 4161, 8191, 8192, 12353,
 ];
 
 /// Range pairs worth probing: the plan's frozen cross-byte case, byte and
@@ -317,6 +317,36 @@ fn weight_and_parity_match_per_bit_oracle() {
                 expected,
                 "dot_product {bits_len}"
             );
+        }
+    }
+}
+
+/// Exhaustively exercises every take/skip combination of the power-of-two
+/// remainder steps (`0..64` whole words), both below one 512-byte block and
+/// after a full 512-byte block, with and without trailing partial bits.
+#[test]
+fn dot_product_covers_every_remainder_word_count() {
+    for &blocks in &[0usize, 1] {
+        for words in 0..64usize {
+            for &extra_bits in &[0usize, 1, 7, 63] {
+                let bits_len = (blocks * 64 + words) * 64 + extra_bits;
+                let seed = 0x5120_0000
+                    + (blocks as u64) * 10_000
+                    + (words as u64) * 100
+                    + extra_bits as u64;
+                let a = live(bits_len, seed, false);
+                let b = live(bits_len, seed ^ 0x5555_aaaa, false);
+                let mut acc = 0u32;
+                for i in 0..bits_len {
+                    acc += u32::from(bit(&a, i) && bit(&b, i));
+                }
+                let expected = u8::from(!acc.is_multiple_of(2));
+                assert_eq!(
+                    bits::dot_product(&a, &b, bits_len).to_raw(),
+                    expected,
+                    "dot_product blocks={blocks} words={words} extra_bits={extra_bits}"
+                );
+            }
         }
     }
 }

@@ -67,10 +67,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- `bits::dot_product` walks whole words in fixed 64-byte blocks, without a
-  per-word end-of-input check in its loop.
+- `bits::dot_product` walks whole words in fixed 512-byte blocks with a
+  loop-free remainder decomposition, replacing the 64-byte block walk.
   [#108](https://github.com/nanithefkuc/fgf/issues/108),
-  [#109](https://github.com/nanithefkuc/fgf/pull/109).
+  [#109](https://github.com/nanithefkuc/fgf/pull/109),
+  [#124](https://github.com/nanithefkuc/fgf/pull/124).
 - `bits::weight` walks whole words in fixed blocks on every tier without the
   AVX-512 popcount kernel, without a per-word end-of-input check in its loop.
   [#108](https://github.com/nanithefkuc/fgf/issues/108),

@@ -253,31 +253,43 @@ fn whole_word_weight(words: &[u8]) -> u32 {
     total
 }
 
+/// XORs word `i` of `a & b` into `lanes[i % 8]` for each listed word `i` of
+/// two equal fixed-size chunks, written out word by word.
+macro_rules! fold_words {
+    ($lanes:ident, $a:expr, $b:expr; $($word:literal)*) => {{
+        let (a, _) = $a.as_chunks::<8>();
+        let (b, _) = $b.as_chunks::<8>();
+        $($lanes[$word % 8] ^= u64::from_ne_bytes(a[$word]) & u64::from_ne_bytes(b[$word]);)*
+    }};
+}
+
 /// Parity of the GF(2) inner product over the live bits: 0 or 1.
 ///
-/// Eight independent XOR accumulators, folded once at the end: a single
-/// accumulator serializes every AND-XOR on one register. The whole words are
-/// walked in fixed 64-byte blocks, one word per accumulator, so the loop body
-/// carries no per-word end-of-slice check.
+/// Whole words are walked in fixed 512-byte blocks into eight independent XOR
+/// accumulators, folded once at the end. Block bodies are written out word by
+/// word so the loop shape stays fixed across LTO and codegen-unit settings,
+/// and whole-word tails shorter than one block are handled without a second
+/// loop by [`remainder_and_fold`].
 pub(crate) fn parity(a: &[u8], b: &[u8], bits: usize) -> u32 {
     debug_assert_eq!(a.len(), b.len());
-    let words = bits / 64;
-    let block_bytes = words / 8 * 64;
-    let (blocks_a, _) = a[..block_bytes].as_chunks::<64>();
-    let (blocks_b, _) = b[..block_bytes].as_chunks::<64>();
-    let mut lanes = [0u64; 8];
-    for (block_a, block_b) in blocks_a.iter().zip(blocks_b) {
-        let (words_a, _) = block_a.as_chunks::<8>();
-        let (words_b, _) = block_b.as_chunks::<8>();
-        for ((lane, &x), &y) in lanes.iter_mut().zip(words_a).zip(words_b) {
-            *lane ^= u64::from_ne_bytes(x) & u64::from_ne_bytes(y);
+    let whole = bits / 64 * 8;
+    let (blocks_a, rest_a) = a[..whole].as_chunks::<512>();
+    let (blocks_b, rest_b) = b[..whole].as_chunks::<512>();
+    let mut acc = if blocks_a.is_empty() {
+        0
+    } else {
+        let mut lanes = [0u64; 8];
+        for (block_a, block_b) in blocks_a.iter().zip(blocks_b) {
+            fold_words!(lanes, block_a, block_b;
+                0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
+                32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59
+                60 61 62 63
+            );
         }
-    }
-    let mut acc = lanes.iter().fold(0, |acc, lane| acc ^ lane);
-    let (tail_a, _) = a[block_bytes..words * 8].as_chunks::<8>();
-    let (tail_b, _) = b[block_bytes..words * 8].as_chunks::<8>();
-    for (&x, &y) in tail_a.iter().zip(tail_b) {
-        acc ^= u64::from_ne_bytes(x) & u64::from_ne_bytes(y);
+        lanes.iter().fold(0, |acc, lane| acc ^ lane)
+    };
+    if !rest_a.is_empty() {
+        acc ^= remainder_and_fold(rest_a, rest_b);
     }
     let rem = bits % 64;
     if rem != 0 {
@@ -285,6 +297,37 @@ pub(crate) fn parity(a: &[u8], b: &[u8], bits: usize) -> u32 {
         acc ^= partial_word(a, bits / 64, live) & partial_word(b, bits / 64, live);
     }
     acc.count_ones() & 1
+}
+
+/// XOR fold of the word ANDs of a whole-word remainder shorter than one
+/// 512-byte block.
+///
+/// Decomposes any whole-word remainder (`0..512` bytes, multiple of 8) into at
+/// most one fixed-size step each of 256, 128, 64, 32, 16, and 8 bytes, using
+/// its own accumulator array so the main block loop's registers stay separate.
+#[inline]
+fn remainder_and_fold(mut rest_a: &[u8], mut rest_b: &[u8]) -> u64 {
+    let mut lanes = [0u64; 8];
+    macro_rules! step {
+        ($bytes:literal; $($word:literal)*) => {
+            if let (Some((a, more_a)), Some((b, more_b))) = (
+                rest_a.split_first_chunk::<$bytes>(),
+                rest_b.split_first_chunk::<$bytes>(),
+            ) {
+                fold_words!(lanes, a, b; $($word)*);
+                (rest_a, rest_b) = (more_a, more_b);
+            }
+        };
+    }
+    step!(256;
+        0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31);
+    step!(128; 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15);
+    step!(64; 0 1 2 3 4 5 6 7);
+    step!(32; 0 1 2 3);
+    step!(16; 0 1);
+    step!(8; 0);
+    debug_assert!(rest_a.is_empty() && rest_b.is_empty());
+    lanes.iter().fold(0, |acc, lane| acc ^ lane)
 }
 
 pub(crate) fn xor_gather(dst: &mut [u8], srcs: &[&[u8]], mut selector: u64) {
