@@ -275,15 +275,22 @@ pub(crate) fn parity(a: &[u8], b: &[u8], bits: usize) -> u32 {
     let whole = bits / 64 * 8;
     let (blocks_a, rest_a) = a[..whole].as_chunks::<512>();
     let (blocks_b, rest_b) = b[..whole].as_chunks::<512>();
-    let mut lanes = [0u64; 8];
-    for (block_a, block_b) in blocks_a.iter().zip(blocks_b) {
-        fold_words!(lanes, block_a, block_b;
-            0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
-            32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59
-            60 61 62 63
-        );
+    let mut acc = if blocks_a.is_empty() {
+        0
+    } else {
+        let mut lanes = [0u64; 8];
+        for (block_a, block_b) in blocks_a.iter().zip(blocks_b) {
+            fold_words!(lanes, block_a, block_b;
+                0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
+                32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59
+                60 61 62 63
+            );
+        }
+        lanes.iter().fold(0, |acc, lane| acc ^ lane)
+    };
+    if !rest_a.is_empty() {
+        acc ^= remainder_and_fold(rest_a, rest_b);
     }
-    let mut acc = lanes.iter().fold(0, |acc, lane| acc ^ lane) ^ remainder_and_fold(rest_a, rest_b);
     let rem = bits % 64;
     if rem != 0 {
         let live = low_mask(rem);
