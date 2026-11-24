@@ -864,7 +864,7 @@ pub(crate) enum WideTowerStrategy {
 ///
 /// The multiplies take the AVX-512 kernels on an `Avx512` host and the AVX2
 /// kernels on an `Avx2` host; the additive and scalar-broadcast operations
-/// dispatch through [`QuadMersenneAddToken`] (AVX2 on `V4x`/`V3`, SSE4.2 on
+/// dispatch through `QuadMersenneAddToken` (AVX2 on `V4x`/`V3`, SSE4.2 on
 /// `V2`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum QuadMersenneStrategy {

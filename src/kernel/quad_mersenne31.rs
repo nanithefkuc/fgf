@@ -143,7 +143,7 @@ pub(crate) fn add_assign(dst: &mut [u8], src: &[u8]) {
     add_assign_short(dst, src);
 }
 
-#[inline(never)]
+#[cfg_attr(all(feature = "simd", target_arch = "x86_64"), inline(never))]
 fn add_assign_short(dst: &mut [u8], src: &[u8]) {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     if let QuadMersenneAddToken::V2(token) = crate::kernel::quad_mersenne_add_token() {
@@ -185,7 +185,7 @@ pub(crate) fn sub_assign(dst: &mut [u8], src: &[u8]) {
     sub_assign_short(dst, src);
 }
 
-#[inline(never)]
+#[cfg_attr(all(feature = "simd", target_arch = "x86_64"), inline(never))]
 fn sub_assign_short(dst: &mut [u8], src: &[u8]) {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     if let QuadMersenneAddToken::V2(token) = crate::kernel::quad_mersenne_add_token() {
@@ -451,7 +451,7 @@ pub(crate) fn add_assign_scalar(dst: &mut [u8], value: Elem<QuadMersenne31>) {
     add_assign_scalar_short(dst, value);
 }
 
-#[inline(never)]
+#[cfg_attr(all(feature = "simd", target_arch = "x86_64"), inline(never))]
 fn add_assign_scalar_short(dst: &mut [u8], value: Elem<QuadMersenne31>) {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     if let QuadMersenneAddToken::V2(token) = crate::kernel::quad_mersenne_add_token() {
@@ -480,7 +480,7 @@ pub(crate) fn sub_assign_scalar(dst: &mut [u8], value: Elem<QuadMersenne31>) {
     sub_assign_scalar_short(dst, value);
 }
 
-#[inline(never)]
+#[cfg_attr(all(feature = "simd", target_arch = "x86_64"), inline(never))]
 fn sub_assign_scalar_short(dst: &mut [u8], value: Elem<QuadMersenne31>) {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     if let QuadMersenneAddToken::V2(token) = crate::kernel::quad_mersenne_add_token() {

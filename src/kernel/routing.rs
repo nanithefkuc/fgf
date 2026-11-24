@@ -180,10 +180,11 @@ pub(super) const MUL_ADD_PEEL_MIN: usize = 3584;
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(super) const QUAD_VECTOR_MUL_MIN_BYTES: usize = 32;
 
-/// Row length in bytes at or above which the vector add and sub take over;
-/// the mixed vector-plus-tail rows below this stay scalar. The halved
-/// neighbour passes on Willow and fails on Golden Cove, so the cutoff
-/// stays; the two-arm evidence is the threshold record at
+/// Row length in bytes at or above which the AVX2 vector add and sub take
+/// over on `V3`/`V4x` hosts; shorter rows on those hosts stay scalar, while
+/// `V2` hosts route all additive rows through the 16-byte SSE4.2 kernels.
+/// The halved neighbour passes on Willow and fails on Golden Cove, so the
+/// AVX2 cutoff stays; the two-arm evidence is the threshold record at
 /// <https://github.com/nanithefkuc/fgf/blob/3e95f90b68ab4d48279df503aceb2ac2e3b69443/benchmarks/thresholds.md#threshold-20261108T142601Z-Comet>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(super) const QUAD_VECTOR_ADD_MIN_BYTES: usize = 64;

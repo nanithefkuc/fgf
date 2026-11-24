@@ -262,10 +262,24 @@ fn sse42_unaligned_slices() {
     }
 }
 
-fn expect_geometry_panic(label: &str, dst: &mut [u8], invoke: impl FnOnce(&mut [u8])) {
+fn expect_geometry_panic(
+    label: &str,
+    expected_fragment: &str,
+    dst: &mut [u8],
+    invoke: impl FnOnce(&mut [u8]),
+) {
     let before = dst.to_vec();
-    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| invoke(dst))).is_err();
-    assert!(panicked, "{label} must panic");
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| invoke(dst)));
+    let payload = result.expect_err(&format!("{label} must panic"));
+    let msg = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+        .unwrap_or("");
+    assert!(
+        msg.contains(expected_fragment),
+        "{label}: panic message {msg:?} missing expected fragment {expected_fragment:?}"
+    );
     assert_eq!(
         &*dst,
         &before[..],
@@ -281,33 +295,65 @@ fn sse42_geometry_validation_precedes_writes() {
     };
     let val = Elem::<QuadMersenne31>::from_raw([3, 5]);
 
-    let mut partial = [1u8; 12];
-    let partial_src = [1u8; 12];
-    expect_geometry_panic("sse42 add partial", &mut partial, |d| {
-        x86::quad_mersenne31::add_assign_sse42(token, d, &partial_src);
-    });
-    let mut partial = [1u8; 12];
-    let partial_src = [1u8; 12];
-    expect_geometry_panic("sse42 sub partial", &mut partial, |d| {
-        x86::quad_mersenne31::sub_assign_sse42(token, d, &partial_src);
-    });
-    let mut partial = [1u8; 12];
-    expect_geometry_panic("sse42 add_scalar partial", &mut partial, |d| {
-        x86::quad_mersenne31::add_assign_scalar_sse42(token, d, val);
-    });
-    let mut partial = [1u8; 12];
-    expect_geometry_panic("sse42 sub_scalar partial", &mut partial, |d| {
-        x86::quad_mersenne31::sub_assign_scalar_sse42(token, d, val);
-    });
+    // 20 bytes spans one full 16-byte SSE4.2 vector followed by a 4-byte
+    // partial element, so validation must fire before any vector store.
+    let mut partial = [1u8; 20];
+    let partial_src = [1u8; 20];
+    expect_geometry_panic(
+        "sse42 add partial",
+        "quad_mersenne31::add_assign_sse42",
+        &mut partial,
+        |d| {
+            x86::quad_mersenne31::add_assign_sse42(token, d, &partial_src);
+        },
+    );
+    let mut partial = [1u8; 20];
+    let partial_src = [1u8; 20];
+    expect_geometry_panic(
+        "sse42 sub partial",
+        "quad_mersenne31::sub_assign_sse42",
+        &mut partial,
+        |d| {
+            x86::quad_mersenne31::sub_assign_sse42(token, d, &partial_src);
+        },
+    );
+    let mut partial = [1u8; 20];
+    expect_geometry_panic(
+        "sse42 add_scalar partial",
+        "quad_mersenne31::add_assign_scalar_sse42",
+        &mut partial,
+        |d| {
+            x86::quad_mersenne31::add_assign_scalar_sse42(token, d, val);
+        },
+    );
+    let mut partial = [1u8; 20];
+    expect_geometry_panic(
+        "sse42 sub_scalar partial",
+        "quad_mersenne31::sub_assign_scalar_sse42",
+        &mut partial,
+        |d| {
+            x86::quad_mersenne31::sub_assign_scalar_sse42(token, d, val);
+        },
+    );
 
-    let mut mismatched = [1u8; 16];
-    let short_src = [1u8; 8];
-    expect_geometry_panic("sse42 add length mismatch", &mut mismatched, |d| {
-        x86::quad_mersenne31::add_assign_sse42(token, d, &short_src);
-    });
-    let mut mismatched = [1u8; 16];
-    let short_src = [1u8; 8];
-    expect_geometry_panic("sse42 sub length mismatch", &mut mismatched, |d| {
-        x86::quad_mersenne31::sub_assign_sse42(token, d, &short_src);
-    });
+    let mut mismatched = [1u8; 32];
+    let short_src = [1u8; 16];
+    expect_geometry_panic(
+        "sse42 add length mismatch",
+        "quad_mersenne31::add_assign_sse42",
+        &mut mismatched,
+        |d| {
+            x86::quad_mersenne31::add_assign_sse42(token, d, &short_src);
+        },
+    );
+    let mut mismatched = [1u8; 32];
+    let short_src = [1u8; 16];
+    expect_geometry_panic(
+        "sse42 sub length mismatch",
+        "quad_mersenne31::sub_assign_sse42",
+        &mut mismatched,
+        |d| {
+            x86::quad_mersenne31::sub_assign_sse42(token, d, &short_src);
+        },
+    );
 }
