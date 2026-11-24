@@ -22,9 +22,18 @@ All notable changes to this project are documented here. The format follows
 - AVX2 Fan–Paar GF(2^16)/GF(2^32) and 64-bit residue performance no longer
   depends on the caller's stack alignment.
   [#115](https://github.com/nanithefkuc/fgf/issues/115).
+- Short `QuadMersenne31` additive and scalar-broadcast operations recover
+  dispatch overhead on x86-64 `V3`/`V4x` hosts.
+  [#117](https://github.com/nanithefkuc/fgf/issues/117),
+  [#125](https://github.com/nanithefkuc/fgf/issues/125),
+  [#127](https://github.com/nanithefkuc/fgf/pull/127).
 
 ### Added
 
+- SSE4.2 (`V2`) additive and scalar-broadcast kernels for `QuadMersenne31`
+  (`add_assign`, `sub_assign`, `add_assign_scalar`, `sub_assign_scalar`).
+  [#118](https://github.com/nanithefkuc/fgf/issues/118),
+  [#127](https://github.com/nanithefkuc/fgf/pull/127).
 - `just bench-baseline` records standalone descriptive measurements across
   scalar arithmetic, representations, storage, generic extensions, maps,
   preparation, and bulk operations, without requiring paired acceptance or

@@ -8,6 +8,8 @@ use crate::field::quad_mersenne31::QuadMersenne31;
 mod avx2;
 #[cfg(all(feature = "simd", feature = "simd512", target_arch = "x86_64"))]
 mod avx512;
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+mod sse42;
 
 #[test]
 fn quad_mersenne31_kernel_handles_zero_and_one_coefficients() {

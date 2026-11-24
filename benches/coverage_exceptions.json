@@ -546,7 +546,7 @@
     {
       "key": "src/kernel/routing.rs::QUAD_VECTOR_ADD_MIN_BYTES",
       "class": "unmapped_branch",
-      "reason": "the vector-floor comparison sits in the Quad-Mersenne addition arms (`src/kernel/quad_mersenne31.rs:104`, `:115`, `:147`, `:158`, `:417`, `:433`); the v4x session executes the containing arms through the sub-floor scalar and at-floor vector routes, but the pinned compiler emitted no branch record for the remaining spans. The straddling cells run the same addition below and at the 64-byte floor",
+      "reason": "the vector-floor comparison sits in the Quad-Mersenne addition guards (`src/kernel/quad_mersenne31.rs:130`, `:172`, `:438`, `:467`); the v4x session executes the containing arms through the sub-floor scalar and at-floor vector routes, but the pinned compiler emitted no branch record for the remaining spans. The straddling cells run the same addition below and at the 64-byte floor",
       "straddling_cells": [
         "qm31/add_assign/unprepared/32x1x1/aligned",
         "qm31/add_assign/unprepared/128x1x1/aligned"
@@ -558,7 +558,7 @@
     {
       "key": "src/kernel/routing.rs::QUAD_VECTOR_MUL_MIN_BYTES",
       "class": "unmapped_branch",
-      "reason": "the vector-floor comparison sits in the Quad-Mersenne multiply arms (`src/kernel/quad_mersenne31.rs:207` through `:399`); the v4x session executes the containing arms through the sub-floor scalar and at-floor vector routes, but the pinned compiler emitted no branch record for the remaining spans. The straddling cells run the same multiply below and at the 32-byte floor",
+      "reason": "the vector-floor comparison sits in the Quad-Mersenne multiply arms (`src/kernel/quad_mersenne31.rs:233` through `:421`); the v4x session executes the containing arms through the sub-floor scalar and at-floor vector routes, but the pinned compiler emitted no branch record for the remaining spans. The straddling cells run the same multiply below and at the 32-byte floor",
       "straddling_cells": [
         "qm31/mul_add/unprepared/16x1x1/aligned",
         "qm31/mul_add/unprepared/64x1x1/aligned"

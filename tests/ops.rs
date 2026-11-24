@@ -4312,13 +4312,7 @@ fn backend_reports_match_family_routes() {
     };
     assert_eq!(backend_for::<Mersenne31>(), prime);
     assert_eq!(backend_for::<Goldilocks>(), prime);
-    assert_eq!(
-        backend_for::<QuadMersenne31>(),
-        match prime {
-            Backend::V2 => Backend::Scalar,
-            other => other,
-        },
-    );
+    assert_eq!(backend_for::<QuadMersenne31>(), prime);
 }
 
 /// Lengths in elements straddling every lane and unroll boundary — below

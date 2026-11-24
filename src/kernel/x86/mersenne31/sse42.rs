@@ -18,7 +18,7 @@ use core::arch::x86_64::*;
 /// subtract-and-min steps; every lane value fits `0..=2p + 1`
 /// (`u32::MAX == 2p + 1`).
 #[archmage::rite(v2)]
-fn min_chain(x: __m128i, p: __m128i) -> __m128i {
+pub(in crate::kernel::x86) fn min_chain_sse42(x: __m128i, p: __m128i) -> __m128i {
     let u = _mm_min_epu32(x, _mm_sub_epi32(x, p));
     _mm_min_epu32(u, _mm_sub_epi32(u, p))
 }
@@ -33,7 +33,7 @@ fn mul_input(x: __m128i, p: __m128i) -> __m128i {
     if _mm_movemask_ps(_mm_castsi128_ps(x)) == 0 {
         x
     } else {
-        min_chain(x, p)
+        min_chain_sse42(x, p)
     }
 }
 
@@ -59,8 +59,8 @@ pub fn add_assign_sse42(_token: archmage::X64V2Token, dst: &mut [u8], src: &[u8]
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<16>();
         let (src_lanes, _) = src_tile.as_chunks::<16>();
         for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-            let d = min_chain(_mm_loadu_si128(&*dst_lane), p);
-            let s = min_chain(_mm_loadu_si128(src_lane), p);
+            let d = min_chain_sse42(_mm_loadu_si128(&*dst_lane), p);
+            let s = min_chain_sse42(_mm_loadu_si128(src_lane), p);
             let sum = _mm_add_epi32(d, s); // <= 2p - 2
             _mm_storeu_si128(dst_lane, _mm_min_epu32(sum, _mm_sub_epi32(sum, p)));
         }
@@ -68,8 +68,8 @@ pub fn add_assign_sse42(_token: archmage::X64V2Token, dst: &mut [u8], src: &[u8]
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<16>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<16>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let d = min_chain(_mm_loadu_si128(&*dst_lane), p);
-        let s = min_chain(_mm_loadu_si128(src_lane), p);
+        let d = min_chain_sse42(_mm_loadu_si128(&*dst_lane), p);
+        let s = min_chain_sse42(_mm_loadu_si128(src_lane), p);
         let sum = _mm_add_epi32(d, s); // <= 2p - 2
         _mm_storeu_si128(dst_lane, _mm_min_epu32(sum, _mm_sub_epi32(sum, p)));
     }
@@ -98,8 +98,8 @@ pub fn sub_assign_sse42(_token: archmage::X64V2Token, dst: &mut [u8], src: &[u8]
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<16>();
         let (src_lanes, _) = src_tile.as_chunks::<16>();
         for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-            let d = min_chain(_mm_loadu_si128(&*dst_lane), p);
-            let s = min_chain(_mm_loadu_si128(src_lane), p);
+            let d = min_chain_sse42(_mm_loadu_si128(&*dst_lane), p);
+            let s = min_chain_sse42(_mm_loadu_si128(src_lane), p);
             let diff = _mm_sub_epi32(d, s); // wraps iff negative
             _mm_storeu_si128(dst_lane, _mm_min_epu32(diff, _mm_add_epi32(diff, p)));
         }
@@ -107,8 +107,8 @@ pub fn sub_assign_sse42(_token: archmage::X64V2Token, dst: &mut [u8], src: &[u8]
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<16>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<16>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let d = min_chain(_mm_loadu_si128(&*dst_lane), p);
-        let s = min_chain(_mm_loadu_si128(src_lane), p);
+        let d = min_chain_sse42(_mm_loadu_si128(&*dst_lane), p);
+        let s = min_chain_sse42(_mm_loadu_si128(src_lane), p);
         let diff = _mm_sub_epi32(d, s); // wraps iff negative
         _mm_storeu_si128(dst_lane, _mm_min_epu32(diff, _mm_add_epi32(diff, p)));
     }
@@ -365,14 +365,14 @@ pub fn add_assign_scalar_sse42(_token: archmage::X64V2Token, dst: &mut [u8], val
     for dst_tile in dst_tiles {
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<16>();
         for dst_lane in dst_lanes {
-            let d = min_chain(_mm_loadu_si128(&*dst_lane), p);
+            let d = min_chain_sse42(_mm_loadu_si128(&*dst_lane), p);
             let sum = _mm_add_epi32(d, svec); // <= 2p - 2
             _mm_storeu_si128(dst_lane, _mm_min_epu32(sum, _mm_sub_epi32(sum, p)));
         }
     }
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<16>();
     for dst_lane in dst_lanes {
-        let d = min_chain(_mm_loadu_si128(&*dst_lane), p);
+        let d = min_chain_sse42(_mm_loadu_si128(&*dst_lane), p);
         let sum = _mm_add_epi32(d, svec); // <= 2p - 2
         _mm_storeu_si128(dst_lane, _mm_min_epu32(sum, _mm_sub_epi32(sum, p)));
     }
@@ -396,14 +396,14 @@ pub fn sub_assign_scalar_sse42(_token: archmage::X64V2Token, dst: &mut [u8], val
     for dst_tile in dst_tiles {
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<16>();
         for dst_lane in dst_lanes {
-            let d = min_chain(_mm_loadu_si128(&*dst_lane), p);
+            let d = min_chain_sse42(_mm_loadu_si128(&*dst_lane), p);
             let diff = _mm_sub_epi32(d, svec); // wraps iff negative
             _mm_storeu_si128(dst_lane, _mm_min_epu32(diff, _mm_add_epi32(diff, p)));
         }
     }
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<16>();
     for dst_lane in dst_lanes {
-        let d = min_chain(_mm_loadu_si128(&*dst_lane), p);
+        let d = min_chain_sse42(_mm_loadu_si128(&*dst_lane), p);
         let diff = _mm_sub_epi32(d, svec); // wraps iff negative
         _mm_storeu_si128(dst_lane, _mm_min_epu32(diff, _mm_add_epi32(diff, p)));
     }
