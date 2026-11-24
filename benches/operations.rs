@@ -18,14 +18,15 @@
 //! Setup, allocation, and coefficient construction happen outside the timed
 //! region; a round's value is the median of an adaptive inner batch.
 //!
-//! Fixture placement is deterministic. Every allocation is page-aligned; a
-//! destination starts 64 bytes into its page, the first source 512, a second
-//! source 960, and an offset-addressed gather region 1408. The offsets are
-//! multiples of 64 and distinct modulo 4096, so no destination and source
-//! share a 4 KiB page offset. `offset{k}` adds `k` to the destination only.
-//! Buffers of 2 MiB or more use 2 MiB-aligned storage. Library-owned
-//! prepared coefficient tables are allocated page-aligned at offset 0,
-//! distinct from every fixture role.
+//! Fixture base role offsets are deterministic cache-line multiples inside a
+//! 4 KiB page (`Dst = 64`, `Src = 512`, `Src2 = 960`, `Region = 1408`);
+//! `FGF_PLACEMENT_DST` and `FGF_PLACEMENT_SRC` add campaign-selected cache-line
+//! shifts modulo 4096 (so shifted fixtures can land on page offset 0, which
+//! page-aligned library coefficient tables also use). `FGF_PLACEMENT_STACK` is
+//! unread padding used to vary the initial stack. `PLACEMENT` records the
+//! requested buffer shifts and the observed stack page offset. The paired
+//! runner retains every stratum and compares equally weighted placement
+//! medians rather than one link-dependent address.
 
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
@@ -45,11 +46,10 @@ mod oracle;
 #[path = "operations/sha256.rs"]
 mod sha256;
 
-/// Every allocation in this bench is page-aligned: fixture buffers take
-/// their role offsets inside one page, and library-owned prepared
-/// coefficient tables begin at page offset 0, distinct from the fixture
-/// destination and source offsets. Buffers at or above the streaming-store
-/// size are aligned to the 2 MiB huge-page size instead of 4 KiB.
+/// Page-aligns fixture storage and library-owned coefficient tables.
+///
+/// Fixture role offsets and measured shifts select each buffer's live slice.
+/// Buffers at or above the streaming-store size use huge-page alignment.
 struct PageAligned;
 
 unsafe impl GlobalAlloc for PageAligned {
@@ -88,6 +88,30 @@ unsafe impl GlobalAlloc for PageAligned {
 static PAGE_ALLOCATOR: PageAligned = PageAligned;
 
 use cells::Cell;
+
+/// Fixture shifts cached before any timing or library preparation.
+fn placement() -> (usize, usize) {
+    static VALUE: std::sync::LazyLock<(usize, usize)> = std::sync::LazyLock::new(|| {
+        let read = |name| {
+            let value = match std::env::var(name) {
+                Ok(value) => value
+                    .parse::<usize>()
+                    .expect("placement shift must be an integer"),
+                Err(std::env::VarError::NotPresent) => 0,
+                Err(std::env::VarError::NotUnicode(_)) => {
+                    panic!("placement shift {name} must be valid UTF-8")
+                }
+            };
+            assert!(
+                value < 4096 && value % 64 == 0,
+                "placement shift must be a page cache-line offset"
+            );
+            value
+        };
+        (read("FGF_PLACEMENT_DST"), read("FGF_PLACEMENT_SRC"))
+    });
+    *VALUE
+}
 
 /// One adaptive inner batch targets this wall-clock length.
 const BATCH_TARGET_NS: f64 = 100_000.0;
@@ -299,6 +323,12 @@ fn main() {
         print_inventory(&cells);
         return;
     }
+    let stack_marker = 0u8;
+    let (dst_shift, src_shift) = placement();
+    println!(
+        "PLACEMENT\t{{\"dst_shift\":{dst_shift},\"src_shift\":{src_shift},\"stack_offset\":{}}}",
+        std::hint::black_box(&stack_marker) as *const u8 as usize % 4096,
+    );
 
     let ctx = Ctx { check };
     if check {

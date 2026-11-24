@@ -43,14 +43,12 @@ pub(crate) const PAGE_BYTES: usize = 4096;
 /// page-aligned placement is the fallback on other hosts.
 pub(crate) const LARGE_ALIGN: usize = 2 * 1024 * 1024;
 
-/// The fixed intra-page offset of one fixture role.
+/// The intra-page offset of a fixture role before the measured page shift.
 ///
-/// Every offset is a multiple of 64 and distinct modulo [`PAGE_BYTES`], so a
-/// `dst` and any source never share a 4 KiB page offset: the destination
-/// store and the source load cannot hit the same page offset at the same
-/// time and trigger 4 KiB store-to-load aliasing. Role offsets are constants
-/// rather than allocation-order artifacts, so the placement is reproducible
-/// across processes. `offset{k}` adds `k` to the destination only.
+/// Base role offsets are `Dst = 64`, `Src = 512`, `Src2 = 960`, and
+/// `Region = 1408`. Destination and source shifts are selected by the campaign
+/// modulo 4096 (so shifted fixtures may land on page offset 0); `offset{k}`
+/// retains its cache-line skew on every placement.
 #[derive(Clone, Copy)]
 enum Role {
     /// Destination row(s).
@@ -64,18 +62,20 @@ enum Role {
 }
 
 impl Role {
-    const fn offset(self) -> usize {
-        match self {
-            Role::Dst => 64,
-            Role::Src => 512,
-            Role::Src2 => 960,
-            Role::Region => 1408,
-        }
+    fn offset(self) -> usize {
+        let placement = crate::placement();
+        let (base, shift) = match self {
+            Role::Dst => (64, placement.0),
+            Role::Src => (512, placement.1),
+            Role::Src2 => (960, placement.1),
+            Role::Region => (1408, placement.1),
+        };
+        (base + shift) % PAGE_BYTES
     }
 }
 
 /// A byte buffer whose first live byte has the requested residue modulo 64,
-/// inside a page-aligned allocation at the role's fixed page offset.
+/// inside a page-aligned allocation at the role's measured page offset.
 pub struct Aligned {
     storage: Vec<u8>,
     start: usize,
@@ -92,7 +92,7 @@ impl Aligned {
             PAGE_BYTES
         };
         // The backing vector need not start page-aligned; the live slice does.
-        let extra = align + Role::Region.offset() + 64 + skew;
+        let extra = align + PAGE_BYTES + 64 + skew;
         let mut storage = vec![0u8; bytes.len() + extra];
         let base = storage.as_ptr() as usize;
         let aligned = base.wrapping_add(align - 1) & !(align - 1);

@@ -81,11 +81,14 @@ import time
 import tomllib
 from pathlib import Path
 
-METHOD_VERSION = "fgf-pair/5"
+import placement
+
+METHOD_VERSION = "fgf-pair/6"
 DRIFT_METHOD = "iqr_over_median"
 METHOD_DRIFT = {
     "fgf-pair/3": "p90_minus_p10_over_median",
     "fgf-pair/4": "p90_minus_p10_over_median",
+    "fgf-pair/5": "iqr_over_median",
     METHOD_VERSION: DRIFT_METHOD,
 }
 SUPPORTED_TIERS = ("v4x", "v3_gfni_crypto", "v3", "v2", "scalar")
@@ -526,9 +529,20 @@ def run_arm_summary(round_timings) -> float:
 
 
 def start_controls(runs) -> list[float]:
-    """Every arm's start control across the independent runs of one tier."""
+    """Every arm's start control across the independent runs of one tier.
+
+    For placement-distribution runs (`fgf-pair/6`), return every per-stratum
+    start control rather than the collapsed per-run median so within-sweep
+    drift remains visible to the drift gate.
+    """
     samples = []
     for run in runs:
+        placements = run.get("placements") or []
+        if placements:
+            for stratum in placements:
+                stratum_controls = stratum.get("controls") or {}
+                samples.extend(float(entry["start_ns"]) for entry in stratum_controls.values())
+            continue
         controls = run.get("controls") or {}
         if controls:
             samples.extend(float(entry["start_ns"]) for entry in controls.values())
@@ -3587,6 +3601,7 @@ class Campaign:
         order: list[str],
         cells_filter: Path | None = None,
         env: dict | None = None,
+        placement_point: dict | None = None,
     ):
         extra = ["--time", "--rounds", str(self.args_rounds)]
         if cells_filter is not None:
@@ -3595,7 +3610,8 @@ class Campaign:
             executable,
             extra,
             tier,
-            f"run-{self.current_run}-{arm}-{tier}-{self.current_stage}",
+            f"run-{self.current_run}-{arm}-{tier}-{self.current_stage}"
+            + (f"-place{placement_point['index']:03d}" if placement_point is not None else ""),
             env=env,
             disable_aslr=True,
         )
@@ -3619,6 +3635,17 @@ class Campaign:
                 )
             )
             return None
+        observed_placement = None
+        if placement_point is not None:
+            try:
+                observed_placement = placement.validate_record(process.stdout, placement_point)
+            except (ValueError, TypeError, KeyError) as error:
+                self.reject(reject("placement_mismatch", str(error), arm=arm))
+                return None
+        problem = check_backend(tier, parsed["backend"], arm)
+        if problem is not None:
+            self.reject(problem)
+            return None
         start = control_value(parsed, "start")
         end = control_value(parsed, "end")
         if start is None or end is None:
@@ -3641,6 +3668,7 @@ class Campaign:
             "run": self.current_run,
             "tier": tier,
             "order": order,
+            "placement": observed_placement,
             "control": {"start_ns": start, "end_ns": end},
             "argv_length": command_length(
                 harness_command(
@@ -3726,6 +3754,81 @@ class Campaign:
                         cells[cell] = statistics.median(values)
                 self.session["arm_summaries"][arm][tier] = cells
 
+    def measure_placements(self, tier, aliases, cells, cells_filter):
+        """Measure one paired run over a complete, equally weighted design."""
+        run_index = self.current_run
+        stage = self.current_stage
+        run_precondition = self.session["preconditions"][-1]
+        base_arms = list(aliases)
+        arm_order = placement.arm_order(base_arms, run_index, 0)
+        strata = []
+        for point in placement.plan(run_index):
+            if point["index"] > 0 and point["index"] % 64 == 0:
+                if not self.check_preconditions(
+                    tier, run_index, f"{stage}:place{point['index']:03d}"
+                ):
+                    return None
+            run_env = placement.environment(self.harness_env(tier), point)
+            pieces = {}
+            point_order = placement.arm_order(base_arms, run_index, point["index"])
+            for arm in point_order:
+                piece = self.timed_run(
+                    tier, arm, aliases[arm], cells, env=run_env,
+                    cells_filter=cells_filter, placement_point=point,
+                )
+                if piece is None:
+                    return None
+                pieces[arm] = piece
+            lengths = {arm: pieces[arm]["argv_length"] for arm in base_arms}
+            problem = check_argv_lengths(
+                lengths, f"tier {tier} {stage} run {run_index} placement {point['index']}"
+            )
+            if problem is not None:
+                self.reject(problem)
+                return None
+            strata.append({
+                **point,
+                "order": point_order,
+                "environment_digest": environment_digest(run_env),
+                "argv_lengths": lengths,
+                "observed": {arm: pieces[arm]["placement"] for arm in base_arms},
+                "controls": {arm: pieces[arm]["control"] for arm in base_arms},
+                "arms": {arm: pieces[arm]["arms"][arm] for arm in base_arms},
+            })
+        controls = {
+            arm: {
+                key: statistics.median(p["controls"][arm][key] for p in strata)
+                for key in ("start_ns", "end_ns")
+            } for arm in base_arms
+        }
+        try:
+            arms = {
+                arm: placement.summarize(
+                    [p["arms"][arm] for p in strata], cells, self.args_rounds
+                ) for arm in base_arms
+            }
+            record = {
+                "run": run_index,
+                "stage": stage,
+                "tier": tier,
+                "order": arm_order,
+                "control": controls[arm_order[0]],
+                "controls": controls,
+                "precondition": run_precondition,
+                "placements": strata,
+                "arms": arms,
+            }
+            placement.validate_run(
+                record,
+                self.args_rounds,
+                expected_arms=base_arms,
+                expected_cells=cells,
+            )
+        except (ValueError, TypeError, KeyError) as error:
+            self.reject(reject("placement_mismatch", str(error)))
+            return None
+        return record
+
     def measure_stage(self, tier, aliases, cells, cells_filter, stage) -> bool:
         """Run fresh paired processes with the campaign's isolation checks."""
         self.current_stage = stage
@@ -3733,37 +3836,10 @@ class Campaign:
             self.current_run = run_index
             if not self.check_preconditions(tier, run_index, stage):
                 return False
-            precondition = self.session["preconditions"][-1]
-            run_env = self.harness_env(tier)
-            arm_order = balanced_order(run_index)
-            pieces = {}
-            for arm in arm_order:
-                piece = self.timed_run(
-                    tier, arm, aliases[arm], cells,
-                    env=run_env, cells_filter=cells_filter,
-                )
-                if piece is None:
-                    return False
-                pieces[arm] = piece
-            lengths = {arm: pieces[arm]["argv_length"] for arm in arm_order}
-            problem = check_argv_lengths(
-                lengths, f"tier {tier} {stage} run {run_index}"
-            )
-            if problem is not None:
-                self.reject(problem)
+            record = self.measure_placements(tier, aliases, cells, cells_filter)
+            if record is None:
                 return False
-            self.session["runs"].append({
-                "run": run_index,
-                "stage": stage,
-                "tier": tier,
-                "order": arm_order,
-                "control": pieces[arm_order[0]]["control"],
-                "controls": {arm: pieces[arm]["control"] for arm in arm_order},
-                "precondition": precondition,
-                "environment_digest": environment_digest(run_env),
-                "argv_lengths": lengths,
-                "arms": {arm: pieces[arm]["arms"][arm] for arm in arm_order},
-            })
+            self.session["runs"].append(record)
         return True
 
     # -- main flow --------------------------------------------------------
@@ -4581,57 +4657,37 @@ class Campaign:
         controls = []
         environment_digests = []
         argv_lengths = []
+        placement_records = []
         for run_index in range(self.session["config"]["runs"]):
             self.current_run = run_index
             if not self.check_preconditions(
                 tier, run_index, "layout_remeasure"
             ):
                 return None
-            run_env = self.harness_env(tier)
-            environment_digests.append(environment_digest(run_env))
-            order = (
-                ["base", "layout_control"]
-                if run_index % 2 == 0
-                else ["layout_control", "base"]
+            record = self.measure_placements(
+                tier, {"base": base_executable, "layout_control": executable},
+                cells, filter_path,
             )
-            pieces = {}
-            for arm in order:
-                source = base_executable if arm == "base" else executable
-                piece = self.timed_run(
-                    tier,
-                    arm,
-                    source,
-                    cells,
-                    cells_filter=filter_path,
-                    env=run_env,
-                )
-                if piece is None:
-                    return None
-                pieces[arm] = piece
-            controls.append(
-                {arm: pieces[arm]["control"] for arm in pieces}
-            )
-            lengths = {arm: pieces[arm]["argv_length"] for arm in pieces}
-            problem = check_argv_lengths(
-                lengths,
-                f"layout-control re-measurement at tier {tier} run {run_index}",
-            )
-            if problem is not None:
-                self.reject(problem)
+            if record is None:
                 return None
-            argv_lengths.append(lengths)
+            controls.append(record["controls"])
+            environment_digests.append([
+                p["environment_digest"] for p in record["placements"]
+            ])
+            argv_lengths.append([
+                p["argv_lengths"] for p in record["placements"]
+            ])
+            placement_records.append(record)
             base_runs.append(
                 {
                     cell: entry["summary_ns"]
-                    for cell, entry in pieces["base"]["arms"]["base"]["cells"].items()
+                    for cell, entry in record["arms"]["base"]["cells"].items()
                 }
             )
             control_runs.append(
                 {
                     cell: entry["summary_ns"]
-                    for cell, entry in pieces["layout_control"]["arms"][
-                        "layout_control"
-                    ]["cells"].items()
+                    for cell, entry in record["arms"]["layout_control"]["cells"].items()
                 }
             )
         try:
@@ -4644,9 +4700,7 @@ class Campaign:
                 )
             )
             return None
-        starts = []
-        for control in controls:
-            starts.extend(entry["start_ns"] for entry in control.values())
+        starts = start_controls(placement_records)
         # The same configured per-tier drift check as the main and
         # confirmation stages gates these runs: an over-cap control spread
         # must never enlarge a cell's layout spread.
@@ -4668,6 +4722,7 @@ class Campaign:
             "runs": len(controls),
             "environment_digest": environment_digests,
             "argv_lengths": argv_lengths,
+            "placements": placement_records,
             "summaries": {
                 "base": base_runs,
                 "layout_control": control_runs,
@@ -5426,6 +5481,7 @@ def base_session(args, session_id: str) -> dict:
             "runs": args.runs,
             "confirmation": args.mode in ("acceptance", "threshold"),
             "rounds": args.rounds,
+            "placement_method": placement.METHOD,
             "delta": args.delta,
             "gamma": args.gamma,
             "drift_cap": args.drift_cap,

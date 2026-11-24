@@ -655,6 +655,21 @@ bench-build NAME:
             '[.[] | select(.reason == "compiler-artifact" and .target.name == $name and .target.kind == ["bench"] and .executable != null)] | if length == 1 then .[0].executable else error("expected one benchmark executable") end' \
             >"target/fgf-bench/{{NAME}}.path"
 
+# Narrow verification of placement distributions and paired rule consumers.
+[group('bench')]
+bench-placement-check:
+    python3 -m unittest discover -s benches -p 'test_placement.py'
+    python3 -m unittest discover -s benches -p 'test_bench_pair.py'
+    python3 -m unittest discover -s benches -p 'test_publish.py'
+
+# Build the operation harness with the measurement snapshot's pinned compiler.
+[group('bench')]
+bench-placement-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tc='{{PAIR_CALIBRATED_TOOLCHAIN}}'
+    RUSTFLAGS='{{PAIR_ALIGN}}' RUSTUP_TOOLCHAIN="${tc%%/*}" just bench-build operations
+
 # Miri over the dispatched GFNI paths: the owned-unsafe residue that the
 # scalar configuration does not compile. Runtime detection reports nothing
 # under the interpreter, so the tier is promoted at compile time; MIRIFLAGS
