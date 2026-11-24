@@ -529,9 +529,20 @@ def run_arm_summary(round_timings) -> float:
 
 
 def start_controls(runs) -> list[float]:
-    """Every arm's start control across the independent runs of one tier."""
+    """Every arm's start control across the independent runs of one tier.
+
+    For placement-distribution runs (`fgf-pair/6`), return every per-stratum
+    start control rather than the collapsed per-run median so within-sweep
+    drift remains visible to the drift gate.
+    """
     samples = []
     for run in runs:
+        placements = run.get("placements") or []
+        if placements:
+            for stratum in placements:
+                stratum_controls = stratum.get("controls") or {}
+                samples.extend(float(entry["start_ns"]) for entry in stratum_controls.values())
+            continue
         controls = run.get("controls") or {}
         if controls:
             samples.extend(float(entry["start_ns"]) for entry in controls.values())
@@ -3747,14 +3758,19 @@ class Campaign:
         """Measure one paired run over a complete, equally weighted design."""
         run_index = self.current_run
         stage = self.current_stage
-        arm_order = list(aliases)
-        if run_index % 2:
-            arm_order.reverse()
+        run_precondition = self.session["preconditions"][-1]
+        base_arms = list(aliases)
+        arm_order = placement.arm_order(base_arms, run_index, 0)
         strata = []
         for point in placement.plan(run_index):
+            if point["index"] > 0 and point["index"] % 64 == 0:
+                if not self.check_preconditions(
+                    tier, run_index, f"{stage}:place{point['index']:03d}"
+                ):
+                    return None
             run_env = placement.environment(self.harness_env(tier), point)
             pieces = {}
-            point_order = arm_order if point["index"] % 2 == 0 else arm_order[::-1]
+            point_order = placement.arm_order(base_arms, run_index, point["index"])
             for arm in point_order:
                 piece = self.timed_run(
                     tier, arm, aliases[arm], cells, env=run_env,
@@ -3763,7 +3779,7 @@ class Campaign:
                 if piece is None:
                     return None
                 pieces[arm] = piece
-            lengths = {arm: pieces[arm]["argv_length"] for arm in arm_order}
+            lengths = {arm: pieces[arm]["argv_length"] for arm in base_arms}
             problem = check_argv_lengths(
                 lengths, f"tier {tier} {stage} run {run_index} placement {point['index']}"
             )
@@ -3775,33 +3791,39 @@ class Campaign:
                 "order": point_order,
                 "environment_digest": environment_digest(run_env),
                 "argv_lengths": lengths,
-                "observed": {arm: pieces[arm]["placement"] for arm in arm_order},
-                "controls": {arm: pieces[arm]["control"] for arm in arm_order},
-                "arms": {arm: pieces[arm]["arms"][arm] for arm in arm_order},
+                "observed": {arm: pieces[arm]["placement"] for arm in base_arms},
+                "controls": {arm: pieces[arm]["control"] for arm in base_arms},
+                "arms": {arm: pieces[arm]["arms"][arm] for arm in base_arms},
             })
         controls = {
             arm: {
                 key: statistics.median(p["controls"][arm][key] for p in strata)
                 for key in ("start_ns", "end_ns")
-            } for arm in arm_order
-        }
-        record = {
-            "run": run_index,
-            "stage": stage,
-            "tier": tier,
-            "order": arm_order,
-            "control": controls[arm_order[0]],
-            "controls": controls,
-            "precondition": self.session["preconditions"][-1],
-            "placements": strata,
-            "arms": {
-                arm: placement.summarize(
-                    [p["arms"][arm] for p in strata], cells, self.args_rounds
-                ) for arm in arm_order
-            },
+            } for arm in base_arms
         }
         try:
-            placement.validate_run(record, self.args_rounds)
+            arms = {
+                arm: placement.summarize(
+                    [p["arms"][arm] for p in strata], cells, self.args_rounds
+                ) for arm in base_arms
+            }
+            record = {
+                "run": run_index,
+                "stage": stage,
+                "tier": tier,
+                "order": arm_order,
+                "control": controls[arm_order[0]],
+                "controls": controls,
+                "precondition": run_precondition,
+                "placements": strata,
+                "arms": arms,
+            }
+            placement.validate_run(
+                record,
+                self.args_rounds,
+                expected_arms=base_arms,
+                expected_cells=cells,
+            )
         except (ValueError, TypeError, KeyError) as error:
             self.reject(reject("placement_mismatch", str(error)))
             return None
@@ -4678,9 +4700,7 @@ class Campaign:
                 )
             )
             return None
-        starts = []
-        for control in controls:
-            starts.extend(entry["start_ns"] for entry in control.values())
+        starts = start_controls(placement_records)
         # The same configured per-tier drift check as the main and
         # confirmation stages gates these runs: an over-cap control spread
         # must never enlarge a cell's layout spread.

@@ -760,6 +760,109 @@ class PublisherTests(unittest.TestCase):
         with self.assertRaises(publish.PublishError):
             publish.validate_session(session, "missing placement measurements")
 
+    def test_publishes_and_validates_distribution_session(self):
+        import copy
+        import statistics
+        session = make_runner_session("20261124T050000Z-willow")
+        session["method_version"] = bench_pair.METHOD_VERSION
+        session["config"]["placement_method"] = bench_pair.placement.METHOD
+        rounds = int(session["config"]["rounds"])
+        for run in session["runs"]:
+            run_index = run["run"]
+            arms = ("base", "candidate")
+            strata = []
+            for point in bench_pair.placement.plan(run_index):
+                order = bench_pair.placement.arm_order(arms, run_index, point["index"])
+                observed = {}
+                controls = {}
+                stratum_arms = {}
+                for arm_idx, arm in enumerate(arms):
+                    observed[arm] = {
+                        "dst_shift": point["dst_shift"],
+                        "src_shift": point["src_shift"],
+                        "stack_offset": (128 + arm_idx * 16 + point["stack_pad"]) % 4096,
+                    }
+                    controls[arm] = dict(run["controls"][arm])
+                    stratum_arms[arm] = {
+                        "cells": {
+                            cid: {
+                                "summary_ns": entry["summary_ns"],
+                                "rounds_ns": [entry["summary_ns"]] * rounds,
+                            }
+                            for cid, entry in run["arms"][arm]["cells"].items()
+                        }
+                    }
+                strata.append({
+                    **point,
+                    "order": order,
+                    "environment_digest": f"env-{run_index}-{point['index']}",
+                    "argv_lengths": {arm: 100 for arm in arms},
+                    "observed": observed,
+                    "controls": controls,
+                    "arms": stratum_arms,
+                })
+            run["order"] = bench_pair.placement.arm_order(arms, run_index, 0)
+            run["controls"] = {
+                arm: {
+                    key: statistics.median(p["controls"][arm][key] for p in strata)
+                    for key in ("start_ns", "end_ns")
+                }
+                for arm in arms
+            }
+            run["control"] = run["controls"][run["order"][0]]
+            run["placements"] = strata
+            run["arms"] = {
+                arm: bench_pair.placement.summarize(
+                    [p["arms"][arm] for p in strata], list(run["arms"][arm]["cells"]), rounds
+                )
+                for arm in arms
+            }
+        publish.validate_session(session, "valid /6 session")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = write_manifest(root, [session])
+            code, _, stderr = run_publish(root, manifest)
+            self.assertEqual(code, 0, stderr)
+            self.assertIn("`" + CELL_A + "`", read_page(root, "BENCHMARKS.md"))
+
+        # Corrupting a retained stratum round or control in a /6 session must fail validation.
+        bad_round = copy.deepcopy(session)
+        bad_round["runs"][0]["placements"][0]["arms"]["base"]["cells"][CELL_A]["rounds_ns"] = [50.0, 50.0, 101.0]
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_round, "tampered /6 round")
+
+        bad_ctrl = copy.deepcopy(session)
+        bad_ctrl["runs"][0]["controls"]["base"]["start_ns"] = 999.0
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_ctrl, "tampered /6 control")
+
+        # Tampering with a nested layout_only placement record must fail validation.
+        bad_layout = copy.deepcopy(session)
+        bad_layout_run = copy.deepcopy(bad_layout["runs"][0])
+        bad_layout_run["arms"] = {
+            "base": bad_layout_run["arms"]["base"],
+            "layout_control": bad_layout_run["arms"]["candidate"],
+        }
+        bad_layout_run["order"] = ["base", "layout_control"]
+        bad_layout_run["controls"] = {
+            "base": bad_layout_run["controls"]["base"],
+            "layout_control": bad_layout_run["controls"]["candidate"],
+        }
+        for stratum in bad_layout_run["placements"]:
+            stratum["order"] = ["layout_control" if a == "candidate" else a for a in stratum["order"]]
+            stratum["argv_lengths"] = {"base": 100, "layout_control": 100}
+            stratum["observed"] = {"base": stratum["observed"]["base"], "layout_control": stratum["observed"]["candidate"]}
+            stratum["controls"] = {"base": stratum["controls"]["base"], "layout_control": stratum["controls"]["candidate"]}
+            stratum["arms"] = {"base": stratum["arms"]["base"], "layout_control": stratum["arms"]["candidate"]}
+        bad_layout_run["placements"][0]["observed"]["layout_control"]["stack_offset"] += 4096
+        bad_layout["layout_only"] = {
+            "asserted": True,
+            "per_tier": {"v4x": {}},
+            "remeasured": {"v4x": {"placements": [bad_layout_run]}},
+        }
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_layout, "tampered /6 layout placement")
+
     def test_staged_diagnostics_render_without_disguising_confirmed_failure(self):
         unconfirmed = make_runner_session(
             "unconfirmed", cell=CELL_A, base_ns=100.0,

@@ -1374,6 +1374,7 @@ class ReanalysisTests(unittest.TestCase):
             self.assertEqual(
                 analysis["source_drift_method"], "p90_minus_p10_over_median"
             )
+            self.assertEqual(analysis["method_version"], pair.METHOD_VERSION)
             self.assertEqual(analysis["drift_method"], "iqr_over_median")
             self.assertEqual(analysis["drift"]["v4x"]["drift"], 0.0)
             self.assertEqual(json.loads(source.read_text(encoding="utf-8")), session)
@@ -2709,6 +2710,10 @@ class MockedSessionTests(unittest.TestCase):
         self.assertEqual(session["config"]["smt_busy_threshold"], 0.05)
         self.assertTrue(session["execution"]["aslr_disabled"])
         self.assertTrue(session["execution"]["setarch"].startswith("setarch "))
+        self.assertEqual(session["method_version"], pair.METHOD_VERSION)
+        stratum0 = session["runs"][0]["placements"][0]
+        self.assertIn("environment_digest", stratum0)
+        self.assertEqual(len(set(stratum0["argv_lengths"].values())), 1)
         check = session["checks"]["v4x"]
         self.assertIn("environment_digest", check)
         self.assertEqual(len(set(check["argv_lengths"].values())), 1)

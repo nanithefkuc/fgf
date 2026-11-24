@@ -18,12 +18,15 @@
 //! Setup, allocation, and coefficient construction happen outside the timed
 //! region; a round's value is the median of an adaptive inner batch.
 //!
-//! Fixture destination and source page offsets are selected by
-//! `FGF_PLACEMENT_DST` and `FGF_PLACEMENT_SRC`, in cache-line multiples.
-//! `FGF_PLACEMENT_STACK` is unread padding used by the campaign to vary the
-//! initial stack. `PLACEMENT` records the requested buffer shifts and the
-//! observed stack page offset. The paired runner retains every stratum and
-//! compares equally weighted placement medians, not one link-dependent address.
+//! Fixture base role offsets are deterministic cache-line multiples inside a
+//! 4 KiB page (`Dst = 64`, `Src = 512`, `Src2 = 960`, `Region = 1408`);
+//! `FGF_PLACEMENT_DST` and `FGF_PLACEMENT_SRC` add campaign-selected cache-line
+//! shifts modulo 4096 (so shifted fixtures can land on page offset 0, which
+//! page-aligned library coefficient tables also use). `FGF_PLACEMENT_STACK` is
+//! unread padding used to vary the initial stack. `PLACEMENT` records the
+//! requested buffer shifts and the observed stack page offset. The paired
+//! runner retains every stratum and compares equally weighted placement
+//! medians rather than one link-dependent address.
 
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
@@ -90,13 +93,15 @@ use cells::Cell;
 fn placement() -> (usize, usize) {
     static VALUE: std::sync::LazyLock<(usize, usize)> = std::sync::LazyLock::new(|| {
         let read = |name| {
-            let value = std::env::var(name)
-                .map(|value| {
-                    value
-                        .parse::<usize>()
-                        .expect("placement shift must be an integer")
-                })
-                .unwrap_or(0);
+            let value = match std::env::var(name) {
+                Ok(value) => value
+                    .parse::<usize>()
+                    .expect("placement shift must be an integer"),
+                Err(std::env::VarError::NotPresent) => 0,
+                Err(std::env::VarError::NotUnicode(_)) => {
+                    panic!("placement shift {name} must be valid UTF-8")
+                }
+            };
             assert!(
                 value < 4096 && value % 64 == 0,
                 "placement shift must be a page cache-line offset"

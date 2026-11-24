@@ -34,20 +34,25 @@ The competitor harnesses in `external/` need their toolchains: Intel ISA-L
 discoverable through pkg-config, and the Go toolchain in PATH.
 
 `just bench-pair` compares equally weighted page-placement distributions.
-Each independent paired run measures a fixed stratified design: destination
-and source shifts cover every cache-line offset in a page, and unread
-environment padding covers every ABI-aligned initial stack offset. The
-source permutation changes between runs. This is not a Cartesian sweep of
-all interactions; source buffers retain their role-relative offsets.
+Each independent paired run measures a fixed 256-stratum design: destination
+offsets, source offsets, and relative `(src - dst) mod 4096` phases each cover
+every 64-byte cache-line offset equally (4× per run), and unread environment
+padding covers every 16-byte ABI-aligned initial stack offset once per run.
+This is a stratified design, not a Cartesian sweep of all interactions; source
+buffers retain their role-relative offsets (`Dst = 64`, `Src = 512`,
+`Src2 = 960`, `Region = 1408`).
 
 Each stratum runs both arms under disabled ASLR with identical environments
-and equal-length executable paths. Arm order alternates between strata and
+and equal-length executable paths. Arm order alternates across strata and runs
+so every destination, source, and relative phase is balanced 2/2 within each
+run and every stack padding is balanced 1/1 across every consecutive pair of
 runs. Per-placement round medians, controls, observed stack offsets, and raw
-logs remain available. The arm's run summary is the median across placements;
-only independent run summaries enter the paired bound. A slow placement is
-not an individual noninferiority failure. Persistent code regressions still
-face the unchanged margin and confidence rule. Old single-placement sessions
-cannot establish a placement-distribution result.
+logs remain available; start-control drift gates per-stratum controls and
+preconditions re-check periodically within each sweep. The arm's run summary is
+the median across placements; only independent run summaries enter the paired
+bound. A slow placement is not an individual noninferiority failure. Persistent
+code regressions still face the unchanged margin and confidence rule. Old
+single-placement sessions cannot establish a placement-distribution result.
 
 `just bench-placement-check` exercises the placement and decision rules;
 `just bench-placement-build` builds the operation harness used for native

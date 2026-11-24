@@ -45,8 +45,10 @@ pub(crate) const LARGE_ALIGN: usize = 2 * 1024 * 1024;
 
 /// The intra-page offset of a fixture role before the measured page shift.
 ///
-/// Destination and source shifts are selected independently by the campaign.
-/// `offset{k}` retains its cache-line skew on every placement.
+/// Base role offsets are `Dst = 64`, `Src = 512`, `Src2 = 960`, and
+/// `Region = 1408`. Destination and source shifts are selected by the campaign
+/// modulo 4096 (so shifted fixtures may land on page offset 0); `offset{k}`
+/// retains its cache-line skew on every placement.
 #[derive(Clone, Copy)]
 enum Role {
     /// Destination row(s).

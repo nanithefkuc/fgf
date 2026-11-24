@@ -665,7 +665,10 @@ bench-placement-check:
 # Build the operation harness with the measurement snapshot's pinned compiler.
 [group('bench')]
 bench-placement-build:
-    RUSTFLAGS='{{PAIR_ALIGN}}' RUSTUP_TOOLCHAIN=1.98.1 just bench-build operations
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tc='{{PAIR_CALIBRATED_TOOLCHAIN}}'
+    RUSTFLAGS='{{PAIR_ALIGN}}' RUSTUP_TOOLCHAIN="${tc%%/*}" just bench-build operations
 
 # Miri over the dispatched GFNI paths: the owned-unsafe residue that the
 # scalar configuration does not compile. Runtime detection reports nothing

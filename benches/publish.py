@@ -536,7 +536,9 @@ def validate_session(session: dict, where: str) -> None:
             if config.get("placement_method") != bench_pair.placement.METHOD:
                 fail(f"{where}.config has no matching placement method")
             try:
-                bench_pair.placement.validate_run(item, int(config["rounds"]))
+                bench_pair.placement.validate_run(
+                    item, int(config["rounds"]), expected_arms=("base", "candidate")
+                )
             except (ValueError, TypeError, KeyError) as error:
                 fail(f"{where}.runs[{index}]: {error}")
 
@@ -778,6 +780,25 @@ def validate_session(session: dict, where: str) -> None:
                 signature = record.get("owner_signature")
                 if signature is not None:
                     _require_string(signature, f"{cell_where}.owner_signature")
+        if session["method_version"] == METHOD_VERSION and "remeasured" in layout:
+            remeasured_map = _require_mapping(
+                layout["remeasured"], f"{where}.layout_only.remeasured"
+            )
+            for tier, rem in remeasured_map.items():
+                rem_where = f"{where}.layout_only.remeasured.{tier}"
+                rem_obj = _require_mapping(rem, rem_where)
+                placements = rem_obj.get("placements")
+                if not isinstance(placements, list) or not placements:
+                    fail(f"{rem_where}.placements must be a non-empty list")
+                for p_index, p_run in enumerate(placements):
+                    try:
+                        bench_pair.placement.validate_run(
+                            _require_mapping(p_run, f"{rem_where}.placements[{p_index}]"),
+                            int(config["rounds"]),
+                            expected_arms=("base", "layout_control"),
+                        )
+                    except (ValueError, TypeError, KeyError) as error:
+                        fail(f"{rem_where}.placements[{p_index}]: {error}")
 
 
 # ---------------------------------------------------------------------------

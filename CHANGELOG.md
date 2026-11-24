@@ -10,7 +10,8 @@ All notable changes to this project are documented here. The format follows
 
 - Paired performance checks compare measured page-placement distributions
   instead of a single buffer and stack placement, retaining per-placement
-  diagnostics ([#120](https://github.com/nanithefkuc/fgf/issues/120)).
+  diagnostics ([#120](https://github.com/nanithefkuc/fgf/issues/120),
+  [#121](https://github.com/nanithefkuc/fgf/pull/121)).
 - Portable benchmark builds retain the residue strategy type used by scalar
   route reporting, including all-feature i686 builds.
 - Small unprepared GF(2^64) `mul_add` and `mul_into` calls no longer expand
