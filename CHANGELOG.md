@@ -18,6 +18,11 @@ All notable changes to this project are documented here. The format follows
 - AVX2 Fan–Paar GF(2^16)/GF(2^32) and 64-bit residue performance no longer
   depends on the caller's stack alignment.
   [#115](https://github.com/nanithefkuc/fgf/issues/115).
+- Short AVX2 `QuadMersenne31` additive and scalar-broadcast operations dispatch
+  through a cached `X64V3Token` after the length check instead of re-checking
+  the strategy and proof on every call.
+  [#117](https://github.com/nanithefkuc/fgf/issues/117),
+  [#125](https://github.com/nanithefkuc/fgf/issues/125).
 
 ### Added
 

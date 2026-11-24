@@ -98,30 +98,12 @@ pub(crate) fn backend_report() -> crate::kernel::Backend {
 
 /// `dst += src`.
 pub(crate) fn add_assign(dst: &mut [u8], src: &[u8]) {
-    match quad_mersenne_strategy() {
-        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-        QuadMersenneStrategy::Avx512
-            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
-        {
-            crate::kernel::x86::quad_mersenne31::add_assign_avx2(
-                crate::kernel::x86_v3_token(),
-                dst,
-                src,
-            );
-            return;
-        }
-        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        QuadMersenneStrategy::Avx2
-            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
-        {
-            crate::kernel::x86::quad_mersenne31::add_assign_avx2(
-                crate::kernel::x86_v3_token(),
-                dst,
-                src,
-            );
-            return;
-        }
-        _ => {}
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES
+        && let Some(token) = crate::kernel::quad_mersenne_v3_token()
+    {
+        crate::kernel::x86::quad_mersenne31::add_assign_avx2(token, dst, src);
+        return;
     }
     for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
         let a = QuadMersenne31::decode(d).to_raw();
@@ -141,30 +123,12 @@ pub(crate) fn add_assign(dst: &mut [u8], src: &[u8]) {
 
 /// `dst -= src`.
 pub(crate) fn sub_assign(dst: &mut [u8], src: &[u8]) {
-    match quad_mersenne_strategy() {
-        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
-        QuadMersenneStrategy::Avx512
-            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
-        {
-            crate::kernel::x86::quad_mersenne31::sub_assign_avx2(
-                crate::kernel::x86_v3_token(),
-                dst,
-                src,
-            );
-            return;
-        }
-        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-        QuadMersenneStrategy::Avx2
-            if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES =>
-        {
-            crate::kernel::x86::quad_mersenne31::sub_assign_avx2(
-                crate::kernel::x86_v3_token(),
-                dst,
-                src,
-            );
-            return;
-        }
-        _ => {}
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+    if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES
+        && let Some(token) = crate::kernel::quad_mersenne_v3_token()
+    {
+        crate::kernel::x86::quad_mersenne31::sub_assign_avx2(token, dst, src);
+        return;
     }
     debug_assert_eq!(dst.len(), src.len());
     for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
@@ -413,14 +377,10 @@ pub(crate) fn mul_elementwise_assign(dst: &mut [u8], src: &[u8]) {
 /// `dst[i] += value`.
 pub(crate) fn add_assign_scalar(dst: &mut [u8], value: Elem<QuadMersenne31>) {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if quad_mersenne_strategy() != QuadMersenneStrategy::Scalar
-        && dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES
+    if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES
+        && let Some(token) = crate::kernel::quad_mersenne_v3_token()
     {
-        crate::kernel::x86::quad_mersenne31::add_assign_scalar_avx2(
-            crate::kernel::x86_v3_token(),
-            dst,
-            value,
-        );
+        crate::kernel::x86::quad_mersenne31::add_assign_scalar_avx2(token, dst, value);
         return;
     }
     prime::add_assign_scalar::<QuadMersenne31>(dst, value);
@@ -429,14 +389,10 @@ pub(crate) fn add_assign_scalar(dst: &mut [u8], value: Elem<QuadMersenne31>) {
 /// `dst[i] -= value`.
 pub(crate) fn sub_assign_scalar(dst: &mut [u8], value: Elem<QuadMersenne31>) {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if quad_mersenne_strategy() != QuadMersenneStrategy::Scalar
-        && dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES
+    if dst.len() >= crate::kernel::routing::QUAD_VECTOR_ADD_MIN_BYTES
+        && let Some(token) = crate::kernel::quad_mersenne_v3_token()
     {
-        crate::kernel::x86::quad_mersenne31::sub_assign_scalar_avx2(
-            crate::kernel::x86_v3_token(),
-            dst,
-            value,
-        );
+        crate::kernel::x86::quad_mersenne31::sub_assign_scalar_avx2(token, dst, value);
         return;
     }
     prime::sub_assign_scalar::<QuadMersenne31>(dst, value);
