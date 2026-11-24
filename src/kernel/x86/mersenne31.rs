@@ -39,6 +39,7 @@ pub use sse42::{
 };
 
 pub(super) use avx2::min_chain_avx2;
+pub(super) use sse42::min_chain_sse42;
 
 use crate::field::mersenne31;
 

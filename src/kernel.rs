@@ -860,12 +860,12 @@ pub(crate) enum WideTowerStrategy {
     Scalar,
 }
 
-/// The kernel class serving `QuadMersenne31` component rows.
+/// The kernel class serving `QuadMersenne31` multiply rows.
 ///
-/// The multiplies take the AVX-512 kernels on an `Avx512` host; the adds,
-/// the broadcasts, and the remaining operations take the AVX2 kernels
-/// there, so an `Avx512` arm names the host class rather than one kernel
-/// width.
+/// The multiplies take the AVX-512 kernels on an `Avx512` host and the AVX2
+/// kernels on an `Avx2` host; the additive and scalar-broadcast operations
+/// dispatch through [`QuadMersenneAddToken`] (AVX2 on `V4x`/`V3`, SSE4.2 on
+/// `V2`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum QuadMersenneStrategy {
     /// The AVX-512 host class.
@@ -994,6 +994,25 @@ pub(crate) fn wide_tower_strategy() -> WideTowerStrategy {
     }
 }
 
+/// The cached `QuadMersenne31` additive dispatch proof for this process.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub(crate) enum QuadMersenneAddToken {
+    /// AVX2 (used on both `V3` and `V4x` hosts).
+    V3(archmage::X64V3Token),
+    /// SSE4.2 (`V2` hosts).
+    V2(archmage::X64V2Token),
+    /// Portable scalar fallback.
+    Scalar,
+}
+
+/// The cached `QuadMersenne31` additive token for this process.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+#[inline]
+pub(crate) fn quad_mersenne_add_token() -> QuadMersenneAddToken {
+    BACKEND.quad_mersenne_add
+}
+
 /// The cached `QuadMersenne31` strategy for this process.
 #[inline]
 pub(crate) fn quad_mersenne_strategy() -> QuadMersenneStrategy {
@@ -1031,6 +1050,8 @@ struct ResolvedBackend {
     tower16: Tower16Strategy,
     wide_tower: WideTowerStrategy,
     quad_mersenne: QuadMersenneStrategy,
+    #[cfg(target_arch = "x86_64")]
+    quad_mersenne_add: QuadMersenneAddToken,
     residue: ResidueStrategy,
 }
 
@@ -1106,6 +1127,8 @@ impl ResolvedBackend {
             Backend::V3GfniCrypto | Backend::V3 => QuadMersenneStrategy::Avx2,
             _ => QuadMersenneStrategy::Scalar,
         };
+        #[cfg(target_arch = "x86_64")]
+        let quad_mersenne_add = Self::quad_mersenne_add_token(x86);
         let residue = match backend {
             #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => ResidueStrategy::Avx512,
@@ -1122,7 +1145,21 @@ impl ResolvedBackend {
             tower16,
             wide_tower,
             quad_mersenne,
+            #[cfg(target_arch = "x86_64")]
+            quad_mersenne_add,
             residue,
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn quad_mersenne_add_token(x86: X86Proof) -> QuadMersenneAddToken {
+        match x86 {
+            #[cfg(feature = "simd512")]
+            X86Proof::V4x(token) => QuadMersenneAddToken::V3(token.v3()),
+            X86Proof::V3GfniCrypto(token) => QuadMersenneAddToken::V3(token.v3()),
+            X86Proof::V3(token) => QuadMersenneAddToken::V3(token),
+            X86Proof::V2(token) => QuadMersenneAddToken::V2(token),
+            X86Proof::Scalar => QuadMersenneAddToken::Scalar,
         }
     }
 }
