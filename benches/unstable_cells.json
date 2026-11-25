@@ -1,7 +1,7 @@
 {
   "entries": [
     {
-      "host": "Comet",
+      "host": "golden-cove",
       "tier": "scalar",
       "toolchain": "1.98.1/48a229ceaefd4985c50990b14116b6d856af0985",
       "flags": "-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6",
@@ -32,13 +32,13 @@
         "residue-251/mul_into/unprepared/65536x1x1/aligned"
       ],
       "sources": [
-        "20261107T175702Z-Comet",
-        "20261108T011128Z-Comet"
+        "20261107T175702Z-golden-cove",
+        "20261108T011128Z-golden-cove"
       ],
-      "owner_signature": "owner (suisei), 2026-11-08"
+      "owner_signature": "owner, 2026-11-08"
     },
     {
-      "host": "Comet",
+      "host": "golden-cove",
       "tier": "v2",
       "toolchain": "1.98.1/48a229ceaefd4985c50990b14116b6d856af0985",
       "flags": "-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6",
@@ -82,13 +82,13 @@
         "residue-251/mul_into/unprepared/65536x1x1/aligned"
       ],
       "sources": [
-        "20261107T175702Z-Comet",
-        "20261108T011128Z-Comet"
+        "20261107T175702Z-golden-cove",
+        "20261108T011128Z-golden-cove"
       ],
-      "owner_signature": "owner (suisei), 2026-11-08"
+      "owner_signature": "owner, 2026-11-08"
     },
     {
-      "host": "Comet",
+      "host": "golden-cove",
       "tier": "v3",
       "toolchain": "1.98.1/48a229ceaefd4985c50990b14116b6d856af0985",
       "flags": "-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6",
@@ -113,13 +113,13 @@
         "residue-251/mul_into/unprepared/65536x1x1/aligned"
       ],
       "sources": [
-        "20261107T175702Z-Comet",
-        "20261108T011128Z-Comet"
+        "20261107T175702Z-golden-cove",
+        "20261108T011128Z-golden-cove"
       ],
-      "owner_signature": "owner (suisei), 2026-11-08"
+      "owner_signature": "owner, 2026-11-08"
     },
     {
-      "host": "Comet",
+      "host": "golden-cove",
       "tier": "v3_gfni_crypto",
       "toolchain": "1.98.1/48a229ceaefd4985c50990b14116b6d856af0985",
       "flags": "-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6",
@@ -161,13 +161,13 @@
         "residue-251/mul_into/unprepared/65536x1x1/aligned"
       ],
       "sources": [
-        "20261107T175702Z-Comet",
-        "20261108T011128Z-Comet"
+        "20261107T175702Z-golden-cove",
+        "20261108T011128Z-golden-cove"
       ],
-      "owner_signature": "owner (suisei), 2026-11-08"
+      "owner_signature": "owner, 2026-11-08"
     },
     {
-      "host": "zbox",
+      "host": "willow-cove",
       "tier": "scalar",
       "toolchain": "1.98.1/48a229ceaefd4985c50990b14116b6d856af0985",
       "flags": "-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6",
@@ -184,13 +184,13 @@
         "goldilocks/mul_add_scatter/prepared/4096x8x1/aligned"
       ],
       "sources": [
-        "20261107T175526Z-zbox",
-        "20261107T212956Z-zbox"
+        "20261107T175526Z-willow-cove",
+        "20261107T212956Z-willow-cove"
       ],
-      "owner_signature": "owner (suisei), 2026-11-08"
+      "owner_signature": "owner, 2026-11-08"
     },
     {
-      "host": "zbox",
+      "host": "willow-cove",
       "tier": "v2",
       "toolchain": "1.98.1/48a229ceaefd4985c50990b14116b6d856af0985",
       "flags": "-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6",
@@ -225,13 +225,13 @@
         "packed-rs16/sub_assign/unprepared/4096x1x1/aligned"
       ],
       "sources": [
-        "20261107T175526Z-zbox",
-        "20261107T212956Z-zbox"
+        "20261107T175526Z-willow-cove",
+        "20261107T212956Z-willow-cove"
       ],
-      "owner_signature": "owner (suisei), 2026-11-08"
+      "owner_signature": "owner, 2026-11-08"
     },
     {
-      "host": "zbox",
+      "host": "willow-cove",
       "tier": "v3",
       "toolchain": "1.98.1/48a229ceaefd4985c50990b14116b6d856af0985",
       "flags": "-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6",
@@ -248,13 +248,13 @@
         "residue-1000000007/mul_add/prepared/64x1x1/aligned"
       ],
       "sources": [
-        "20261107T175526Z-zbox",
-        "20261107T212956Z-zbox"
+        "20261107T175526Z-willow-cove",
+        "20261107T212956Z-willow-cove"
       ],
-      "owner_signature": "owner (suisei), 2026-11-08"
+      "owner_signature": "owner, 2026-11-08"
     },
     {
-      "host": "zbox",
+      "host": "willow-cove",
       "tier": "v4x",
       "toolchain": "1.98.1/48a229ceaefd4985c50990b14116b6d856af0985",
       "flags": "-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6",
@@ -275,10 +275,10 @@
         "m31/mul_into/unprepared/64x1x1/aligned"
       ],
       "sources": [
-        "20261107T175526Z-zbox",
-        "20261107T212956Z-zbox"
+        "20261107T175526Z-willow-cove",
+        "20261107T212956Z-willow-cove"
       ],
-      "owner_signature": "owner (suisei), 2026-11-08"
+      "owner_signature": "owner, 2026-11-08"
     }
   ]
 }

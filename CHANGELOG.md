@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Remove private hostnames and local account identifiers from routing
+  threshold citations, benchmark records, and benchmark tooling, and harden
+  `benches/publish.py` to recompute published rows and enforce drift caps from
+  retained run data.
+  [#129](https://github.com/nanithefkuc/fgf/issues/129).
 - Use subfield descent and exact Frobenius rank for general const extension
   irreducibility validation, avoiding `long_running_const_eval` on dense
   relations while preserving representation limits and field conventions.

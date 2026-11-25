@@ -498,29 +498,32 @@ package-api:
 # snapshot's bench target, manifests, toolchain, features, and flags onto
 # checkouts of both library revisions, so `PAIR_FEATURES` and `PAIR_ALIGN`
 # describe the measurement snapshot rather than the caller's tree. `PAIR_RUNS`
-# and `PAIR_DRIFT_CAP` are per-host values using exact hostnames, written
-# 'host:value host:value'; a single numeric value is accepted for a
-# single-host campaign. Hosts without an entry are refused by acceptance.
+# and `PAIR_DRIFT_CAP` are per-host values using exact public host labels
+# (resolved in precedence order from `--host-label` / `FGF_HOST_LABEL`,
+# `--host-map` / `FGF_HOST_MAP`, or untracked `bench-records/hosts.json`;
+# failing closed if unresolved), written 'host:value host:value'; a single
+# numeric value is accepted for a single-host campaign. Hosts without an entry
+# are refused by acceptance.
 # `PAIR_RUNS` is the native calibration recommendation; acceptance is still
 # gated by the host, tier, toolchain, and flag bindings.
 # The calibrated host, tier, toolchain, and flag bindings are checked against
 # the live host before any acceptance measurement; `PAIR_CALIBRATED_FLAGS` must
 # equal `PAIR_ALIGN` for the host it was calibrated on.
-PAIR_RUNS := 'Comet:24 zbox:24'
+PAIR_RUNS := 'golden-cove:24 willow-cove:24'
 # Start-control IQR drift caps use half the noninferiority margin
 # (PAIR_DELTA / 2) as a host-independent policy budget, not a guarantee about
 # decision bias. The calibration recommendation's cap remains diagnostic.
-PAIR_DRIFT_CAP := 'Comet:0.015 zbox:0.015'
+PAIR_DRIFT_CAP := 'golden-cove:0.015 willow-cove:0.015'
 PAIR_ROUNDS := '7'
 PAIR_DELTA := '0.03'
 PAIR_GAMMA := '0.03'
 PAIR_FEATURES := 'simd512'
 PAIR_ALIGN := '-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6'
-# Exact hostnames; no substring match. Tiers are per host, written
+# Exact public host labels; no substring match. Tiers are per host, written
 # 'host1:t1,t2 host2:t3,t4' (for example
 # 'willow-cove:v4x,v3,scalar golden-cove:v3_gfni_crypto,v3,scalar').
-PAIR_CALIBRATED_HOSTS := 'Comet zbox'
-PAIR_CALIBRATED_TIERS := 'Comet:v3_gfni_crypto,v3,v2,scalar zbox:v4x,v3,v2,scalar'
+PAIR_CALIBRATED_HOSTS := 'golden-cove willow-cove'
+PAIR_CALIBRATED_TIERS := 'golden-cove:v3_gfni_crypto,v3,v2,scalar willow-cove:v4x,v3,v2,scalar'
 PAIR_CALIBRATED_TOOLCHAIN := '1.98.1/48a229ceaefd4985c50990b14116b6d856af0985'
 PAIR_CALIBRATED_FLAGS := '-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6'
 PAIR_SNAPSHOT := 'HEAD'

@@ -4,9 +4,11 @@ No cargo or bench process is invoked: every fixture is constructed in memory
 or in a temporary directory.
 """
 
+import argparse
 import hashlib
 import json
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -955,11 +957,11 @@ class ConfigurationTests(unittest.TestCase):
 
     def test_per_host_value_binding_parser(self):
         self.assertEqual(
-            pair.parse_host_value_binding("willow-cove:8 zbox:5", "willow-cove", "runs"),
+            pair.parse_host_value_binding("willow-cove:8 golden-cove:5", "willow-cove", "runs"),
             (8.0, None),
         )
         self.assertEqual(
-            pair.parse_host_value_binding("willow-cove:8 zbox:5", "zbox", "runs"),
+            pair.parse_host_value_binding("willow-cove:8 golden-cove:5", "golden-cove", "runs"),
             (5.0, None),
         )
         self.assertEqual(
@@ -975,13 +977,142 @@ class ConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(rejection.code, "uncalibrated_config")
         _, rejection = pair.parse_host_value_binding(
-            "willow-cove:8 zbox", "willow-cove", "runs"
+            "willow-cove:8 golden-cove", "willow-cove", "runs"
         )
         self.assertEqual(rejection.code, "uncalibrated_config")
         _, rejection = pair.parse_host_value_binding(
             "willow-cove:8 willow-cove:9", "willow-cove", "runs"
         )
         self.assertEqual(rejection.code, "uncalibrated_config")
+
+    def test_host_label_resolution_and_public_session_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            map_path = Path(tmp) / "hosts.json"
+            map_path.write_text(
+                json.dumps({"AlphaBox": "golden-cove", "BetaNode": "willow-cove"}),
+                encoding="utf-8",
+            )
+            mapping = pair.load_host_map(map_path, required=True)
+            self.assertEqual(
+                pair.resolve_host_label("alphabox", host_map=mapping),
+                "golden-cove",
+            )
+            self.assertEqual(
+                pair.resolve_host_label(
+                    "alphabox", host_label="explicit-host", host_map=mapping
+                ),
+                "explicit-host",
+            )
+            self.assertEqual(
+                pair.resolve_host_label("unmapped-host", host_map=mapping),
+                "unmapped-host",
+            )
+            with self.assertRaises(ValueError):
+                pair.load_host_map(Path(tmp) / "missing.json", required=True)
+            self.assertEqual(
+                pair.load_host_map(Path(tmp) / "missing.json", required=False), {}
+            )
+            # Reject invalid public host labels and malformed maps.
+            for bad in ("", "bad:label", "bad/label", "bad label", "bad,label"):
+                with self.assertRaises(ValueError):
+                    pair.validate_public_host_label(bad)
+            dup_map = Path(tmp) / "dup.json"
+            dup_map.write_text(
+                json.dumps({"Box": "golden-cove", "box": "willow-cove"}),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                pair.load_host_map(dup_map, required=True)
+            list_map = Path(tmp) / "list.json"
+            list_map.write_text("[]", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                pair.load_host_map(list_map, required=True)
+            # resolve_live_host fails closed when unmapped and respects precedence.
+            saved = {k: os.environ.pop(k, None) for k in ("FGF_HOST_LABEL", "FGF_HOST_MAP")}
+            try:
+                empty_repo = Path(tmp) / "empty-repo"
+                empty_repo.mkdir()
+                with self.assertRaises(ValueError):
+                    pair.resolve_live_host(argparse.Namespace(repo=empty_repo))
+                # Explicit map lacking this machine still fails closed.
+                with self.assertRaises(ValueError):
+                    pair.resolve_live_host(
+                        argparse.Namespace(repo=empty_repo, host_map=str(map_path))
+                    )
+                # Explicit label wins over env and map.
+                os.environ["FGF_HOST_LABEL"] = "env-label"
+                self.assertEqual(
+                    pair.resolve_live_host(
+                        argparse.Namespace(repo=empty_repo, host_label="cli-label")
+                    ),
+                    "cli-label",
+                )
+                self.assertEqual(
+                    pair.resolve_live_host(argparse.Namespace(repo=empty_repo)),
+                    "env-label",
+                )
+                os.environ.pop("FGF_HOST_LABEL", None)
+                live_map = Path(tmp) / "live-hosts.json"
+                live_map.write_text(
+                    json.dumps({__import__("socket").gethostname(): "mapped-label"}),
+                    encoding="utf-8",
+                )
+                os.environ["FGF_HOST_MAP"] = str(live_map)
+                self.assertEqual(
+                    pair.resolve_live_host(argparse.Namespace(repo=empty_repo)),
+                    "mapped-label",
+                )
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            # write_unstable_list projects legacy private hostnames and source IDs via host_map.
+            cell_entry = {
+                "id": "gf8-aes/mul_add/unprepared/64x1x1/aligned",
+                "field": "gf8-aes",
+                "operation": "mul_add",
+                "prep": "unprepared",
+                "row_len": 64,
+                "rows": 1,
+                "sources": 1,
+                "alignment": "aligned",
+                "bytes": 64,
+            }
+            digest = pair.inventory_digest(
+                {cell_entry["id"]: cell_entry}, [cell_entry["id"]]
+            )
+            cal_path = Path(tmp) / "cal.json"
+            cal_path.write_text(json.dumps({
+                "kind": "calibration",
+                "session_id": "20261109T161518Z-AlphaBox",
+                "rejected": False,
+                "rejections": [],
+                "host": {"hostname": "AlphaBox", "toolchain_id": "1.0.0/xyz"},
+                "snapshot": {"rustflags": pair.DEFAULT_ALIGN_FLAGS},
+                "inventory": {"base": [cell_entry], "order": [cell_entry["id"]], "digest": digest},
+                "calibration": {"recommendation": {"per_tier": {"v4x": {"unstable_cells": [cell_entry["id"]]}}}},
+            }), encoding="utf-8")
+            out_unstable = Path(tmp) / "unstable_cells.json"
+            rc = pair.write_unstable_list(out_unstable, [str(cal_path)], host_map=mapping)
+            self.assertEqual(rc, 0)
+            written = json.loads(out_unstable.read_text(encoding="utf-8"))
+            self.assertEqual(written["entries"][0]["host"], "golden-cove")
+            self.assertEqual(written["entries"][0]["sources"], ["20261109T161518Z-golden-cove"])
+            self.assertIsNone(written["entries"][0]["owner_signature"])
+        self.assertEqual(
+            pair.public_session_id("20261108T143928Z-AlphaBox", "AlphaBox", "golden-cove"),
+            "20261108T143928Z-golden-cove",
+        )
+        self.assertEqual(
+            pair.public_session_id("20261108T143928Z-AlphaBox-2", "AlphaBox", "golden-cove"),
+            "20261108T143928Z-golden-cove-2",
+        )
+        self.assertEqual(
+            pair.public_session_id("20261108T143928Z-golden-cove", "golden-cove", "golden-cove"),
+            "20261108T143928Z-golden-cove",
+        )
 
     def test_host_binding_is_exact_hostname_equality(self):
         self.assertTrue(pair.host_matches("willow-cove", host()))
@@ -2011,6 +2142,8 @@ class CampaignFailureTests(unittest.TestCase):
                 [
                     "--records",
                     str(Path(directory) / "records"),
+                    "--host-label",
+                    "test-host",
                     "--snapshot",
                     str(Path(directory) / "snapshot"),
                 ]
@@ -2213,7 +2346,7 @@ class UnstableListTests(unittest.TestCase):
             first, second = root / "first.json", root / "second.json"
             first.write_text(json.dumps(source("s1", ids[:2])))
             second.write_text(json.dumps(source("s2", ids[1:3])))
-            self.assertEqual(pair.write_unstable_list(target, [first, second]), 0)
+            self.assertEqual(pair.write_unstable_list(target, [first, second], host_map={}), 0)
             entries, rejection = pair.load_unstable_entries(target)
             self.assertIsNone(rejection)
             self.assertEqual(len(entries), 1)
@@ -2481,7 +2614,11 @@ class MockedSessionTests(unittest.TestCase):
         (self.snapshot / "Cargo.toml").write_text("[package]\nname='fgf'\n")
         (self.snapshot / "Cargo.lock").write_text("version = 4\n")
         self.records = self.root / "records"
-        self.hostname = __import__("socket").gethostname()
+        self.hostname = "test-host"
+        self._saved_host_env = {
+            key: os.environ.pop(key, None)
+            for key in ("FGF_HOST_LABEL", "FGF_HOST_MAP")
+        }
         self.factor = 0.99
         self.slow_only_first = False
         self.timing_factor = None
@@ -2532,6 +2669,11 @@ class MockedSessionTests(unittest.TestCase):
         pair.Campaign.run_harness = self.original_harness
         pair.read_environment = self.original_environment
         pair.shutil.which = self.original_which
+        for key, value in self._saved_host_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
         self.directory.cleanup()
 
     def fake_run_process(self, command, *, cwd=None, env=None, timeout=None, log_path=None,
@@ -2645,6 +2787,7 @@ class MockedSessionTests(unittest.TestCase):
         return pair.build_parser().parse_args(
             [
                 "--records", str(self.records),
+                "--host-label", self.hostname,
                 "--base", "BASE",
                 "--candidate", "CAND",
                 "--snapshot", str(self.snapshot),
