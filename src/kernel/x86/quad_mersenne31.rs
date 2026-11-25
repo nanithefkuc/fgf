@@ -1,5 +1,4 @@
-//! `QuadMersenne31` (`(re, im)` Mersenne31 limb pairs) kernels for x86 /
-//! `x86_64`.
+//! `QuadMersenne31` (`(re, im)` Mersenne31 limb pairs) kernels for `x86_64`.
 //!
 //! Each file is one instruction set: `avx512` under `simd512`, `avx2`, and
 //! `sse42`. They share the limb arithmetic of the [`super::mersenne31`] x86

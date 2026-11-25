@@ -87,6 +87,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Consolidate comparison packages under `benches/compare/`, enable `v4` push
+  CI, remove retired Wasm `simd128` / NEON references, and align contributor
+  documentation while keeping `benches/operations/**` in the crate package.
+  [#101](https://github.com/nanithefkuc/fgf/issues/101),
+  [#131](https://github.com/nanithefkuc/fgf/issues/131).
 - `bits::dot_product` walks whole words in fixed 512-byte blocks with a
   loop-free remainder decomposition, replacing the 64-byte block walk.
   [#108](https://github.com/nanithefkuc/fgf/issues/108),

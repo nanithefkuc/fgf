@@ -19,7 +19,7 @@ just compile-fail          # negative consumer snippets must fail to compile
 just msrv-accept           # compile-fail plus the consumer matrix on the MSRV
 just msrv-locked           # locked published dependencies, outside umbrella patches
 just package-check         # isolated archive build and portable example execution
-just external-check        # type-check every package under external/
+just comparisons-check     # type-check every package under benches/compare/
 just lint                  # rustfmt and clippy at both feature ends
 just doc                   # rustdoc with warnings denied
 just doc-stable            # default-feature rustdoc, the docs.rs configuration
@@ -435,7 +435,7 @@ initialization, alignment, or aliasing. Each listed item has a per-item
 | `kernel/x86/gf8/gfni/rows.rs`: `rows_body`, `rows_resolved`, `matrix_tail` | `rows_body` and `matrix_tail` operate on offset-addressed row pointers. `rows_resolved` additionally stages only the occupied prefix of `MaybeUninit` coefficient/source arrays; it reinterprets exactly the prefix written before reading it. |
 | `kernel/x86/gf8/avx512/scatter.rs`: `mul_add_scatter_impl`, `scatter_rows4`, `scatter_rows2`, `scatter_span` | 64-byte byte-field scatter groups update disjoint rows by offsets into one destination allocation. The checked entry proves each row's bounds and disjointness; the grouped bodies keep those windows across 64-byte reference loads/stores. Dispatched on `V4x` under `simd512`. |
 | `kernel/x86/gf8/avx512/matrix.rs`: `matrix_block`, `matrix_rows1`, `rows_tile4`, `rows_lane4`, `rows_tile2`, `rows_lane2`, `rows_tile1`, `rows_lane1`, `rows_resolved`, `rows_body`, `matrix_tail`, `matrix_at_block` | 64-byte byte-field matrix groups address rows by checked offsets into one region (contiguous or scattered), advanced to the start of a column block that lies inside each row. The entries prove each row in-bounds and pairwise disjoint; the tile bodies and tails preserve disjointness across 64-byte reference loads/stores. Direct tile and lane bodies use checked indexing on each captured provider source. `rows_resolved` additionally stages only the occupied prefix of `MaybeUninit` map-word/source arrays; it reinterprets exactly the prefix written before reading it. Dispatched on `V4x` under `simd512`. |
-| `external/gf16-bench/src/native.rs`: foreign declarations, `Native::new`, `complete_mul`, `leopard_mul`, `complete_region`, `complete_assign`, `leopard_region`, `Drop` | Benchmark-only C ABI calls require a live uniquely owned GF-Complete context, initialized Leopard tables, a retained CPU capability token, and checked buffer geometry. Native contexts cannot cross threads. The declaration proof matches the bridge ABI; each wrapper proves its memory, aliasing and feature obligations. |
+| `benches/compare/gf16/src/native.rs`: foreign declarations, `Native::new`, `complete_mul`, `leopard_mul`, `complete_region`, `complete_assign`, `leopard_region`, `Drop` | Benchmark-only C ABI calls require a live uniquely owned GF-Complete context, initialized Leopard tables, a retained CPU capability token, and checked buffer geometry. Native contexts cannot cross threads. The declaration proof matches the bridge ABI; each wrapper proves its memory, aliasing and feature obligations. |
 
 ## Tests
 
@@ -922,14 +922,14 @@ panel, plus `compare` for `gf`; the other units run the family's external
 harness. Bit-packed GF(2) has no competitor harness. `gf16` runs under
 `chrt --idle 0` in addition to the core pin.
 
-Every external competitor harness is a separate unpublished package under
-`external/`, outside `src/` and `benches/`; the package allowlist keeps the
-directory out of `cargo package`. `external/bench-trio/` and
-`external/gf16-bench/` carry a `build.rs` because they link native competitor
-code; `external/prime-bench/` has no build script and builds with
+Every standalone competitor harness is a separate unpublished package under
+`benches/compare/`, outside the library package allowlist so it never enters
+`cargo package`. `benches/compare/gf8/` and
+`benches/compare/gf16/` carry a `build.rs` because they link native competitor
+code; `benches/compare/prime/` has no build script and builds with
 `-C target-cpu=native`, which is how Plonky3 selects its packed kernels.
 
-`external/bench-trio/` links the system Intel ISA-L and klauspost/reedsolomon
+`benches/compare/gf8/` links the system Intel ISA-L and klauspost/reedsolomon
 as a Go C archive and interleaves `fgf`, ISA-L, and klauspost over one
 GF(2^8)/`0x11D` fixture set, rotating through all six arm orders. The
 klauspost coding matrix arrives through `WithCustomMatrix`. Every arm is
@@ -938,7 +938,7 @@ row reports the harness's noise floor. ISA-L needs `libisal` through
 pkg-config and the klauspost arm needs the Go toolchain in `PATH`; the build
 fails rather than dropping an arm.
 
-`external/prime-bench/` compares `fgf` against Plonky3 (`p3-goldilocks`,
+`benches/compare/prime/` compares `fgf` against Plonky3 (`p3-goldilocks`,
 `p3-mersenne-31`, and the packed quadratic extension of `p3-mersenne-31`) over
 Mersenne31, Goldilocks, and QuadMersenne31 on each library's native layout.
 Every arm is validated against the other library's output before timing, and
@@ -949,7 +949,7 @@ is `RUSTFLAGS="-C target-cpu=native" cargo run --release -- [gdl|m31]` from
 its directory. The banner reports packing widths; the captured log states the
 flag and widths beside the resolved `fgf` backends.
 
-`external/gf16-bench/` compares native GF16 field operations against pinned
+`benches/compare/gf16/` compares native GF16 field operations against pinned
 GF-Complete, reed-solomon-erasure, reed-solomon-simd, and Leopard-RS 1.x
 (pre-Leopard2); Leopard2 exposes no public field-region primitive, only codec
 operations, so the harness pins the 1.x field kernels. Its representation maps

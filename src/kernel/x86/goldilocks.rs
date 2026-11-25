@@ -1,4 +1,4 @@
-//! Goldilocks (`u64` lanes) kernels for x86 / `x86_64`.
+//! Goldilocks (`u64` lanes) kernels for `x86_64`.
 //!
 //! A 64×64→128 product is built from four `vpmuludq` 32-bit half-products,
 //! then reduced by the split fold (`2^64 ≡ 2^32 − 1`, `2^96 ≡ −1`).

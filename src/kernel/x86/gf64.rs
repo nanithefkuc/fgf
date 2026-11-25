@@ -1,4 +1,4 @@
-//! GF(2^64) tower kernels for x86 / `x86_64`.
+//! GF(2^64) tower kernels for `x86_64`.
 //!
 //! One more level of the same identity as [`super::gf32`]: a GF(2^64)
 //! multiply is two GF(2^32) lane multiplies under a period-2 coefficient,

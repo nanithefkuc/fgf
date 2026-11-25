@@ -1,4 +1,4 @@
-//! Mersenne31 (`u32` lanes) kernels for x86 / `x86_64`.
+//! Mersenne31 (`u32` lanes) kernels for `x86_64`.
 //!
 //! `2^31 ≡ 1 (mod p)`, so a multiply folds the 62-bit product with a
 //! mask/shift/add and one conditional subtract; the products come from
