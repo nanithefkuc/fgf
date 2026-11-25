@@ -516,7 +516,7 @@ package-api:
 # The calibrated host, tier, toolchain, and flag bindings are checked against
 # the live host before any acceptance measurement; `PAIR_CALIBRATED_FLAGS` must
 # equal `PAIR_ALIGN` for the host it was calibrated on.
-PAIR_RUNS := 'golden-cove:24 willow-cove:24'
+PAIR_RUNS := 'golden-cove:16 willow-cove:16'
 # Start-control IQR drift caps use half the noninferiority margin
 # (PAIR_DELTA / 2) as a host-independent policy budget, not a guarantee about
 # decision bias. The calibration recommendation's cap remains diagnostic.
@@ -530,10 +530,13 @@ PAIR_ALIGN := '-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofal
 # 'host1:t1,t2 host2:t3,t4' (for example
 # 'willow-cove:v4x,v3,scalar golden-cove:v3_gfni_crypto,v3,scalar').
 PAIR_CALIBRATED_HOSTS := 'golden-cove willow-cove'
-PAIR_CALIBRATED_TIERS := 'golden-cove:v3_gfni_crypto,v3,v2,scalar willow-cove:v4x,v3,v2,scalar'
+PAIR_CALIBRATED_TIERS := 'golden-cove:v3_gfni_crypto,v3,v2,scalar willow-cove:v4x,v3_gfni_crypto,v3,v2,scalar'
 PAIR_CALIBRATED_TOOLCHAIN := '1.98.1/48a229ceaefd4985c50990b14116b6d856af0985'
 PAIR_CALIBRATED_FLAGS := '-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6'
-PAIR_SNAPSHOT := 'HEAD'
+# Pinned to the calibrated measurement snapshot so `--layout-only` matches the
+# native `fgf-pair/7` calibration digest while live policy files
+# (`benches/unstable_cells.json`, `benches/calibrated_inventories/`) stay live.
+PAIR_SNAPSHOT := '433a0ed47d01da1cf40b947f0e5d5e14476ff0e6'
 # Calibration collects its own budget; PAIR_RUNS never caps it. Under
 # `fgf-pair/7` (`page-sparse/1`), run counts are multiples of 8; 16 runs cover
 # all 64 destination, source, and relative-phase cache lines twice.
