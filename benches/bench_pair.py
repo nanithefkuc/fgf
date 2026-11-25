@@ -102,13 +102,22 @@ placement, PLACEMENT_SOURCE_PATH, PLACEMENT_SOURCE_DIGEST = _load_placement_from
     Path(__file__).resolve().with_name("placement.py")
 )
 
-METHOD_VERSION = "fgf-pair/6"
+METHOD_VERSION = "fgf-pair/7"
 DRIFT_METHOD = "iqr_over_median"
 METHOD_DRIFT = {
     "fgf-pair/3": "p90_minus_p10_over_median",
     "fgf-pair/4": "p90_minus_p10_over_median",
     "fgf-pair/5": "iqr_over_median",
+    "fgf-pair/6": "iqr_over_median",
     METHOD_VERSION: DRIFT_METHOD,
+}
+PLACEMENT_METHODS = {
+    "fgf-pair/6": placement.STRATIFIED_METHOD,
+    METHOD_VERSION: placement.METHOD,
+}
+RUN_STRIDES = {
+    "fgf-pair/6": 2,
+    METHOD_VERSION: placement.RUN_STRIDE,
 }
 SUPPORTED_TIERS = ("v4x", "v3_gfni_crypto", "v3", "v2", "scalar")
 DEFAULT_TIERS = " ".join(SUPPORTED_TIERS)
@@ -779,7 +788,7 @@ def calibration_recommendation(
     *,
     drift_safety_factor: float = 1.25,
     prior_drift: float = 0.0,
-    even_runs: bool = False,
+    run_step: int = 1,
 ):
     """Smallest common passing prefix and drift cap for a calibration.
 
@@ -787,6 +796,8 @@ def calibration_recommendation(
     Every remaining cell must pass at the same recommended prefix: signed-rank
     bounds need not be monotone as another run is added.
     """
+    if run_step < 1:
+        raise ValueError(f"run_step must be positive, got {run_step}")
     per_tier = {}
     full_by_tier = {}
     observed_drift = float(prior_drift or 0.0)
@@ -814,15 +825,10 @@ def calibration_recommendation(
     common_available = min(
         (record["available_runs"] for record in per_tier.values()), default=0
     )
-    first_runs = (
-        MIN_RUNS_FOR_BOUND + (MIN_RUNS_FOR_BOUND % 2)
-        if even_runs
-        else MIN_RUNS_FOR_BOUND
-    )
-    step = 2 if even_runs else 1
+    first_runs = ((MIN_RUNS_FOR_BOUND + run_step - 1) // run_step) * run_step
     recommended_runs = None
     chosen = {}
-    for runs in range(first_runs, common_available + 1, step):
+    for runs in range(first_runs, common_available + 1, run_step):
         candidate = {
             tier: {
                 cell: hl_upper_bound(ratios_by_tier[tier][cell][:runs])
@@ -839,9 +845,7 @@ def calibration_recommendation(
             break
 
     stable_bounds = []
-    fallback_runs = (
-        common_available - (common_available % 2) if even_runs else common_available
-    )
+    fallback_runs = (common_available // run_step) * run_step
     diagnostic_runs = recommended_runs or (
         fallback_runs if fallback_runs >= first_runs else None
     )
@@ -1021,8 +1025,8 @@ def recorded_staged_decision(session: dict, tier: str, targets=None) -> dict:
             if run.get("tier") == tier and run.get("stage") == stage
         ]
         count = int(config["runs"]) if expected else 0
-        if len(runs) != count or {run["run"] for run in runs} != set(range(count)):
-            raise ValueError(f"tier {tier} has incomplete {stage} runs")
+        if len(runs) != count or any(run.get("run") != idx for idx, run in enumerate(runs)):
+            raise ValueError(f"tier {tier} has incomplete or out-of-order {stage} runs")
         for run in runs:
             for arm in ("base", "candidate"):
                 observed = ((run.get("arms") or {}).get(arm) or {}).get("cells") or {}
@@ -2464,12 +2468,12 @@ def validate_acceptance_config(
                 "for a 95% HL bound",
             )
         )
-    elif runs % 2 != 0:
+    elif runs % placement.RUN_STRIDE != 0:
         rejections.append(
             reject(
-                "odd_runs",
-                f"{METHOD_VERSION} requires an even paired run count so stack "
-                "padding is balanced across aligned run pairs (2k, 2k+1)",
+                "unaligned_runs",
+                f"{METHOD_VERSION} requires a multiple of {placement.RUN_STRIDE} paired runs "
+                "so destination and source cache-line offsets cover the page evenly",
             )
         )
     if drift_cap is None:
@@ -4099,7 +4103,7 @@ class Campaign:
         arm_order = placement.arm_order(base_arms, run_index, 0)
         strata = []
         for point in placement.plan(run_index):
-            if point["index"] > 0 and point["index"] % 64 == 0:
+            if point["index"] > 0 and point["index"] % placement.PROBE_STRIDE == 0:
                 if not self.check_preconditions(
                     tier, run_index, f"{stage}:place{point['index']:03d}"
                 ):
@@ -4365,12 +4369,13 @@ class Campaign:
                         )
                     )
                     return 1
-                if cal_runs % 2 != 0:
+                if cal_runs % placement.RUN_STRIDE != 0:
                     self.reject(
                         reject(
-                            "odd_runs",
-                            f"{METHOD_VERSION} requires an even calibration run count so "
-                            "stack padding is balanced across aligned run pairs (2k, 2k+1)",
+                            "unaligned_runs",
+                            f"{METHOD_VERSION} requires a multiple of {placement.RUN_STRIDE} "
+                            "calibration runs so destination and source cache-line offsets "
+                            "cover the page evenly",
                         )
                     )
                     return 1
@@ -4934,7 +4939,7 @@ class Campaign:
             drift_by_tier,
             drift_safety_factor=float(self.args.drift_safety_factor),
             prior_drift=prior_drift,
-            even_runs=True,
+            run_step=placement.RUN_STRIDE,
         )
         healthy = healthy and sufficient
         if any(
@@ -5623,17 +5628,18 @@ def write_unstable_list(
             or session_rounds <= 0
             or type(session_run_budget) is not int
             or session_run_budget < MIN_RUNS_FOR_BOUND
-            or session_run_budget % 2 != 0
+            or session_run_budget % placement.RUN_STRIDE != 0
         ):
             print(
-                f"bench_pair: {session_path} lacks an even calibrated run budget or retained placement runs",
+                f"bench_pair: {session_path} lacks a multiple-of-{placement.RUN_STRIDE} "
+                "calibrated run budget or retained placement runs",
                 file=sys.stderr,
             )
             return 2
         if not per_tier:
             print(f"bench_pair: {session_path} has no calibration tiers", file=sys.stderr)
             return 2
-        seen_runs_by_tier: dict[str, set[int]] = {tier: set() for tier in per_tier}
+        next_run_by_tier: dict[str, int] = {tier: 0 for tier in per_tier}
         for run_index, run_record in enumerate(session_runs):
             if not isinstance(run_record, dict):
                 print(f"bench_pair: {session_path} run {run_index} is not an object", file=sys.stderr)
@@ -5645,7 +5651,7 @@ def write_unstable_list(
                 )
                 return 2
             run_tier = run_record.get("tier")
-            if run_tier not in seen_runs_by_tier:
+            if run_tier not in next_run_by_tier:
                 print(
                     f"bench_pair: {session_path} run {run_index} references undeclared tier {run_tier!r}",
                     file=sys.stderr,
@@ -5665,19 +5671,19 @@ def write_unstable_list(
                 )
                 return 2
             run_num = run_record["run"]
-            if run_num in seen_runs_by_tier[run_tier]:
+            expected_run = next_run_by_tier[run_tier]
+            if run_num != expected_run:
                 print(
-                    f"bench_pair: {session_path} tier {run_tier} repeats run {run_num}",
+                    f"bench_pair: {session_path} tier {run_tier} expected run {expected_run}, got {run_num}",
                     file=sys.stderr,
                 )
                 return 2
-            seen_runs_by_tier[run_tier].add(run_num)
-        expected_indices = set(range(session_run_budget))
-        for tier, indices in seen_runs_by_tier.items():
-            if indices != expected_indices:
+            next_run_by_tier[run_tier] = expected_run + 1
+        for tier, count in next_run_by_tier.items():
+            if count != session_run_budget:
                 print(
                     f"bench_pair: {session_path} tier {tier} has incomplete run grid "
-                    f"(expected 0..{session_run_budget - 1})",
+                    f"(expected ascending 0..{session_run_budget - 1})",
                     file=sys.stderr,
                 )
                 return 2
@@ -5905,6 +5911,32 @@ def reanalyze_session(path: Path, args) -> int:
         "insufficient_runs": False,
     }
     if kind == "calibration":
+        for run in source.get("runs") or []:
+            if run.get("stage", "main") != "main":
+                print(
+                    f"bench_pair: {path}: calibration run must have stage 'main'",
+                    file=sys.stderr,
+                )
+                return 2
+        expected_runs = config.get("runs")
+        for tier in sorted(runs_by_tier):
+            tier_runs = [
+                run for run in source.get("runs") or []
+                if run.get("tier") == tier and run.get("stage", "main") == "main"
+            ]
+            expected_len = (
+                expected_runs
+                if type(expected_runs) is int and expected_runs > 0
+                else len(tier_runs)
+            )
+            if len(tier_runs) != expected_len or any(
+                run.get("run") != idx for idx, run in enumerate(tier_runs)
+            ):
+                print(
+                    f"bench_pair: {path}: calibration tier {tier} must have ascending runs 0..{expected_len - 1}",
+                    file=sys.stderr,
+                )
+                return 2
         prior_drift = (
             (source.get("calibration") or {}).get("recommendation") or {}
         ).get("prior_drift")
@@ -5914,7 +5946,7 @@ def reanalyze_session(path: Path, args) -> int:
             drift_by_tier,
             drift_safety_factor=factor,
             prior_drift=0.0 if prior_drift is None else float(prior_drift),
-            even_runs=(source.get("method_version") == METHOD_VERSION),
+            run_step=RUN_STRIDES.get(source.get("method_version"), 1),
         )
         output["calibration"] = {
             "mode": (source.get("calibration") or {}).get("mode"),

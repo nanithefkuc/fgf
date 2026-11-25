@@ -930,7 +930,7 @@ class ConfigurationTests(unittest.TestCase):
 
     def base_kwargs(self, **overrides):
         value = {
-            "runs": 6,
+            "runs": 8,
             "drift_cap": 0.02,
             "delta": 0.03,
             "gamma": 0.03,
@@ -962,8 +962,9 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn("uncalibrated_config", self.codes(runs=None))
         self.assertIn("insufficient_runs", self.codes(runs=4))
         self.assertNotIn("insufficient_runs", self.codes(runs=5))
-        self.assertIn("odd_runs", self.codes(runs=5))
-        self.assertNotIn("odd_runs", self.codes(runs=6))
+        self.assertIn("unaligned_runs", self.codes(runs=5))
+        self.assertIn("unaligned_runs", self.codes(runs=6))
+        self.assertNotIn("unaligned_runs", self.codes(runs=8))
 
     def test_placeholder_drift_cap_is_refused(self):
         self.assertIn("uncalibrated_config", self.codes(drift_cap=None))
@@ -1133,7 +1134,7 @@ class ConfigurationTests(unittest.TestCase):
             digest = pair.inventory_digest(
                 {cell_entry["id"]: cell_entry}, [cell_entry["id"]]
             )
-            cal_runs = [_mock_placement_run(idx, [cell_entry["id"]], 1) for idx in range(6)]
+            cal_runs = [_mock_placement_run(idx, [cell_entry["id"]], 1) for idx in range(8)]
             cal_path = Path(tmp) / "cal.json"
             cal_path.write_text(json.dumps({
                 "kind": "calibration",
@@ -1142,7 +1143,7 @@ class ConfigurationTests(unittest.TestCase):
                 "rejected": False,
                 "rejections": [],
                 "host": {"hostname": "AlphaBox", "toolchain_id": "1.0.0/xyz"},
-                "config": {"runs": 6, "rounds": 1, "placement_method": pair.placement.METHOD},
+                "config": {"runs": 8, "rounds": 1, "placement_method": pair.placement.METHOD},
                 "snapshot": {
                     "rustflags": pair.DEFAULT_ALIGN_FLAGS,
                     "runner_matches_snapshot": True,
@@ -1527,6 +1528,21 @@ class ReanalysisTests(unittest.TestCase):
             self.assertFalse(analysis["publishable"])
             self.assertIsNotNone(analysis["calibration"]["recommendation"]["runs"])
             self.assertIn("cells", analysis["calibration"]["recommendation"]["per_tier"]["v4x"])
+
+    def test_calibration_reanalysis_rejects_reordered_runs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "session.json"
+            session = self.source_session("calibration")
+            session["runs"][0], session["runs"][1] = session["runs"][1], session["runs"][0]
+            source.write_text(json.dumps(session), encoding="utf-8")
+            self.assertEqual(pair.reanalyze_session(source, self.args()), 2)
+            self.assertFalse(list(Path(directory).glob("session.reanalysis-*.json")))
+
+            oversized = self.source_session("calibration")
+            oversized["config"]["runs"] = 10**12
+            source.write_text(json.dumps(oversized), encoding="utf-8")
+            self.assertEqual(pair.reanalyze_session(source, self.args()), 2)
+            self.assertFalse(list(Path(directory).glob("session.reanalysis-*.json")))
 
     def test_calibration_reanalysis_retains_recorded_prior_drift(self):
         for prior in (0.02, None):
@@ -2056,14 +2072,14 @@ class CampaignFailureTests(unittest.TestCase):
                         "candidate": {
                             "cells": {
                                 self.cell: {
-                                    "summary_ns": 100.0 + (10 if index < 2 else -10),
+                                    "summary_ns": 100.0 + (10 if index < 3 else -10),
                                     "rounds_ns": [100.0],
                                 }
                             }
                         },
                     },
                 }
-                for index in range(6)
+                for index in range(8)
             ]
             try:
                 self.assertEqual(
@@ -2071,7 +2087,7 @@ class CampaignFailureTests(unittest.TestCase):
                     0,
                 )
                 recommendation = campaign.session["calibration"]["recommendation"]
-                self.assertEqual(recommendation["runs"], 6)
+                self.assertEqual(recommendation["runs"], 8)
                 self.assertIn(
                     self.cell,
                     recommendation["per_tier"]["v4x"]["unstable_cells"],
@@ -2277,7 +2293,7 @@ class CampaignFailureTests(unittest.TestCase):
                             "summary_ns": 100.0, "rounds_ns": [100.0]}}},
                     },
                 }
-                for index in range(6)
+                for index in range(8)
             ]
             try:
                 self.assertEqual(
@@ -2392,7 +2408,7 @@ class UnstableListTests(unittest.TestCase):
                 "entries": [self.entry(cells=[ids[3]], inventory_digest=digest)]
             }), encoding="utf-8")
 
-            def source(session_id, cells, method_version=pair.METHOD_VERSION, *, valid_placement=True, run_count=6):
+            def source(session_id, cells, method_version=pair.METHOD_VERSION, *, valid_placement=True, run_count=8):
                 runs = [_mock_placement_run(idx, ids, 1) for idx in range(run_count)] if valid_placement else []
                 return {
                     "session_id": session_id, "kind": "calibration",
@@ -2450,22 +2466,36 @@ class UnstableListTests(unittest.TestCase):
             unverified.write_text(json.dumps(source("s6", ids[:1], valid_placement=False)))
             self.assertEqual(pair.write_unstable_list(target, [unverified], host_map={}), 2)
 
-            # Incomplete or odd-budget calibrations must be rejected by write_unstable_list.
+            # Incomplete or unaligned-budget calibrations must be rejected by write_unstable_list.
             odd_budget = root / "odd.json"
-            odd_budget.write_text(json.dumps(source("s7", ids[:1], run_count=5)))
+            odd_budget.write_text(json.dumps(source("s7", ids[:1], run_count=6)))
             self.assertEqual(pair.write_unstable_list(target, [odd_budget], host_map={}), 2)
 
             incomplete = root / "incomplete.json"
-            inc_payload = source("s8", ids[:1], run_count=6)
+            inc_payload = source("s8", ids[:1], run_count=8)
             inc_payload["runs"].pop()
             incomplete.write_text(json.dumps(inc_payload))
             self.assertEqual(pair.write_unstable_list(target, [incomplete], host_map={}), 2)
 
             omitted_stage = root / "omitted_stage.json"
-            stage_payload = source("s9", ids[:1], run_count=6)
+            stage_payload = source("s9", ids[:1], run_count=8)
             stage_payload["runs"][0].pop("stage")
             omitted_stage.write_text(json.dumps(stage_payload))
             self.assertEqual(pair.write_unstable_list(target, [omitted_stage], host_map={}), 2)
+
+            reordered_runs = root / "reordered.json"
+            reordered_payload = source("s10", ids[:1], run_count=8)
+            reordered_payload["runs"][0], reordered_payload["runs"][1] = (
+                reordered_payload["runs"][1], reordered_payload["runs"][0]
+            )
+            reordered_runs.write_text(json.dumps(reordered_payload))
+            self.assertEqual(pair.write_unstable_list(target, [reordered_runs], host_map={}), 2)
+
+            oversized_runs = root / "oversized.json"
+            oversized_payload = source("s11", ids[:1], run_count=8)
+            oversized_payload["config"]["runs"] = 8 * 10**11
+            oversized_runs.write_text(json.dumps(oversized_payload))
+            self.assertEqual(pair.write_unstable_list(target, [oversized_runs], host_map={}), 2)
 
             # Writing a fresh /6 calibration replaces any prior /5 entry for the same host/tier/toolchain/flags.
             legacy_list = root / "legacy_list.json"
@@ -2954,18 +2984,18 @@ class MockedSessionTests(unittest.TestCase):
                 "--candidate", "CAND",
                 "--snapshot", str(self.snapshot),
                 "--tiers", "v4x",
-                "--rounds", "3",
-                "--runs", "6",
+                "--rounds", "1",
+                "--runs", "8",
                 "--drift-cap", "0.2",
                 "--calibrated-hosts", self.hostname,
                 "--calibrated-tiers", f"{self.hostname}:v4x",
                 "--calibrated-toolchain", "1.0.0/xyz",
                 "--calibrated-flags", pair.DEFAULT_ALIGN_FLAGS,
-                "--calibration-runs", "6",
+                "--calibration-runs", "8",
                 "--unstable-file", str(self.unstable_file),
                 "--calibrated-inventories", str(self.calibrated),
                 "--policy-json", json.dumps({
-                    "runs": "6", "drift_cap": "0.2", "rounds": "3",
+                    "runs": "8", "drift_cap": "0.2", "rounds": "1",
                     "delta": "0.03", "gamma": "0.03",
                     "calibrated_hosts": self.hostname,
                     "calibrated_tiers": f"{self.hostname}:v4x",
@@ -3033,7 +3063,7 @@ class MockedSessionTests(unittest.TestCase):
 
     def test_main_outlier_passes_only_after_separate_confirmation(self):
         first = self.cells[0]["id"]
-        outliers = [-0.16, 0.0, 0.0, 0.0, 0.0, 0.16]
+        outliers = [-0.16, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.16]
         self.timing_factor = lambda arm, name, run, stage: (
             math.exp(outliers[run])
             if arm == "candidate" and name == first and stage == "main" else 1.0
@@ -3711,14 +3741,14 @@ class MockedSessionTests(unittest.TestCase):
         )
         self.assertIn("method_version", rejection["message"])
 
-    def test_odd_calibration_runs_reject_the_session(self):
+    def test_unaligned_calibration_runs_reject_the_session(self):
         self.assertEqual(
-            pair.run(self.args("--mode", "calibration", "--calibration-runs", "5")),
+            pair.run(self.args("--mode", "calibration", "--calibration-runs", "6")),
             1,
         )
         session = self.session()
         self.assertIn(
-            "odd_runs",
+            "unaligned_runs",
             [rejection["code"] for rejection in session["rejections"]],
         )
 
@@ -4048,18 +4078,23 @@ class SnapshotTests(unittest.TestCase):
             self.assertEqual(stage_rej.code, "snapshot_symlink")
             self.assertFalse((root / "staged").exists())
 
-    def test_calibration_recommendation_even_runs_skips_odd_prefixes(self):
-        ratios = {"v4x": {"c": [0.0] * 6}}
-        rec_even, healthy = pair.calibration_recommendation(
-            ratios, 0.03, {"v4x": {"drift": 0.001}}, even_runs=True
+    def test_calibration_recommendation_run_step_skips_unaligned_prefixes(self):
+        ratios = {"v4x": {"c": [0.0] * 8}}
+        rec_eight, healthy = pair.calibration_recommendation(
+            ratios, 0.03, {"v4x": {"drift": 0.001}}, run_step=8
         )
         self.assertTrue(healthy)
-        self.assertEqual(rec_even["runs"], 6)
-        rec_odd, healthy_odd = pair.calibration_recommendation(
-            {"v4x": {"c": [0.0] * 5}}, 0.03, {"v4x": {"drift": 0.001}}, even_runs=True
+        self.assertEqual(rec_eight["runs"], 8)
+        rec_short, healthy_short = pair.calibration_recommendation(
+            {"v4x": {"c": [0.0] * 6}}, 0.03, {"v4x": {"drift": 0.001}}, run_step=8
         )
-        self.assertFalse(healthy_odd)
-        self.assertIsNone(rec_odd["runs"])
+        self.assertFalse(healthy_short)
+        self.assertIsNone(rec_short["runs"])
+        rec_even, healthy_even = pair.calibration_recommendation(
+            {"v4x": {"c": [0.0] * 6}}, 0.03, {"v4x": {"drift": 0.001}}, run_step=2
+        )
+        self.assertTrue(healthy_even)
+        self.assertEqual(rec_even["runs"], 6)
 
     def test_snapshot_toolchain_is_read_from_toml_and_plain_files(self):
         with tempfile.TemporaryDirectory() as directory:

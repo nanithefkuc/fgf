@@ -4,33 +4,67 @@ import json
 import math
 import statistics
 
-METHOD = "page-stratified/1"
-COUNT = 256
+METHOD = "page-sparse/1"
+COUNT = 8
+RUN_STRIDE = 8
+PROBE_STRIDE = 4
+
+STRATIFIED_METHOD = "page-stratified/1"
+STRATIFIED_COUNT = 256
+
+METHODS = {
+    METHOD: COUNT,
+    STRATIFIED_METHOD: STRATIFIED_COUNT,
+}
 _SUMMARY_TOL = 1e-12
 _STORED_TOL = 1e-9
 
 
-def plan(run=0):
-    """Cover every cache-line buffer offset, relative phase, and stack offset.
+def _check_method(method):
+    if method not in METHODS:
+        raise ValueError(f"unsupported placement method: {method!r}")
+    return METHODS[method]
 
-    Each run visits every 64-byte destination offset, source offset, and
-    relative `(src_shift - dst_shift) mod 4096` phase four times, and every
-    16-byte ABI-aligned stack padding once. Across every consecutive pair of
-    runs `(2k, 2k+1)`, every requested stack padding runs in both arm orders;
-    within every run, every destination, source, and relative phase runs twice
-    in each arm order.
+
+def plan(run=0, method=METHOD):
+    """Return the deterministic placement strata for paired run ``run``.
+
+    ``page-sparse/1`` (``fgf-pair/7``, ``COUNT = 8``) covers all eight 512-byte
+    page segments for destination, source, and stack padding within each run,
+    balances all four mod-64 stack classes and all four run relative phases 1/1
+    across arm orders within each run, covers all 64 destination and source
+    cache lines across every 8-run block, covers all 64 destination, source,
+    and relative phases twice across every 16-run cycle (with 1/1 destination
+    order balance), and covers all 256 16-byte stack pads across 32 runs.
+
+    ``page-stratified/1`` (frozen ``fgf-pair/6``, ``COUNT = 256``) is retained
+    for historical session validation.
     """
-    shift = (37 * (run // 2)) % COUNT
+    _check_method(method)
+    if method == METHOD:
+        m = (run // 2) % 4
+        o = run % 2
+        b = (run // 8) % 2
+        k = (13 * run) % 32
+        points = []
+        for i in range(COUNT):
+            dst_u = (8 * i + m + 4 * o) % 64
+            rel_u = (16 * i + 2 * m + b + 8 * o) % 64
+            src_u = (dst_u + rel_u) % 64
+            stack_pad = 16 * (((32 * i + 4 * k) % 256) + (i % 4))
+            points.append({
+                "index": i,
+                "dst_shift": dst_u * 64,
+                "src_shift": src_u * 64,
+                "stack_pad": stack_pad,
+            })
+        return points
+    shift = (37 * (run // 2)) % STRATIFIED_COUNT
     points = []
-    for i in range(COUNT):
+    for i in range(STRATIFIED_COUNT):
         r = i // 4
-        # Cycle q as 0, 2, 1, 3 so consecutive strata alternate arm order while
-        # balancing dst, src, and relative (src - dst) phases 2/2 within a run.
         q = (i % 2) * 2 + ((i // 2) % 2)
-        # Rotate i right by 1 bit so stack-pad parity is balanced 64/64 within
-        # every run; keeping `shift` constant across each run pair (2k, 2k+1)
-        # while arm_order flips by `run` runs every pad in both orders.
-        pad_idx = (((i >> 1) | ((i & 1) << 7)) + shift) % COUNT
+        pad_idx = (((i >> 1) | ((i & 1) << 7)) + shift) % STRATIFIED_COUNT
         points.append({
             "index": i,
             "dst_shift": r * 64,
@@ -40,10 +74,14 @@ def plan(run=0):
     return points
 
 
-def arm_order(arms, run, index):
-    """Balanced arm order for stratum `index` of run `run`."""
+def arm_order(arms, run, index, method=METHOD):
+    """Balanced arm order for stratum ``index`` of run ``run``."""
+    _check_method(method)
     ordered = list(arms)
-    if (run + index) % 2:
+    if method == METHOD:
+        if (run + index + (index // 4) + (run // 8)) % 2:
+            ordered.reverse()
+    elif (run + index) % 2:
         ordered.reverse()
     return ordered
 
@@ -85,9 +123,10 @@ def validate_record(text, point):
     return _validate_observed_mapping(records[0], point)
 
 
-def summarize(pieces, cells, rounds):
+def summarize(pieces, cells, rounds, method=METHOD):
     """Median of equally weighted placement medians; never pseudoreplicate runs."""
-    if len(pieces) != COUNT:
+    expected_count = _check_method(method)
+    if len(pieces) != expected_count:
         raise ValueError("incomplete placement sweep")
     results = {}
     for cell in cells:
@@ -144,15 +183,16 @@ def _summaries_close(actual, expected):
     return True
 
 
-def validate_run(record, rounds, expected_arms=None, expected_cells=None):
+def validate_run(record, rounds, expected_arms=None, expected_cells=None, method=METHOD):
     """Reject missing strata, biased orders, skewed stacks, and altered summaries."""
+    expected_count = _check_method(method)
     run_index = record["run"]
     if type(run_index) is not int or run_index < 0:
         raise ValueError("invalid run index")
     strata = record["placements"]
-    if not isinstance(strata, list) or len(strata) != COUNT:
+    if not isinstance(strata, list) or len(strata) != expected_count:
         raise ValueError("incomplete placement sweep")
-    expected_plan = plan(run_index)
+    expected_plan = plan(run_index, method=method)
     for actual, point in zip(strata, expected_plan):
         if not isinstance(actual, dict) or any(actual.get(key) != value for key, value in point.items()):
             raise ValueError("placement strata differ from the declared design")
@@ -167,14 +207,14 @@ def validate_run(record, rounds, expected_arms=None, expected_cells=None):
     else:
         base_arms = list(arms_map)
     if "order" in record:
-        expected_run_order = arm_order(base_arms, run_index, 0)
+        expected_run_order = arm_order(base_arms, run_index, 0, method=method)
         if record["order"] != expected_run_order and (
             expected_arms is not None or set(record["order"]) != set(base_arms)
         ):
             raise ValueError("run arm order differs from the declared design")
         if expected_arms is None:
             # Recover canonical arm ordering when caller did not fix expected_arms.
-            base_arms = arm_order(record["order"], run_index, 0)
+            base_arms = arm_order(record["order"], run_index, 0, method=method)
 
     cell_sets = {arm: set(summary["cells"]) for arm, summary in arms_map.items()}
     first_cells = next(iter(cell_sets.values()))
@@ -185,7 +225,7 @@ def validate_run(record, rounds, expected_arms=None, expected_cells=None):
 
     for point, stratum in zip(expected_plan, strata):
         if "order" in stratum:
-            if stratum["order"] != arm_order(base_arms, run_index, point["index"]):
+            if stratum["order"] != arm_order(base_arms, run_index, point["index"], method=method):
                 raise ValueError("stratum arm order differs from the declared design")
         if "environment_digest" in stratum:
             digest = stratum["environment_digest"]
@@ -214,10 +254,14 @@ def validate_run(record, rounds, expected_arms=None, expected_cells=None):
         for point, p in zip(expected_plan, strata):
             observed = _validate_observed_mapping(p["observed"][arm], point)
             stack.append(observed["stack_offset"])
-        if len(set(stack)) != COUNT or len({offset % 16 for offset in stack}) != 1:
+        if len(set(stack)) != expected_count or len({offset % 16 for offset in stack}) != 1:
             raise ValueError("observed stack offsets do not cover the page uniformly")
+        if method == METHOD and len({(offset - stack[0]) % 64 for offset in stack}) != 4:
+            raise ValueError("observed stack offsets do not cover all four mod-64 classes")
         stacks_by_arm[arm] = stack
-        recomputed = summarize([p["arms"][arm] for p in strata], list(summary["cells"]), rounds)
+        recomputed = summarize(
+            [p["arms"][arm] for p in strata], list(summary["cells"]), rounds, method=method
+        )
         if not _summaries_close(summary, recomputed):
             raise ValueError("run summary differs from retained placement measurements")
 

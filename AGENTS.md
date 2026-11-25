@@ -540,7 +540,7 @@ on both — the snapshot's `benches/` tree (including the `operations` bench and
 this runner), `Cargo.toml`, `Cargo.lock`, and any `rust-toolchain` file, with
 `PAIR_FEATURES` and `PAIR_ALIGN` supplying the feature set and pinned flags —
 and executes only the snapshot's bench target. The snapshot digest, runner
-digest, placement digest, method version `fgf-pair/6`, `drift_method`, both
+digest, placement digest, method version `fgf-pair/7`, `drift_method`, both
 library SHAs, host facts, execution isolation, requested and reported tiers,
 effective configuration, per-stratum environment digests and argv lengths,
 unstable-cell entries, and every rejection are written to
@@ -630,8 +630,8 @@ scalar route; a diagnostic failure is recorded without entering a rule.
 
 The runners take one exclusive `bench-records/.campaign.lock` in the crate
 root for the whole session, regardless of capture destination, then re-probe
-the host before the preflight, before every measured run, and periodically
-within each placement sweep (every 64 strata): `FEC_GOLDEN_CORE` must name an
+the host before the preflight, before every measured run, and at the midpoint
+of each placement sweep (before stratum 4): `FEC_GOLDEN_CORE` must name an
 online CPU, that CPU must run under the `performance` scaling governor, and,
 where SMT is active, its siblings must stay below `PAIR_SMT_BUSY_THRESHOLD`
 over `PAIR_SMT_WINDOW`. `setarch` must be available; every check and timing
@@ -644,25 +644,29 @@ measurement snapshot verbatim (`placement.py` is compiled and executed directly
 from its hashed source bytes, and snapshots must not contain symlinks);
 missing, symlinked, or differing copies reject the session.
 
-Under `fgf-pair/6` (`page-stratified/1`), each independent paired run measures
-a fixed 256-stratum placement design (`benches/placement.py`): destination
-offsets, source offsets, and relative `(src - dst) mod 4096` phases each cover
-every 64-byte cache-line offset equally (4× per run), and unread environment
-padding covers every 16-byte ABI-aligned initial stack offset once per run.
-Arm order alternates across strata and runs so destination, source, and
-relative phases are balanced 2/2 within each run and stack padding is balanced
-1/1 across each aligned pair of runs `(2k, 2k+1)` (run counts must be even).
-Each stratum records per-arm round medians, start/end controls, observed
-fixture/stack page offsets, environment digest, and argv lengths; the arm's
-run summary is the median across the 256 stratum medians, and its session
-summary is the median of main-stage run summaries. Only independent run
-summaries enter the paired bound. In acceptance and threshold modes, drift is
-the interquartile range divided by the median of every arm's per-stratum start
-controls within each tier and stage. The recorded `drift_method` is
-`iqr_over_median`; drift must not exceed the configured cap. Older
-single-placement sessions (`fgf-pair/3`, `fgf-pair/4`, `fgf-pair/5`) retain
-their own validation rules and cannot establish a placement-distribution
-result.
+Under `fgf-pair/7` (`page-sparse/1`), each independent paired run measures a
+fixed 8-stratum sparse placement design (`benches/placement.py`,
+`PAIR_ROUNDS = 1`) without exact placement replay across consecutive runs:
+within each run, destination offsets, source offsets, and stack padding each
+cover all eight 512-byte page segments, relative `(src - dst) mod 4096` phases
+cover four values twice (balanced 1/1 across arm orders), all four mod-64 stack
+classes run twice (1/1 across arm orders), and arm order splits 4/4 overall
+(2/2 per 4-stratum half). Across every aligned 8-run block, destination and
+source offsets cover all 64 cache-line offsets once; across every 16-run cycle,
+destination, source, and relative phases cover all 64 offsets twice (with 1/1
+destination order balance); across 32 runs, stack padding covers all 256
+16-byte offsets. Paired run counts must be multiples of 8. Each stratum records
+per-arm round medians, start/end controls, observed fixture/stack page offsets,
+environment digest, and argv lengths; the arm's run summary is the median
+across the 8 stratum medians, and its session summary is the median of
+main-stage run summaries. Only independent run summaries enter the paired
+bound. In acceptance and threshold modes, drift is the interquartile range
+divided by the median of every arm's per-stratum start controls within each
+tier and stage. The recorded `drift_method` is `iqr_over_median`; drift must
+not exceed the configured cap. Historical `fgf-pair/6` (`page-stratified/1`,
+256 strata) and older single-placement sessions (`fgf-pair/3`, `fgf-pair/4`,
+`fgf-pair/5`) retain their own frozen validation rules and cannot substitute
+for `fgf-pair/7` bindings.
 
 The estimator is the per-run log ratio `log(candidate / base)` for every cell.
 Each cell's location estimate is the Hodges–Lehmann estimate of its ratios,
@@ -728,7 +732,7 @@ session is marked non-acceptance and is never reused as acceptance evidence.
 
 The signed unstable-cell list is `benches/unstable_cells.json`, the default
 `--unstable-file`. Each entry binds an exact host, tier, `method_version`
-(`fgf-pair/6`), toolchain, effective flags, and measured inventory digest to
+(`fgf-pair/7`), toolchain, effective flags, and measured inventory digest to
 its cell list, calibration sources, and owner signature. Acceptance and
 threshold sessions load the file, require exactly one matching signed entry
 for every measured host, tier, and method version, and reject a missing,

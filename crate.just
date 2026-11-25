@@ -521,7 +521,7 @@ PAIR_RUNS := 'golden-cove:24 willow-cove:24'
 # (PAIR_DELTA / 2) as a host-independent policy budget, not a guarantee about
 # decision bias. The calibration recommendation's cap remains diagnostic.
 PAIR_DRIFT_CAP := 'golden-cove:0.015 willow-cove:0.015'
-PAIR_ROUNDS := '7'
+PAIR_ROUNDS := '1'
 PAIR_DELTA := '0.03'
 PAIR_GAMMA := '0.03'
 PAIR_FEATURES := 'simd512'
@@ -534,10 +534,10 @@ PAIR_CALIBRATED_TIERS := 'golden-cove:v3_gfni_crypto,v3,v2,scalar willow-cove:v4
 PAIR_CALIBRATED_TOOLCHAIN := '1.98.1/48a229ceaefd4985c50990b14116b6d856af0985'
 PAIR_CALIBRATED_FLAGS := '-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6'
 PAIR_SNAPSHOT := 'HEAD'
-# Calibration collects its own budget; PAIR_RUNS never caps it. The native
-# calibration sessions collected 24 runs, so the budget must be at least the
-# recommended run count above.
-PAIR_CALIBRATION_RUNS := '24'
+# Calibration collects its own budget; PAIR_RUNS never caps it. Under
+# `fgf-pair/7` (`page-sparse/1`), run counts are multiples of 8; 16 runs cover
+# all 64 destination, source, and relative-phase cache lines twice.
+PAIR_CALIBRATION_RUNS := '16'
 # Recommended drift cap = observed maximum across calibration sessions times
 # this stated safety factor.
 PAIR_DRIFT_SAFETY_FACTOR := '1.25'
