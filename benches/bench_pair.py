@@ -165,6 +165,107 @@ def host_component(name: str) -> str:
     return cleaned.strip("-.") or "host"
 
 
+DEFAULT_HOST_MAP_REL = Path("bench-records/hosts.json")
+HOST_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def validate_public_host_label(label: str, what: str = "host label") -> str:
+    if not isinstance(label, str) or not label.strip():
+        raise ValueError(f"{what} must be a non-empty string")
+    cleaned = label.strip()
+    if HOST_LABEL_RE.fullmatch(cleaned) is None:
+        raise ValueError(
+            f"{what} {label!r} must match [A-Za-z0-9][A-Za-z0-9._-]*"
+        )
+    return cleaned
+
+
+def load_host_map(
+    path: Path | str | None = None, *, required: bool = False
+) -> dict[str, str]:
+    """Load an untracked private-hostname -> public-host-label JSON mapping."""
+    if path is None or str(path).strip() == "":
+        return {}
+    map_path = Path(path)
+    if not map_path.is_file():
+        if required:
+            raise ValueError(f"host map file not found: {map_path}")
+        return {}
+    try:
+        raw = json.loads(map_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read host map {map_path}: {error}") from error
+    if not isinstance(raw, dict):
+        raise ValueError(f"host map {map_path} must be a JSON object")
+    mapping: dict[str, str] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError(
+                f"host map {map_path} entries must map non-empty strings to public host labels"
+            )
+        label = validate_public_host_label(
+            value, f"host map {map_path} value for {key!r}"
+        )
+        folded = key.strip().casefold()
+        if folded in mapping:
+            raise ValueError(f"host map {map_path} repeats hostname {key!r}")
+        mapping[folded] = label
+    return mapping
+
+
+def resolve_host_label(
+    raw_hostname: str,
+    *,
+    host_label: str | None = None,
+    host_map: dict[str, str] | None = None,
+    require_mapped: bool = False,
+) -> str:
+    """Resolve a machine hostname to its validated public architecture host label."""
+    if host_label is not None and host_label.strip():
+        return validate_public_host_label(host_label, "host label")
+    if host_map:
+        mapped = host_map.get(raw_hostname.strip().casefold())
+        if mapped:
+            return validate_public_host_label(mapped, "mapped host label")
+    if require_mapped:
+        raise ValueError(
+            "cannot resolve a public host label for this machine: pass --host-label, "
+            "set FGF_HOST_LABEL, or map this host in --host-map / FGF_HOST_MAP / "
+            f"{DEFAULT_HOST_MAP_REL}"
+        )
+    return validate_public_host_label(raw_hostname, "host label")
+
+
+def resolve_live_host(args) -> str:
+    """Resolve the current machine's public host label; fail closed if unmapped."""
+    explicit = getattr(args, "host_label", None) or os.environ.get("FGF_HOST_LABEL", "")
+    if explicit and str(explicit).strip():
+        return validate_public_host_label(str(explicit), "host label")
+    explicit_map = getattr(args, "host_map", None) or os.environ.get("FGF_HOST_MAP", "")
+    if explicit_map and str(explicit_map).strip():
+        mapping = load_host_map(Path(str(explicit_map).strip()), required=True)
+    else:
+        repo = Path(getattr(args, "repo", Path(__file__).resolve().parent.parent)).resolve()
+        mapping = load_host_map(repo / DEFAULT_HOST_MAP_REL, required=False)
+    return resolve_host_label(
+        socket.gethostname(), host_map=mapping, require_mapped=True
+    )
+
+
+def public_session_id(session_id: str, raw_host: str, public_host: str) -> str:
+    """Project a legacy session ID's trailing host suffix onto ``public_host``."""
+    raw_comp = host_component(raw_host)
+    pub_comp = host_component(public_host)
+    if raw_comp.casefold() == pub_comp.casefold():
+        return session_id
+    pattern = re.compile(rf"-({re.escape(raw_comp)})(-[0-9]+)?$", re.IGNORECASE)
+    match = pattern.search(session_id)
+    if match:
+        suffix = match.group(2) or ""
+        return f"{session_id[:match.start()]}-{pub_comp}{suffix}"
+    return session_id
+
+
 def split_words(text: str) -> list[str]:
     return [part for part in re.split(r"[\s,]+", text or "") if part]
 
@@ -2854,7 +2955,7 @@ def read_environment(core: int | None, smt_window: float) -> dict:
     }
 
 
-def read_host_facts(toolchain: str | None) -> dict:
+def read_host_facts(toolchain: str | None, *, hostname: str | None = None) -> dict:
     cpu_model = None
     try:
         for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
@@ -2865,7 +2966,7 @@ def read_host_facts(toolchain: str | None) -> dict:
         cpu_model = os.uname().machine
     uname = os.uname()
     return {
-        "hostname": socket.gethostname(),
+        "hostname": hostname if hostname else socket.gethostname(),
         "cpu_model": cpu_model or uname.machine,
         "arch": uname.machine,
         "os": f"{uname.sysname} {uname.release}",
@@ -2889,10 +2990,13 @@ def _pop_flag(args, name: str):
 
 
 class Campaign:
-    def __init__(self, args, session: dict, session_dir: Path):
+    def __init__(
+        self, args, session: dict, session_dir: Path, *, host_label: str | None = None
+    ):
         self.args = args
         self.session = session
         self.session_dir = session_dir
+        self.host_label = host_label
         self.rejections: list[Rejection] = []
         self.scratch = Path(tempfile.mkdtemp(prefix="fgf-pair-"))
         self.checkouts: list[tuple[Path, str]] = []
@@ -3860,7 +3964,9 @@ class Campaign:
             )
             return 1
 
-        host = read_host_facts(args.toolchain)
+        host = read_host_facts(
+            args.toolchain, hostname=self.host_label or resolve_live_host(args)
+        )
         session["host"].update(
             {
                 "hostname": host["hostname"],
@@ -4996,6 +5102,10 @@ def add_execution_arguments(parser, *, records_default="bench-records/pair"):
                         help="seconds allowed per subprocess")
     parser.add_argument("--records", default=str(Path(records_default)),
                         help="session record root")
+    parser.add_argument("--host-label", default=os.environ.get("FGF_HOST_LABEL", ""),
+                        help="public architecture host label (overrides host map and machine hostname)")
+    parser.add_argument("--host-map", default=os.environ.get("FGF_HOST_MAP", ""),
+                        help="untracked JSON file mapping machine hostnames to public host labels")
     parser.add_argument("--keep-checkouts", action="store_true",
                         help="keep the temporary arm checkouts")
 
@@ -5090,7 +5200,13 @@ def _unstable_key(host: str, tier: str, toolchain: str, flags: str, digest: str)
     )
 
 
-def write_unstable_list(path: Path, session_paths) -> int:
+def write_unstable_list(
+    path: Path,
+    session_paths,
+    *,
+    host_map: dict[str, str] | None = None,
+    host_label: str | None = None,
+) -> int:
     """Merge unstable cells from calibration sessions into the committed list."""
     existing: list[dict] = []
     if path.exists():
@@ -5118,6 +5234,20 @@ def write_unstable_list(path: Path, session_paths) -> int:
     if not session_paths:
         print("bench_pair: --write-unstable needs --unstable-session", file=sys.stderr)
         return 2
+    explicit_label = host_label
+    if host_map is None:
+        explicit_map = os.environ.get("FGF_HOST_MAP", "")
+        try:
+            if explicit_map and explicit_map.strip():
+                host_map = load_host_map(Path(explicit_map.strip()), required=True)
+            else:
+                host_map = load_host_map(
+                    Path(__file__).resolve().parent.parent / DEFAULT_HOST_MAP_REL,
+                    required=False,
+                )
+        except ValueError as error:
+            print(f"bench_pair: {error}", file=sys.stderr)
+            return 2
     used = 0
     catalogues = {}
     selected_catalogues = {}
@@ -5162,9 +5292,19 @@ def write_unstable_list(path: Path, session_paths) -> int:
         catalogues[digest] = [entries[cell] for cell in order]
         toolchain = host.get("toolchain_id")
         flags = snapshot.get("rustflags") or ""
-        hostname = host.get("hostname")
-        if not hostname:
+        raw_hostname = host.get("hostname")
+        if not raw_hostname:
             print(f"bench_pair: {session_path} has no hostname", file=sys.stderr)
+            return 2
+        try:
+            hostname = resolve_host_label(
+                raw_hostname,
+                host_label=explicit_label if explicit_label and str(explicit_label).strip() else None,
+                host_map=host_map,
+                require_mapped=False,
+            )
+        except ValueError as error:
+            print(f"bench_pair: {session_path}: {error}", file=sys.stderr)
             return 2
         for tier, record in per_tier.items():
             cells = record.get("unstable_cells") or []
@@ -5200,7 +5340,20 @@ def write_unstable_list(path: Path, session_paths) -> int:
                 or session.get("source_session")
                 or session_path.name
             )
-            entry["sources"].add(Path(source_name).name)
+            projected_source = public_session_id(
+                Path(source_name).name, raw_hostname, hostname
+            )
+            if (
+                raw_hostname.casefold() != hostname.casefold()
+                and host_component(raw_hostname).casefold() in projected_source.casefold()
+            ):
+                print(
+                    f"bench_pair: {session_path}: projected source {projected_source!r} "
+                    f"still contains mapped hostname {raw_hostname!r}",
+                    file=sys.stderr,
+                )
+                return 2
+            entry["sources"].add(projected_source)
             entry["owner_signature"] = None
             used += 1
     output = {
@@ -5538,7 +5691,7 @@ def write_session(session: dict, path: Path) -> None:
 
 def run(args) -> int:
     records = Path(args.records)
-    host = socket.gethostname()
+    host = resolve_live_host(args)
     stamp = utc_stamp()
     base_name = f"{stamp}-{host_component(host)}"
     session_dir = records / base_name
@@ -5548,7 +5701,7 @@ def run(args) -> int:
         counter += 1
     session_dir.mkdir(parents=True, exist_ok=True)
     session = base_session(args, session_dir.name)
-    campaign = Campaign(args, session, session_dir)
+    campaign = Campaign(args, session, session_dir, host_label=host)
     exit_code = 1
     try:
         try:
@@ -5583,8 +5736,22 @@ def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.write_unstable:
+        repo_root = Path(args.repo).resolve()
+        explicit_map = args.host_map or os.environ.get("FGF_HOST_MAP", "")
+        try:
+            if explicit_map and str(explicit_map).strip():
+                resolved_map = load_host_map(Path(str(explicit_map).strip()), required=True)
+            else:
+                resolved_map = load_host_map(repo_root / DEFAULT_HOST_MAP_REL, required=False)
+        except ValueError as error:
+            print(f"bench_pair: {error}", file=sys.stderr)
+            return 2
+        explicit_label = args.host_label or os.environ.get("FGF_HOST_LABEL", "")
         return write_unstable_list(
-            Path(args.write_unstable), args.unstable_session
+            Path(args.write_unstable),
+            args.unstable_session,
+            host_map=resolved_map,
+            host_label=explicit_label if explicit_label and str(explicit_label).strip() else None,
         )
     if args.reanalyze:
         return reanalyze_session(Path(args.reanalyze), args)

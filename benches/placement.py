@@ -197,6 +197,16 @@ def validate_run(record, rounds, expected_arms=None, expected_cells=None):
                     or any(type(v) is not int or v <= 0 for v in lengths.values())
                     or len(set(lengths.values())) != 1):
                 raise ValueError("stratum argv lengths differ across arms")
+        if "controls" in stratum or "controls" in record:
+            stratum_controls = stratum.get("controls")
+            if not isinstance(stratum_controls, dict) or set(stratum_controls) != set(base_arms):
+                raise ValueError("stratum controls differ from expected arms")
+            for arm in base_arms:
+                ctrl_entry = stratum_controls[arm]
+                if not isinstance(ctrl_entry, dict):
+                    raise ValueError(f"stratum control for {arm} must be an object")
+                for key in ("start_ns", "end_ns"):
+                    _require_pos_number(ctrl_entry.get(key), f"stratum control {arm}.{key}")
 
     stacks_by_arm = {}
     for arm, summary in arms_map.items():

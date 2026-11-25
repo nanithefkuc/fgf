@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 import shlex
 import shutil
-import socket
 import statistics
 import sys
 
@@ -321,9 +320,10 @@ def validate_session(session: dict) -> None:
 class Baseline:
     """Compose the paired runner's build and isolation infrastructure."""
 
-    def __init__(self, args, session, directory):
+    def __init__(self, args, session, directory, *, host_label: str | None = None):
         self.args, self.session, self.directory = args, session, directory
-        self.campaign = pair.Campaign(args, session, directory)
+        self.host_label = host_label
+        self.campaign = pair.Campaign(args, session, directory, host_label=host_label)
         self.adapter = Surfaces if args.bench == "surfaces" else Operations
 
     def invoke(self, executable, arguments, tier, label, env=None):
@@ -354,7 +354,12 @@ class Baseline:
         session["snapshot"]["runner_digests"] = {name: pair.sha256_file(Path(__file__).with_name(name)) for name in runners}
         if not matches:
             raise ValueError("baseline infrastructure differs from measurement snapshot")
-        session["host"].update(pair.read_host_facts(snapshot.toolchain))
+        session["host"].update(
+            pair.read_host_facts(
+                snapshot.toolchain,
+                hostname=self.host_label or pair.resolve_live_host(args),
+            )
+        )
         for problem in pair.validate_smt_config(args.smt_window, args.smt_busy_threshold) + pair.validate_execution_environment(
                 campaign.machine, shutil.which("setarch"), args.chrt, shutil.which("chrt")):
             campaign.reject(problem)
@@ -434,10 +439,12 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     root = Path(args.records)
-    directory = root / f"{pair.utc_stamp()}-{pair.host_component(socket.gethostname())}"
+    resolved_host = pair.resolve_live_host(args)
+    host_label = pair.host_component(resolved_host)
+    directory = root / f"{pair.utc_stamp()}-{host_label}"
     suffix = 2
     while directory.exists():
-        directory = root / f"{pair.utc_stamp()}-{pair.host_component(socket.gethostname())}-{suffix}"
+        directory = root / f"{pair.utc_stamp()}-{host_label}-{suffix}"
         suffix += 1
     directory.mkdir(parents=True)
     session = {"method_version": METHOD_VERSION, "kind": "descriptive", "acceptance": False,
@@ -445,7 +452,7 @@ def main(argv=None):
                "host": {}, "snapshot": {}, "arms": {}, "config": {"runs": args.runs, "rounds": args.rounds},
                "execution": {}, "preconditions": [], "tiers": [], "checks": {}, "runs": [],
                "drift": {}, "rows": [], "rejections": [], "rejected": False}
-    baseline = Baseline(args, session, directory)
+    baseline = Baseline(args, session, directory, host_label=resolved_host)
     code = 1
     try:
         code = baseline.execute()

@@ -51,13 +51,15 @@ import json
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bench_pair
 
 FORMAT = "fgf-coverage-map/1"
 TIER_RANK = {
@@ -3623,7 +3625,8 @@ def run(arguments: argparse.Namespace) -> int:
             "the threshold inventory does not match the current source tree; "
             "rerun the scanner before generating the coverage map"
         )
-    host = re.sub(r"[^A-Za-z0-9._-]+", "_", socket.gethostname())
+    host_label = bench_pair.resolve_live_host(argparse.Namespace(repo=root))
+    host = re.sub(r"[^A-Za-z0-9._-]+", "_", host_label)
     if arguments.out is None:
         out_json = Path("target/coverage-map") / f"{host}-{arguments.tier}.json"
     else:

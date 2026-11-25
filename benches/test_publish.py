@@ -8,6 +8,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -269,14 +270,14 @@ def make_runner_session(session_id: str = "20261107T050000Z-willow", *,
     session["runs"] = [{
         "run": index, "stage": "main", "tier": tier,
         "order": bench_pair.balanced_order(index),
-        "control": {"start_ns": 1, "end_ns": 2},
-        "controls": {"base": {"start_ns": 1, "end_ns": 2},
-                     "candidate": {"start_ns": 3, "end_ns": 4}},
+        "control": {"start_ns": 100.0, "end_ns": 100.1},
+        "controls": {"base": {"start_ns": 100.0, "end_ns": 100.1},
+                     "candidate": {"start_ns": 100.0, "end_ns": 100.1}},
         "arms": {
             "base": {"cells": {cell: {"summary_ns": base_ns,
-                                      "rounds_ns": [base_ns]}}},
+                                      "rounds_ns": [base_ns, base_ns, base_ns]}}},
             "candidate": {"cells": {cell: {"summary_ns": candidate_ns,
-                                           "rounds_ns": [candidate_ns]}}},
+                                           "rounds_ns": [candidate_ns, candidate_ns, candidate_ns]}}},
         },
     } for index in range(5)]
     if confirmation_ns is not None:
@@ -284,7 +285,8 @@ def make_runner_session(session_id: str = "20261107T050000Z-willow", *,
         for run in confirmation:
             run["stage"] = "confirmation"
             run["arms"]["candidate"]["cells"][cell] = {
-                "summary_ns": confirmation_ns, "rounds_ns": [confirmation_ns],
+                "summary_ns": confirmation_ns,
+                "rounds_ns": [confirmation_ns, confirmation_ns, confirmation_ns],
             }
         session["runs"].extend(confirmation)
     session["arm_summaries"] = {
@@ -333,8 +335,13 @@ def run_publish(root: Path, manifest: Path, *extra: str) -> tuple[int, str, str]
     args = ["--manifest", str(manifest), "--records", str(root / "records"),
             "--output", str(output), *extra]
     stdout, stderr = io.StringIO(), io.StringIO()
-    with redirect_stdout(stdout), redirect_stderr(stderr):
-        code = publish.main(args)
+    saved_map = os.environ.pop("FGF_HOST_MAP", None) if "--host-map" not in extra else None
+    try:
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            code = publish.main(args)
+    finally:
+        if saved_map is not None:
+            os.environ["FGF_HOST_MAP"] = saved_map
     return code, stdout.getvalue(), stderr.getvalue()
 
 
@@ -817,6 +824,7 @@ class PublisherTests(unittest.TestCase):
                 )
                 for arm in arms
             }
+        session["rows"] = bench_pair.build_rows(session, ["v4x"], [CELL_A])
         publish.validate_session(session, "valid /6 session")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -836,6 +844,156 @@ class PublisherTests(unittest.TestCase):
         with self.assertRaises(publish.PublishError):
             publish.validate_session(bad_ctrl, "tampered /6 control")
 
+        # Altering a published row timing without changing retained run data must fail validation.
+        bad_row_summary = copy.deepcopy(session)
+        bad_row_summary["rows"][0]["summary_ns"] = 77.0
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_row_summary, "tampered /6 row summary")
+
+        bad_row_rounds = copy.deepcopy(session)
+        bad_row_rounds["rows"][0]["rounds_ns"][0] = 77.0
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_row_rounds, "tampered /6 row rounds")
+
+        bad_arm_summary = copy.deepcopy(session)
+        bad_arm_summary["arm_summaries"]["candidate"]["v4x"][CELL_A] = 77.0
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_arm_summary, "tampered /6 arm_summaries")
+
+        missing_row = copy.deepcopy(session)
+        missing_row["rows"].pop()
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(missing_row, "missing /6 row")
+
+        # Consistent per-placement start controls whose recomputed drift exceeds drift_cap must fail.
+        bad_drift = copy.deepcopy(session)
+        for run in bad_drift["runs"]:
+            for idx, stratum in enumerate(run["placements"]):
+                start = 100.0 if idx < 128 else 110.0
+                for arm in ("base", "candidate"):
+                    stratum["controls"][arm] = {"start_ns": start, "end_ns": start + 0.1}
+            run["controls"] = {
+                arm: {
+                    key: statistics.median(p["controls"][arm][key] for p in run["placements"])
+                    for key in ("start_ns", "end_ns")
+                }
+                for arm in ("base", "candidate")
+            }
+            run["control"] = run["controls"][run["order"][0]]
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_drift, "over-cap /6 per-placement drift")
+
+        # Confirmation-stage over-cap drift must also fail validation (both /5 and /6).
+        bad_conf_drift = make_runner_session(
+            "20261124T060000Z-willow", base_ns=100.0, candidate_ns=108.0, confirmation_ns=108.0
+        )
+        for run in bad_conf_drift["runs"]:
+            if run["stage"] == "confirmation":
+                run["controls"] = {
+                    "base": {"start_ns": 100.0, "end_ns": 100.1},
+                    "candidate": {"start_ns": 110.0, "end_ns": 110.1},
+                }
+                run["control"] = run["controls"][run["order"][0]]
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_conf_drift, "over-cap /5 confirmation drift")
+
+        # Extra per-placement control keys must not dilute /6 drift.
+        extra_ctrl = copy.deepcopy(bad_drift)
+        for run in extra_ctrl["runs"]:
+            for stratum in run["placements"]:
+                for k in ("pad0", "pad1", "pad2"):
+                    stratum["controls"][k] = {"start_ns": 105.0, "end_ns": 105.1}
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(extra_ctrl, "extra control keys hiding /6 drift")
+
+        # /6 confirmation-stage over-cap drift must fail validation.
+        conf6 = copy.deepcopy(session)
+        conf_runs = copy.deepcopy(session["runs"])
+        for run in conf_runs:
+            run["stage"] = "confirmation"
+            for idx, stratum in enumerate(run["placements"]):
+                start = 100.0 if idx < 128 else 110.0
+                for arm in ("base", "candidate"):
+                    stratum["controls"][arm] = {"start_ns": start, "end_ns": start + 0.1}
+                    stratum["arms"]["candidate"]["cells"][CELL_A] = {
+                        "summary_ns": 108.0,
+                        "rounds_ns": [108.0] * rounds,
+                    }
+            run["controls"] = {
+                arm: {
+                    key: statistics.median(p["controls"][arm][key] for p in run["placements"])
+                    for key in ("start_ns", "end_ns")
+                }
+                for arm in ("base", "candidate")
+            }
+            run["control"] = run["controls"][run["order"][0]]
+            run["arms"]["candidate"] = bench_pair.placement.summarize(
+                [p["arms"]["candidate"] for p in run["placements"]], [CELL_A], rounds
+            )
+        for run in conf6["runs"]:
+            for stratum in run["placements"]:
+                stratum["arms"]["candidate"]["cells"][CELL_A] = {
+                    "summary_ns": 108.0,
+                    "rounds_ns": [108.0] * rounds,
+                }
+            run["arms"]["candidate"] = bench_pair.placement.summarize(
+                [p["arms"]["candidate"] for p in run["placements"]], [CELL_A], rounds
+            )
+        conf6["runs"].extend(conf_runs)
+        conf6["arm_summaries"]["candidate"]["v4x"][CELL_A] = 108.0
+        conf6["rows"] = bench_pair.build_rows(conf6, ["v4x"], [CELL_A])
+        dec6 = bench_pair.recorded_staged_decision(conf6, "v4x")
+        conf6["decisions"] = bench_pair.publishable_decisions({"v4x": dec6})
+        conf6["confirmed_failures"] = {"v4x": dec6["confirmed_failures"]}
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(conf6, "over-cap /6 confirmation drift")
+
+        # Flipping row metadata (role or unstable) must fail validation.
+        bad_role = copy.deepcopy(session)
+        bad_role["rows"][0]["role"] = "layout_control"
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_role, "flipped row role")
+
+        bad_unstable = copy.deepcopy(session)
+        bad_unstable["rows"][0]["unstable"] = True
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_unstable, "flipped row unstable flag")
+
+        # Stray runs on undeclared tiers must fail validation.
+        stray_tier = copy.deepcopy(session)
+        extra_run = copy.deepcopy(session["runs"][0])
+        extra_run["tier"] = "v2"
+        stray_tier["runs"].append(extra_run)
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(stray_tier, "stray run on undeclared tier")
+
+        # Missing layout_only.remeasured on a failing /6 session cannot bypass rejection.
+        no_rem_layout = copy.deepcopy(conf6)
+        for run in no_rem_layout["runs"]:
+            if run["stage"] == "confirmation":
+                for stratum in run["placements"]:
+                    for arm in ("base", "candidate"):
+                        stratum["controls"][arm] = {"start_ns": 100.0, "end_ns": 100.1}
+                run["controls"] = {
+                    arm: {"start_ns": 100.0, "end_ns": 100.1}
+                    for arm in ("base", "candidate")
+                }
+                run["control"] = run["controls"][run["order"][0]]
+        no_rem_layout["layout_only"] = {
+            "asserted": True,
+            "per_tier": {
+                "v4x": {
+                    CELL_A: {
+                        "failed_bound": 0.0,
+                        "spread": 1.0,
+                        "disposition": "owner_exception_required",
+                    }
+                }
+            },
+        }
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(no_rem_layout, "missing /6 layout_only.remeasured")
+
         # Tampering with a nested layout_only placement record must fail validation.
         bad_layout = copy.deepcopy(session)
         bad_layout_run = copy.deepcopy(bad_layout["runs"][0])
@@ -854,6 +1012,83 @@ class PublisherTests(unittest.TestCase):
             stratum["observed"] = {"base": stratum["observed"]["base"], "layout_control": stratum["observed"]["candidate"]}
             stratum["controls"] = {"base": stratum["controls"]["base"], "layout_control": stratum["controls"]["candidate"]}
             stratum["arms"] = {"base": stratum["arms"]["base"], "layout_control": stratum["arms"]["candidate"]}
+
+        # Isolate each /6 layout_only failure cause: omitted remeasured_bound,
+        # omitted calibration_spread, fabricated spread, and short placement count.
+        rem_runs = []
+        for idx in range(5):
+            r = copy.deepcopy(bad_layout_run)
+            r["run"] = idx
+            r["order"] = bench_pair.placement.arm_order(("base", "layout_control"), idx, 0)
+            for point, stratum in zip(bench_pair.placement.plan(idx), r["placements"]):
+                stratum.update(point)
+                stratum["order"] = bench_pair.placement.arm_order(("base", "layout_control"), idx, point["index"])
+                for arm_i, arm in enumerate(("base", "layout_control")):
+                    stratum["observed"][arm] = {
+                        "dst_shift": point["dst_shift"],
+                        "src_shift": point["src_shift"],
+                        "stack_offset": (128 + arm_i * 16 + point["stack_pad"]) % 4096,
+                    }
+            rem_runs.append(r)
+        rem_base = [{CELL_A: r["arms"]["base"]["cells"][CELL_A]["summary_ns"]} for r in rem_runs]
+        rem_ctrl = [{CELL_A: r["arms"]["layout_control"]["cells"][CELL_A]["summary_ns"]} for r in rem_runs]
+        rem_bound = bench_pair.hl_upper_bound(
+            bench_pair.paired_log_ratios(rem_base, rem_ctrl, [CELL_A])[CELL_A]
+        )["upper_bound"]
+        valid_layout = copy.deepcopy(no_rem_layout)
+        valid_layout["layout_only"] = {
+            "asserted": True,
+            "per_tier": {
+                "v4x": {
+                    CELL_A: {
+                        "failed_bound": dec6["noninferiority"]["per_cell"][CELL_A]["upper_bound"],
+                        "remeasured_bound": rem_bound,
+                        "calibration_spread": 0.5,
+                        "spread": max(0.5, rem_bound),
+                        "disposition": "owner_exception_required",
+                    }
+                }
+            },
+            "remeasured": {"v4x": {"placements": rem_runs}},
+        }
+        publish.validate_session(valid_layout, "valid /6 layout exception")
+
+        no_rem_bound = copy.deepcopy(valid_layout)
+        no_rem_bound["layout_only"]["per_tier"]["v4x"][CELL_A].pop("remeasured_bound")
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(no_rem_bound, "omitted remeasured_bound")
+
+        no_cal_spread = copy.deepcopy(valid_layout)
+        no_cal_spread["layout_only"]["per_tier"]["v4x"][CELL_A].pop("calibration_spread")
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(no_cal_spread, "omitted calibration_spread")
+
+        fewer_rem = copy.deepcopy(valid_layout)
+        fewer_rem["layout_only"]["remeasured"]["v4x"]["placements"] = rem_runs[:4]
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(fewer_rem, "fewer than config.runs layout placements")
+        over_drift_layout = copy.deepcopy(bad_layout)
+        over_drift_run = copy.deepcopy(bad_layout_run)
+        for idx, stratum in enumerate(over_drift_run["placements"]):
+            start = 100.0 if idx < 128 else 110.0
+            for arm in ("base", "layout_control"):
+                stratum["controls"][arm] = {"start_ns": start, "end_ns": start + 0.1}
+        over_drift_run["controls"] = {
+            arm: {
+                key: statistics.median(p["controls"][arm][key] for p in over_drift_run["placements"])
+                for key in ("start_ns", "end_ns")
+            }
+            for arm in ("base", "layout_control")
+        }
+        over_drift_run["control"] = over_drift_run["controls"][over_drift_run["order"][0]]
+        over_drift_layout["layout_only"] = {
+            "asserted": True,
+            "per_tier": {"v4x": {}},
+            "remeasured": {"v4x": {"placements": [over_drift_run]}},
+        }
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(over_drift_layout, "over-cap /6 layout drift")
+
         bad_layout_run["placements"][0]["observed"]["layout_control"]["stack_offset"] += 4096
         bad_layout["layout_only"] = {
             "asserted": True,
@@ -862,6 +1097,236 @@ class PublisherTests(unittest.TestCase):
         }
         with self.assertRaises(publish.PublishError):
             publish.validate_session(bad_layout, "tampered /6 layout placement")
+
+    def test_host_map_projects_legacy_private_hostnames_to_public_labels(self):
+        legacy = make_runner_session("20261108T143928Z-AlphaBox")
+        legacy["host"]["hostname"] = "AlphaBox"
+        for row in legacy["rows"]:
+            row["host"] = "AlphaBox"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            records = root / "records"
+            sess_dir = records / "pair" / "20261108T143928Z-willow"
+            sess_dir.mkdir(parents=True)
+            content = (json.dumps(legacy, indent=1) + "\n").encode("utf-8")
+            (sess_dir / "session.json").write_bytes(content)
+            manifest = root / "manifest.json"
+            manifest.write_text(json.dumps({
+                "schema": 1,
+                "metadata": {"hosts": HOSTS, "tiers": ["v4x"]},
+                "sessions": [{
+                    "path": "pair/20261108T143928Z-willow/session.json",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }],
+            }), encoding="utf-8")
+            # Without a host map, the private hostname must fail closed.
+            code, _, _ = run_publish(root, manifest)
+            self.assertNotEqual(code, 0)
+            # With an untracked local host map, public pages emit only the architecture label.
+            host_map = records / "hosts.json"
+            host_map.write_text(json.dumps({"AlphaBox": "willow"}), encoding="utf-8")
+            code, _, stderr = run_publish(root, manifest)
+            self.assertEqual(code, 0, stderr)
+            page = read_page(root, "BENCHMARKS.md")
+            self.assertIn('<a id="willow/v4x/', page)
+            self.assertIn("`20261108T143928Z-willow`", page)
+            for rel_page in ("BENCHMARKS.md", "benchmarks/history.md", "benchmarks/calibration.md", "benchmarks/thresholds.md", "benchmarks/exceptions.md"):
+                self.assertNotIn("AlphaBox", read_page(root, rel_page))
+            code, _, stderr = run_publish(root, manifest, "--verify")
+            self.assertEqual(code, 0, stderr)
+            # Manifest aliases must be rejected.
+            bad_manifest = json.loads(manifest.read_text(encoding="utf-8"))
+            bad_manifest["metadata"]["hosts"][0]["aliases"] = ["AlphaBox"]
+            bad_path = root / "bad_manifest.json"
+            bad_path.write_text(json.dumps(bad_manifest), encoding="utf-8")
+            with self.assertRaises(publish.PublishError):
+                publish.load_manifest(bad_path, records, host_map=host_map)
+            # An unrelated alias inside a mapped session_id must be rejected.
+            bad_sid = copy.deepcopy(legacy)
+            bad_sid["session_id"] = "20261108T143928Z-other-alias"
+            for row in bad_sid["rows"]:
+                row["session_id"] = bad_sid["session_id"]
+            bad_dir = records / "pair" / bad_sid["session_id"]
+            bad_dir.mkdir(parents=True)
+            bad_bytes = (json.dumps(bad_sid, indent=1) + "\n").encode("utf-8")
+            (bad_dir / "session.json").write_bytes(bad_bytes)
+            bad_sid_manifest = root / "bad_sid_manifest.json"
+            bad_sid_manifest.write_text(json.dumps({
+                "schema": 1,
+                "metadata": {"hosts": HOSTS, "tiers": ["v4x"]},
+                "sessions": [{
+                    "path": f"pair/{bad_sid['session_id']}/session.json",
+                    "sha256": hashlib.sha256(bad_bytes).hexdigest(),
+                }],
+            }), encoding="utf-8")
+            with self.assertRaises(publish.PublishError):
+                publish.load_manifest(bad_sid_manifest, records, host_map=host_map)
+            # A mapped private hostname appearing in a host display name must fail even with no session from that host,
+            # including when the raw hostname is a substring of its public label (e.g. box -> golden-box).
+            extra_map = records / "hosts_extra.json"
+            extra_map.write_text(
+                json.dumps({"AlphaBox": "willow", "SecretBox": "golden", "box": "golden-box"}),
+                encoding="utf-8",
+            )
+            leak_manifest = json.loads(manifest.read_text(encoding="utf-8"))
+            leak_manifest["metadata"]["hosts"][1]["name"] = "SecretBox Display"
+            leak_path = root / "leak_manifest.json"
+            leak_path.write_text(json.dumps(leak_manifest), encoding="utf-8")
+            h, s, c, m = publish.load_manifest(leak_path, records, host_map=extra_map)
+            with self.assertRaises(publish.PublishError):
+                publish.generate(h, s, c, m)
+            sub_manifest = json.loads(manifest.read_text(encoding="utf-8"))
+            sub_manifest["metadata"]["hosts"][1] = {
+                "host": "golden-box", "name": "box Display", "available": False
+            }
+            sub_path = root / "sub_manifest.json"
+            sub_path.write_text(json.dumps(sub_manifest), encoding="utf-8")
+            h, s, c, m = publish.load_manifest(sub_path, records, host_map=extra_map)
+            with self.assertRaises(publish.PublishError):
+                publish.generate(h, s, c, m)
+            # Positive case: a session mapped from substring raw hostname `box` -> `golden-box`
+            # renders valid `golden-box` anchors and session IDs without false positives.
+            sub_session = make_runner_session("20261109T233036Z-box")
+            sub_session["host"]["hostname"] = "box"
+            for row in sub_session["rows"]:
+                row["host"] = "box"
+            sub_dir = records / "pair" / "20261109T233036Z-golden-box"
+            sub_dir.mkdir(parents=True)
+            sub_bytes = (json.dumps(sub_session, indent=1) + "\n").encode("utf-8")
+            (sub_dir / "session.json").write_bytes(sub_bytes)
+            ok_sub_manifest = root / "ok_sub_manifest.json"
+            ok_sub_manifest.write_text(json.dumps({
+                "schema": 1,
+                "metadata": {
+                    "hosts": [
+                        {"host": "golden-box", "name": "Golden Cove", "available": True},
+                    ],
+                    "tiers": ["v4x"],
+                },
+                "sessions": [{
+                    "path": "pair/20261109T233036Z-golden-box/session.json",
+                    "sha256": hashlib.sha256(sub_bytes).hexdigest(),
+                }],
+            }), encoding="utf-8")
+            code, _, stderr = run_publish(
+                root, ok_sub_manifest, "--host-map", str(extra_map)
+            )
+            self.assertEqual(code, 0, stderr)
+            sub_page = read_page(root, "BENCHMARKS.md")
+            self.assertIn('<a id="golden-box/v4x/', sub_page)
+            self.assertIn("`20261109T233036Z-golden-box`", sub_page)
+
+    def test_v4_v5_rounds_controls_and_calibration_recomputation(self):
+        # /5 run summary_ns disagreeing with rounds_ns must fail even if rows are rebuilt.
+        for mv, dm in (("fgf-pair/4", "p90_minus_p10_over_median"), ("fgf-pair/5", "iqr_over_median")):
+            forged = make_runner_session()
+            forged["method_version"] = mv
+            forged["drift_method"] = dm
+            publish.validate_session(forged, f"valid {mv}")
+            bad_med = copy.deepcopy(forged)
+            for run in bad_med["runs"]:
+                run["arms"]["candidate"]["cells"][CELL_A]["summary_ns"] = 50.0
+            bad_med["arm_summaries"]["candidate"]["v4x"][CELL_A] = 50.0
+            bad_med["rows"] = bench_pair.build_rows(bad_med, ["v4x"], [CELL_A])
+            dec = bench_pair.recorded_staged_decision(bad_med, "v4x")
+            bad_med["decisions"] = bench_pair.publishable_decisions({"v4x": dec})
+            with self.assertRaises(publish.PublishError):
+                publish.validate_session(bad_med, f"{mv} forged run median")
+
+            # Dropping controls to fall back to single control must fail.
+            missing_ctrls = copy.deepcopy(forged)
+            missing_ctrls["runs"][0].pop("controls")
+            with self.assertRaises(publish.PublishError):
+                publish.validate_session(missing_ctrls, f"{mv} missing arm controls")
+
+            # Malformed control start_ns or missing end_ns must raise PublishError.
+            malformed = copy.deepcopy(forged)
+            malformed["runs"][0]["controls"]["base"]["start_ns"] = "bad"
+            with self.assertRaises(publish.PublishError):
+                publish.validate_session(malformed, f"{mv} malformed control")
+
+            missing_end = copy.deepcopy(forged)
+            missing_end["runs"][0]["controls"]["base"].pop("end_ns")
+            with self.assertRaises(publish.PublishError):
+                publish.validate_session(missing_end, f"{mv} missing end_ns")
+
+            # Injecting placements into a legacy /4 or /5 run cannot bypass median or drift checks.
+            injected = copy.deepcopy(bad_med)
+            for run in injected["runs"]:
+                run["controls"] = {
+                    "base": {"start_ns": 100.0, "end_ns": 100.1},
+                    "candidate": {"start_ns": 130.0, "end_ns": 130.1},
+                }
+                run["placements"] = [{
+                    "controls": {
+                        "base": {"start_ns": 100.0, "end_ns": 100.1},
+                        "candidate": {"start_ns": 100.0, "end_ns": 100.1},
+                    }
+                }]
+            with self.assertRaises(publish.PublishError):
+                publish.validate_session(injected, f"{mv} injected placements")
+
+            # Over-cap drift must fail for both /4 (p90-p10) and /5 (iqr).
+            over_cap = copy.deepcopy(forged)
+            for idx, run in enumerate(over_cap["runs"]):
+                val = 100.0 if idx < 2 else 115.0
+                run["controls"] = {
+                    "base": {"start_ns": val, "end_ns": val + 0.1},
+                    "candidate": {"start_ns": val, "end_ns": val + 0.1},
+                }
+                run["control"] = run["controls"][run["order"][0]]
+            with self.assertRaises(publish.PublishError):
+                publish.validate_session(over_cap, f"{mv} over-cap drift")
+
+        # Calibration with dropped runs or fabricated recommendation must fail.
+        cal = make_runner_session(base_ns=100.0, candidate_ns=100.0)
+        cal["kind"] = "calibration"
+        cal["acceptance"] = False
+        cal["config"]["confirmation"] = False
+        cal["config"]["calibrated"] = False
+        ratios = {"v4x": bench_pair.session_tier_ratios(cal, "v4x", "main")}
+        drift = {"v4x": {"drift": 0.0}}
+        rec, _ = bench_pair.calibration_recommendation(ratios, 0.03, drift)
+        cal["calibration"] = {"mode": "base_vs_base", "recommendation": rec}
+        publish.validate_session(cal, "valid calibration")
+
+        dropped_runs = copy.deepcopy(cal)
+        dropped_runs["runs"].pop()
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(dropped_runs, "calibration missing run")
+
+        bad_rec_runs = copy.deepcopy(cal)
+        bad_rec_runs["calibration"]["recommendation"]["runs"] = 99
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_rec_runs, "calibration forged runs")
+
+        bad_rec_unstable = copy.deepcopy(cal)
+        bad_rec_unstable["calibration"]["recommendation"]["per_tier"]["v4x"]["unstable_cells"] = [CELL_A]
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_rec_unstable, "calibration forged unstable_cells")
+
+        bad_rec_max = copy.deepcopy(cal)
+        bad_rec_max["calibration"]["recommendation"]["per_tier"]["v4x"]["max_bound"] = 999.0
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_rec_max, "calibration forged max_bound")
+
+        missing_limit = copy.deepcopy(cal)
+        missing_limit["calibration"]["recommendation"]["per_tier"]["v4x"].pop("limit")
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(missing_limit, "calibration missing limit")
+
+        inflated_cap = copy.deepcopy(cal)
+        inflated_cap["calibration"]["prior_drift"] = 0.0
+        inflated_cap["calibration"]["recommendation"]["drift_cap"] = 999.0
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(inflated_cap, "calibration inflated drift_cap")
+
+        extra_conf_cal = copy.deepcopy(cal)
+        extra_conf_run = copy.deepcopy(cal["runs"][0])
+        extra_conf_run["stage"] = "confirmation"
+        extra_conf_cal["runs"].append(extra_conf_run)
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(extra_conf_cal, "calibration non-main run")
 
     def test_staged_diagnostics_render_without_disguising_confirmed_failure(self):
         unconfirmed = make_runner_session(
@@ -1011,7 +1476,7 @@ class PublisherTests(unittest.TestCase):
                 if run["stage"] == "main":
                     for arm, value in (("base", 100.0), ("candidate", 95.0)):
                         run["arms"][arm]["cells"][CELL_A] = {
-                            "summary_ns": value, "rounds_ns": [value],
+                            "summary_ns": value, "rounds_ns": [value, value, value],
                         }
             for arm, value in (("base", 100.0), ("candidate", 95.0)):
                 session["arm_summaries"][arm]["v4x"][CELL_A] = value
@@ -1108,7 +1573,9 @@ class IncrementalDescriptiveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             manifest = write_manifest(root, [old, fresh])
-            hosts, sessions, _, metadata = publish.load_manifest(manifest, root / "records")
+            hosts, sessions, _, metadata = publish.load_manifest(
+                manifest, root / "records", host_map={}
+            )
             rows = publish._collect_rows(sessions, "acceptance") + publish._collect_rows(sessions, "descriptive")
             index = publish.HostIndex(hosts, rows)
             latest = {row.cell: row for row in publish._current_rows(rows, index, metadata["tiers"])}
@@ -1142,7 +1609,7 @@ class IncrementalDescriptiveTests(unittest.TestCase):
                 root = Path(temporary)
                 manifest = write_manifest(root, [old, fresh])
                 with self.assertRaises(publish.PublishError):
-                    publish.load_manifest(manifest, root / "records")
+                    publish.load_manifest(manifest, root / "records", host_map={})
 
     def test_scoped_pair_rows_must_cover_both_arms_and_each_selected_cell(self):
         session = make_session()

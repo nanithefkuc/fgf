@@ -696,12 +696,15 @@ times `PAIR_DRIFT_SAFETY_FACTOR` as a diagnostic; the configured
 `PAIR_DRIFT_CAP` is half the noninferiority margin (`PAIR_DELTA / 2`) on every
 host as a policy budget, not a guarantee that drift cannot affect decisions.
 `PAIR_CALIBRATION_RUNS` bounds how many runs it collects. The recommendation binds the exact
-hostnames, measured tiers, toolchain identity, and effective flags, which the
+public host labels, measured tiers, toolchain identity, and effective flags, which the
 recipe carries as `PAIR_CALIBRATED_HOSTS`, `PAIR_CALIBRATED_TIERS`,
 `PAIR_CALIBRATED_TOOLCHAIN`, and `PAIR_CALIBRATED_FLAGS`. `PAIR_RUNS` and
-`PAIR_DRIFT_CAP` are per-host `host:value` bindings for the exact hostname; a
+`PAIR_DRIFT_CAP` are per-host `host:value` bindings for the exact public host label; a
 single numeric value is accepted for a single-host campaign, and a host
-without an entry is refused. Acceptance and threshold sessions refuse an
+without an entry is refused. Live-host resolution checks `--host-label` /
+`FGF_HOST_LABEL`, then `--host-map` / `FGF_HOST_MAP`, then untracked
+`bench-records/hosts.json`, and fails closed when no public host label resolves.
+Acceptance and threshold sessions refuse an
 uncalibrated placeholder or a run count below the estimator's minimum, and
 refuse a binding that does not match the live host and tree. A calibration
 session is marked non-acceptance and is never reused as acceptance evidence.
@@ -873,6 +876,10 @@ another input's failure.
 
 `just bench-publish` renders the committed record; `--verify` regenerates every
 page in memory and fails on a manifest digest or byte mismatch without writing.
+When retained historical captures still carry legacy machine hostnames inside
+their digested `session.json` files, `--verify` requires the untracked local
+host map (`bench-records/hosts.json`, `FGF_HOST_MAP`, or `--host-map`) and
+fails closed without it.
 `benchmarks/sessions.json` is the committed manifest: it fixes the host order
 and availability, lists every published `session.json` with its SHA-256 digest,
 and lists the captured competitor logs. Operations rows retain their

@@ -33,6 +33,7 @@ import hashlib
 import html
 import json
 import math
+import os
 import re
 import statistics
 import sys
@@ -163,6 +164,7 @@ def fmt_cutoff(value: float | None, digits: int) -> str:
 
 @dataclass(frozen=True)
 class HostSpec:
+    key: str
     keys: frozenset[str]
     name: str
     available: bool
@@ -175,6 +177,8 @@ class PublishedSession:
     digest: str
     data: dict
     order: int
+    public_host: str
+    public_session_id: str
 
 
 @dataclass(frozen=True)
@@ -446,6 +450,380 @@ def _check_decisions(decisions: dict, where: str, *,
             fail(f"{where}.{label} superiority did not pass")
 
 
+def _recomputed_drift(
+    stage_runs: list[dict],
+    drift_method: str,
+    where: str,
+    *,
+    method_version: str,
+    expected_arms: tuple[str, ...] = ("base", "candidate"),
+) -> float:
+    expected_set = set(expected_arms)
+    samples: list[float] = []
+    use_placements = method_version == METHOD_VERSION
+    for index, run in enumerate(stage_runs):
+        run_where = f"{where}[{index}]"
+        if use_placements:
+            placements = run.get("placements")
+            if not isinstance(placements, list) or not placements:
+                fail(f"{run_where}.placements must be a non-empty list")
+            for p_index, stratum in enumerate(placements):
+                stratum_obj = _require_mapping(
+                    stratum, f"{run_where}.placements[{p_index}]"
+                )
+                stratum_controls = _require_mapping(
+                    stratum_obj.get("controls"),
+                    f"{run_where}.placements[{p_index}].controls",
+                )
+                if set(stratum_controls) != expected_set:
+                    fail(
+                        f"{run_where}.placements[{p_index}].controls keys differ "
+                        f"from expected arms {sorted(expected_set)}"
+                    )
+                for arm in expected_arms:
+                    entry = _require_mapping(
+                        stratum_controls[arm],
+                        f"{run_where}.placements[{p_index}].controls.{arm}",
+                    )
+                    samples.append(
+                        _require_positive_number(
+                            entry.get("start_ns"),
+                            f"{run_where}.placements[{p_index}].controls.{arm}.start_ns",
+                        )
+                    )
+                    _require_positive_number(
+                        entry.get("end_ns"),
+                        f"{run_where}.placements[{p_index}].controls.{arm}.end_ns",
+                    )
+        else:
+            if run.get("placements") is not None:
+                fail(f"{run_where}.placements is not allowed for {method_version}")
+            controls = _require_mapping(
+                run.get("controls"), f"{run_where}.controls"
+            )
+            if set(controls) != expected_set:
+                fail(
+                    f"{run_where}.controls keys differ from expected arms "
+                    f"{sorted(expected_set)}"
+                )
+            for arm in expected_arms:
+                entry = _require_mapping(
+                    controls[arm], f"{run_where}.controls.{arm}"
+                )
+                samples.append(
+                    _require_positive_number(
+                        entry.get("start_ns"),
+                        f"{run_where}.controls.{arm}.start_ns",
+                    )
+                )
+                _require_positive_number(
+                    entry.get("end_ns"),
+                    f"{run_where}.controls.{arm}.end_ns",
+                )
+    if not samples:
+        fail(f"{where} has no start controls")
+    stats = bench_pair.drift_stats(samples)
+    if drift_method == "iqr_over_median":
+        drift = stats["drift"]
+    elif drift_method == "p90_minus_p10_over_median":
+        median = stats["median"]
+        drift = (stats["p90"] - stats["p10"]) / median if median and median > 0 else None
+    else:
+        fail(f"{where} has unsupported drift_method {drift_method!r}")
+    if drift is None:
+        fail(f"{where} has undefined start-control drift")
+    return float(drift)
+
+
+def _rows_equal(actual: list[dict], expected: list[dict], tol: float) -> bool:
+    if len(actual) != len(expected):
+        return False
+    for got, exp in zip(actual, expected):
+        if set(got) != set(exp):
+            return False
+        for key, exp_val in exp.items():
+            got_val = got[key]
+            if key == "summary_ns":
+                if not math.isclose(float(got_val), float(exp_val), rel_tol=tol, abs_tol=tol):
+                    return False
+            elif key == "rounds_ns":
+                if len(got_val) != len(exp_val) or not all(
+                    math.isclose(float(a), float(b), rel_tol=tol, abs_tol=tol)
+                    for a, b in zip(got_val, exp_val)
+                ):
+                    return False
+            elif got_val != exp_val:
+                return False
+    return True
+
+
+def _validate_staged_rows_and_drift(session: dict, where: str) -> None:
+    tol = 1e-9
+    runs = session["runs"]
+    declared_tiers = [tier["requested"] for tier in session["tiers"]]
+    declared_tier_set = set(declared_tiers)
+    config_rounds = int(session["config"]["rounds"])
+    config_runs = int(session["config"]["runs"])
+    arm_summaries = session["arm_summaries"]
+
+    # Reject stray runs on undeclared tiers (and non-main calibration runs),
+    # and validate every run's evidence according to method_version.
+    method_version = session["method_version"]
+    for r_index, run in enumerate(runs):
+        tier = run.get("tier")
+        if tier not in declared_tier_set:
+            fail(f"{where}.runs[{r_index}].tier {tier!r} is not declared by the session")
+        if session["kind"] == "calibration" and run.get("stage", "main") != "main":
+            fail(f"{where}.runs[{r_index}].stage must be 'main' for calibration")
+        if method_version != METHOD_VERSION:
+            if run.get("placements") is not None:
+                fail(f"{where}.runs[{r_index}].placements is not allowed for {method_version}")
+            for arm in ("base", "candidate"):
+                arm_entry = _require_mapping(
+                    (run.get("arms") or {}).get(arm),
+                    f"{where}.runs[{r_index}].arms.{arm}",
+                )
+                cells_map = _require_mapping(
+                    arm_entry.get("cells"),
+                    f"{where}.runs[{r_index}].arms.{arm}.cells",
+                )
+                for cell, raw_cell in cells_map.items():
+                    cell_entry = _require_mapping(
+                        raw_cell,
+                        f"{where}.runs[{r_index}].arms.{arm}.cells.{cell}",
+                    )
+                    run_rounds = cell_entry.get("rounds_ns")
+                    if not isinstance(run_rounds, list) or len(run_rounds) != config_rounds:
+                        fail(
+                            f"{where}.runs[{r_index}].arms.{arm}.cells.{cell}.rounds_ns "
+                            f"must contain exactly {config_rounds} rounds"
+                        )
+                    round_vals = [
+                        _require_positive_number(
+                            v,
+                            f"{where}.runs[{r_index}].arms.{arm}.cells.{cell}.rounds_ns[{idx}]",
+                        )
+                        for idx, v in enumerate(run_rounds)
+                    ]
+                    recorded = _require_positive_number(
+                        cell_entry.get("summary_ns"),
+                        f"{where}.runs[{r_index}].arms.{arm}.cells.{cell}.summary_ns",
+                    )
+                    expected_med = bench_pair.run_arm_summary(round_vals)
+                    if not math.isclose(recorded, expected_med, rel_tol=tol, abs_tol=tol):
+                        fail(
+                            f"{where}.runs[{r_index}].arms.{arm}.cells.{cell}.summary_ns "
+                            "disagrees with its retained rounds_ns"
+                        )
+
+    main_cells_by_tier: dict[str, set[str]] = {}
+    for tier in declared_tiers:
+        main_runs = [
+            run for run in runs
+            if run.get("tier") == tier and run.get("stage", "main") == "main"
+        ]
+        if not main_runs:
+            fail(f"{where}: tier {tier} has no main-stage runs")
+        if session["kind"] == "calibration":
+            if len(main_runs) != config_runs or {
+                run.get("run") for run in main_runs
+            } != set(range(config_runs)):
+                fail(
+                    f"{where}: calibration tier {tier} must have complete runs 0..{config_runs - 1}"
+                )
+        for arm in ("base", "candidate"):
+            first_cells: set[str] | None = None
+            for run in main_runs:
+                arm_entry = _require_mapping(
+                    (run.get("arms") or {}).get(arm),
+                    f"{where}.runs[{run.get('run')}].arms.{arm}",
+                )
+                cells_map = _require_mapping(
+                    arm_entry.get("cells"),
+                    f"{where}.runs[{run.get('run')}].arms.{arm}.cells",
+                )
+                cell_set = set(cells_map)
+                if not cell_set:
+                    fail(f"{where}: tier {tier} arm {arm} has empty run cells")
+                if first_cells is None:
+                    first_cells = cell_set
+                elif cell_set != first_cells:
+                    fail(f"{where}: tier {tier} arm {arm} run cells vary across runs")
+            assert first_cells is not None
+            if tier not in main_cells_by_tier:
+                main_cells_by_tier[tier] = first_cells
+            elif main_cells_by_tier[tier] != first_cells:
+                fail(f"{where}: tier {tier} base and candidate arms cover different cells")
+            arm_tier_summaries = _require_mapping(
+                _require_mapping(arm_summaries.get(arm), f"{where}.arm_summaries.{arm}").get(tier),
+                f"{where}.arm_summaries.{arm}.{tier}",
+            )
+            if set(arm_tier_summaries) != first_cells:
+                fail(f"{where}.arm_summaries.{arm}.{tier} cells disagree with retained runs")
+            for cell in sorted(first_cells):
+                summaries = [
+                    _require_positive_number(
+                        run["arms"][arm]["cells"][cell].get("summary_ns"),
+                        f"{where}.runs[{run.get('run')}].arms.{arm}.cells.{cell}.summary_ns",
+                    )
+                    for run in main_runs
+                ]
+                recomputed = statistics.median(summaries)
+                recorded_summary = _require_positive_number(
+                    arm_tier_summaries[cell],
+                    f"{where}.arm_summaries.{arm}.{tier}.{cell}",
+                )
+                if not math.isclose(recorded_summary, recomputed, rel_tol=tol, abs_tol=tol):
+                    fail(
+                        f"{where}.arm_summaries.{arm}.{tier}.{cell} disagrees with retained run summaries"
+                    )
+
+    for arm in ("base", "candidate"):
+        arm_map = _require_mapping(arm_summaries.get(arm), f"{where}.arm_summaries.{arm}")
+        if set(arm_map) != declared_tier_set:
+            fail(f"{where}.arm_summaries.{arm} tiers disagree with declared tiers")
+
+    # Recompute the entire rows table via bench_pair.build_rows so summary_ns,
+    # rounds_ns, role, unstable, host, and library_sha are all verified together.
+    order_cells = list((session.get("inventory") or {}).get("order") or [])
+    all_main_cells = sorted({cell for cells in main_cells_by_tier.values() for cell in cells})
+    if not order_cells:
+        order_cells = all_main_cells
+    unstable_entries = (session.get("unstable") or {}).get("entries") or {}
+    expected_rows = bench_pair.build_rows(
+        session, declared_tiers, order_cells, unstable_entries
+    )
+    if not _rows_equal(session["rows"], expected_rows, tol):
+        fail(f"{where}.rows disagree with retained run summaries or row metadata")
+
+    if session["kind"] != "calibration":
+        cap = float(session["config"]["drift_cap"])
+        for tier in declared_tiers:
+            for stage in ("main", "confirmation"):
+                stage_runs = [
+                    run for run in runs
+                    if run.get("tier") == tier and run.get("stage", "main") == stage
+                ]
+                if not stage_runs:
+                    continue
+                drift = _recomputed_drift(
+                    stage_runs,
+                    session["drift_method"],
+                    f"{where} tier {tier} stage {stage}",
+                    method_version=method_version,
+                    expected_arms=("base", "candidate"),
+                )
+                if drift > cap:
+                    fail(
+                        f"{where}: tier {tier} stage {stage} start-control drift "
+                        f"{drift:.6f} exceeds cap {cap:.6f}"
+                    )
+    else:
+        # Validate calibration recommendations against retained runs and drift.
+        calibration = _require_mapping(session.get("calibration"), f"{where}.calibration")
+        rec_recorded = _require_mapping(
+            calibration.get("recommendation"), f"{where}.calibration.recommendation"
+        )
+        ratios_by_tier = {}
+        drift_by_tier = {}
+        for tier in declared_tiers:
+            stage_runs = [
+                run for run in runs
+                if run.get("tier") == tier and run.get("stage", "main") == "main"
+            ]
+            tier_drift = _recomputed_drift(
+                stage_runs,
+                session["drift_method"],
+                f"{where} calibration tier {tier}",
+                method_version=method_version,
+                expected_arms=("base", "candidate"),
+            )
+            drift_by_tier[tier] = {"drift": tier_drift}
+            ratios = bench_pair.session_tier_ratios(session, tier, "main")
+            if not ratios:
+                fail(f"{where}: calibration tier {tier} lacks paired ratios")
+            ratios_by_tier[tier] = ratios
+        safety_factor = float(
+            rec_recorded.get(
+                "drift_safety_factor",
+                session["config"].get("drift_safety_factor", 1.25),
+            )
+        )
+        prior_drift = float(calibration.get("prior_drift") or 0.0)
+        recomputed_rec, _ = bench_pair.calibration_recommendation(
+            ratios_by_tier,
+            float(session["config"]["delta"]),
+            drift_by_tier,
+            drift_safety_factor=safety_factor,
+            prior_drift=prior_drift,
+        )
+        if rec_recorded.get("runs") != recomputed_rec.get("runs"):
+            fail(f"{where}.calibration.recommendation.runs disagrees with retained runs")
+        if method_version == METHOD_VERSION or "prior_drift" in calibration:
+            if not math.isclose(
+                float(rec_recorded["drift_cap"]),
+                float(recomputed_rec["drift_cap"]),
+                rel_tol=tol,
+                abs_tol=tol,
+            ):
+                fail(
+                    f"{where}.calibration.recommendation.drift_cap "
+                    f"disagrees with recomputed {recomputed_rec['drift_cap']}"
+                )
+        elif float(rec_recorded["drift_cap"]) + tol < float(recomputed_rec["drift_cap"]):
+            # Legacy pre-prior_drift /4 and /5 captures could raise drift_cap from
+            # earlier same-host calibration sessions without storing prior_drift.
+            fail(
+                f"{where}.calibration.recommendation.drift_cap is below recomputed "
+                f"minimum {recomputed_rec['drift_cap']}"
+            )
+        recorded_per_tier = _require_mapping(
+            rec_recorded.get("per_tier"),
+            f"{where}.calibration.recommendation.per_tier",
+        )
+        if set(recorded_per_tier) != declared_tier_set:
+            fail(f"{where}.calibration.recommendation.per_tier disagrees with declared tiers")
+        for tier in declared_tiers:
+            rec_tier = _require_mapping(
+                recorded_per_tier[tier],
+                f"{where}.calibration.recommendation.per_tier.{tier}",
+            )
+            exp_tier = recomputed_rec["per_tier"][tier]
+            if rec_tier.get("runs") != exp_tier.get("runs"):
+                fail(
+                    f"{where}.calibration.recommendation.per_tier.{tier}.runs "
+                    "disagrees with retained runs"
+                )
+            if sorted(rec_tier.get("unstable_cells") or []) != sorted(
+                exp_tier.get("unstable_cells") or []
+            ):
+                fail(
+                    f"{where}.calibration.recommendation.per_tier.{tier}.unstable_cells "
+                    "disagrees with retained runs"
+                )
+            exp_max = exp_tier.get("max_bound")
+            rec_max = rec_tier.get("max_bound")
+            if (exp_max is None) != (rec_max is None) or (
+                exp_max is not None
+                and not math.isclose(float(rec_max), float(exp_max), rel_tol=tol, abs_tol=tol)
+            ):
+                fail(
+                    f"{where}.calibration.recommendation.per_tier.{tier}.max_bound "
+                    "disagrees with retained runs"
+                )
+            if "limit" not in rec_tier:
+                fail(
+                    f"{where}.calibration.recommendation.per_tier.{tier}.limit is required"
+                )
+            if not math.isclose(
+                float(rec_tier["limit"]), float(exp_tier["limit"]), rel_tol=tol, abs_tol=tol
+            ):
+                fail(
+                    f"{where}.calibration.recommendation.per_tier.{tier}.limit "
+                    "disagrees with config.delta"
+                )
+
+
 def validate_session(session: dict, where: str) -> None:
     if isinstance(session, dict) and session.get("kind") == "descriptive":
         try:
@@ -644,6 +1022,7 @@ def validate_session(session: dict, where: str) -> None:
                     if excluded is not None:
                         _require_mapping(excluded, f"{where}.decisions.{tier}.superiority.excluded_unstable")
     if session["method_version"] in STAGED_METHODS:
+        _validate_staged_rows_and_drift(session, where)
         if config.get("confirmation") is not (kind != "calibration"):
             fail(f"{where}.config.confirmation disagrees with kind")
         if kind != "calibration":
@@ -780,25 +1159,154 @@ def validate_session(session: dict, where: str) -> None:
                 signature = record.get("owner_signature")
                 if signature is not None:
                     _require_string(signature, f"{cell_where}.owner_signature")
-        if session["method_version"] == METHOD_VERSION and "remeasured" in layout:
+        tol = 1e-9
+        failed_by_tier = _failed_cells_by_tier(decisions)
+        if session["method_version"] == METHOD_VERSION:
+            if failed_by_tier and "remeasured" not in layout:
+                fail(f"{where}.layout_only.remeasured is required for failed tiers")
+        if session["method_version"] in STAGED_METHODS and "remeasured" in layout:
             remeasured_map = _require_mapping(
                 layout["remeasured"], f"{where}.layout_only.remeasured"
             )
+            if session["method_version"] == METHOD_VERSION and failed_by_tier:
+                if set(remeasured_map) != set(failed_by_tier):
+                    fail(
+                        f"{where}.layout_only.remeasured tiers disagree with failed tiers"
+                    )
             for tier, rem in remeasured_map.items():
                 rem_where = f"{where}.layout_only.remeasured.{tier}"
                 rem_obj = _require_mapping(rem, rem_where)
                 placements = rem_obj.get("placements")
                 if not isinstance(placements, list) or not placements:
                     fail(f"{rem_where}.placements must be a non-empty list")
-                for p_index, p_run in enumerate(placements):
-                    try:
-                        bench_pair.placement.validate_run(
-                            _require_mapping(p_run, f"{rem_where}.placements[{p_index}]"),
-                            int(config["rounds"]),
+                if session["method_version"] == METHOD_VERSION:
+                    if {p.get("run") for p in placements if isinstance(p, dict)} != set(
+                        range(len(placements))
+                    ):
+                        fail(f"{rem_where}.placements must have consecutive run ids")
+                    expected_failed = set(failed_by_tier.get(tier, ()))
+                    for p_index, p_run in enumerate(placements):
+                        try:
+                            bench_pair.placement.validate_run(
+                                _require_mapping(p_run, f"{rem_where}.placements[{p_index}]"),
+                                int(config["rounds"]),
+                                expected_arms=("base", "layout_control"),
+                                expected_cells=expected_failed if expected_failed else None,
+                            )
+                        except (ValueError, TypeError, KeyError) as error:
+                            fail(f"{rem_where}.placements[{p_index}]: {error}")
+                    if kind != "calibration":
+                        cap = float(config["drift_cap"])
+                        drift = _recomputed_drift(
+                            placements,
+                            session["drift_method"],
+                            rem_where,
+                            method_version=session["method_version"],
                             expected_arms=("base", "layout_control"),
                         )
-                    except (ValueError, TypeError, KeyError) as error:
-                        fail(f"{rem_where}.placements[{p_index}]: {error}")
+                        if drift > cap:
+                            fail(
+                                f"{rem_where}: start-control drift {drift:.6f} exceeds cap {cap:.6f}"
+                            )
+                    if expected_failed:
+                        if len(placements) != int(config["runs"]):
+                            fail(
+                                f"{rem_where}.placements must contain exactly "
+                                f"{int(config['runs'])} runs"
+                            )
+                        base_runs = [
+                            {
+                                cell: entry["summary_ns"]
+                                for cell, entry in p["arms"]["base"]["cells"].items()
+                            }
+                            for p in placements
+                        ]
+                        layout_runs = [
+                            {
+                                cell: entry["summary_ns"]
+                                for cell, entry in p["arms"]["layout_control"]["cells"].items()
+                            }
+                            for p in placements
+                        ]
+                        ratios = bench_pair.paired_log_ratios(
+                            base_runs, layout_runs, sorted(expected_failed)
+                        )
+                        tier_entries = _require_mapping(
+                            per_tier.get(tier), f"{where}.layout_only.per_tier.{tier}"
+                        )
+                        decision_cells = (
+                            (decisions.get("per_tier") or {})
+                            .get(tier, {})
+                            .get("noninferiority", {})
+                            .get("per_cell", {})
+                        )
+                        for cell in sorted(expected_failed):
+                            cell_where = f"{where}.layout_only.per_tier.{tier}.{cell}"
+                            record = _require_mapping(tier_entries.get(cell), cell_where)
+                            recomputed_bound = bench_pair.hl_upper_bound(ratios[cell])[
+                                "upper_bound"
+                            ]
+                            if "remeasured_bound" not in record:
+                                fail(f"{cell_where}.remeasured_bound is required")
+                            rec_rem = _require_number(
+                                record["remeasured_bound"],
+                                f"{cell_where}.remeasured_bound",
+                            )
+                            if not math.isclose(
+                                rec_rem, recomputed_bound, rel_tol=tol, abs_tol=tol
+                            ):
+                                fail(
+                                    f"{cell_where}.remeasured_bound disagrees with placements"
+                                )
+                            if cell in decision_cells and "upper_bound" in decision_cells[cell]:
+                                expected_failed_bound = float(
+                                    decision_cells[cell]["upper_bound"]
+                                )
+                                if not math.isclose(
+                                    float(record["failed_bound"]),
+                                    expected_failed_bound,
+                                    rel_tol=tol,
+                                    abs_tol=tol,
+                                ):
+                                    fail(
+                                        f"{cell_where}.failed_bound disagrees with decisions"
+                                    )
+                            spread = record["spread"]
+                            if spread is None:
+                                fail(f"{cell_where}.spread is missing for remeasured cell")
+                            if "calibration_spread" not in record:
+                                fail(f"{cell_where}.calibration_spread is required")
+                            cal_spread = _require_number(
+                                record["calibration_spread"],
+                                f"{cell_where}.calibration_spread",
+                            )
+                            expected_spread = max(cal_spread, recomputed_bound)
+                            if not math.isclose(
+                                float(spread), expected_spread, rel_tol=tol, abs_tol=tol
+                            ):
+                                fail(
+                                    f"{cell_where}.spread disagrees with calibration and remeasured bounds"
+                                )
+                            expected_disp = bench_pair.layout_disposition(
+                                float(record["failed_bound"]), float(spread)
+                            )["disposition"]
+                            if record["disposition"] != expected_disp:
+                                fail(
+                                    f"{cell_where}.disposition disagrees with layout_disposition"
+                                )
+                elif session["method_version"] in STAGED_METHODS and kind != "calibration":
+                    cap = float(config["drift_cap"])
+                    drift = _recomputed_drift(
+                        placements,
+                        session["drift_method"],
+                        rem_where,
+                        method_version=session["method_version"],
+                        expected_arms=("base", "layout_control"),
+                    )
+                    if drift > cap:
+                        fail(
+                            f"{rem_where}: start-control drift {drift:.6f} exceeds cap {cap:.6f}"
+                        )
 
 
 # ---------------------------------------------------------------------------
@@ -1035,8 +1543,35 @@ def _load_competitors(items: Any, records_root: Path,
     return logs
 
 
-def load_manifest(manifest_path: Path, records_root: Path) -> tuple[
+def _resolve_host_map(records_root: Path, host_map: dict[str, str] | Path | str | None) -> dict[str, str]:
+    if isinstance(host_map, dict):
+        mapping: dict[str, str] = {}
+        try:
+            for key, value in host_map.items():
+                if not isinstance(key, str) or not key.strip():
+                    raise ValueError("host map keys must be non-empty strings")
+                label = bench_pair.validate_public_host_label(value, f"host map value for {key!r}")
+                folded = key.strip().casefold()
+                if folded in mapping:
+                    raise ValueError(f"host map repeats hostname {key!r}")
+                mapping[folded] = label
+        except ValueError as exc:
+            fail(str(exc))
+        return mapping
+    explicit = host_map if host_map is not None else os.environ.get("FGF_HOST_MAP", "")
+    try:
+        if explicit and str(explicit).strip():
+            return bench_pair.load_host_map(Path(str(explicit).strip()), required=True)
+        return bench_pair.load_host_map(records_root / "hosts.json", required=False)
+    except ValueError as exc:
+        fail(str(exc))
+    return {}
+
+
+def load_manifest(manifest_path: Path, records_root: Path, *,
+                  host_map: dict[str, str] | Path | str | None = None) -> tuple[
         list[HostSpec], list[PublishedSession], list[CompetitorLog], dict]:
+    resolved_host_map = _resolve_host_map(records_root, host_map)
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -1050,6 +1585,7 @@ def load_manifest(manifest_path: Path, records_root: Path) -> tuple[
         fail("manifest.metadata.hosts must be a non-empty list")
     hosts: list[HostSpec] = []
     seen: set[str] = set()
+    canonical_host_by_key: dict[str, str] = {}
     for index, item in enumerate(host_items):
         where = f"manifest.metadata.hosts[{index}]"
         entry = _require_mapping(item, where)
@@ -1061,21 +1597,28 @@ def load_manifest(manifest_path: Path, records_root: Path) -> tuple[
             name = entry.get("host")
         name = _require_string(name, f"{where}.name")
         keys = []
-        for key in ("host", "id", "hostname"):
-            if key in entry:
-                keys.append(_require_string(entry[key], f"{where}.{key}"))
-        aliases = entry.get("aliases", [])
-        if not isinstance(aliases, list):
-            fail(f"{where}.aliases must be a list")
-        for alias in aliases:
-            keys.append(_require_string(alias, f"{where}.aliases[]"))
+        if "aliases" in entry or "id" in entry or "hostname" in entry:
+            fail(
+                f"{where} must use only canonical public 'host' keys (no aliases, id, or hostname)"
+            )
+        if "host" in entry:
+            key_val = _require_string(entry["host"], f"{where}.host")
+            try:
+                key_val = bench_pair.validate_public_host_label(key_val, f"{where}.host")
+            except ValueError as exc:
+                fail(str(exc))
+            if key_val.casefold() in resolved_host_map:
+                fail(f"{where}.host {key_val!r} is a mapped private hostname")
+            keys.append(key_val)
         if not keys:
             keys.append(name)
+        canonical_key = keys[0]
         for key in keys:
             if key in seen:
                 fail(f"{where} repeats the host key {key!r}")
             seen.add(key)
-        hosts.append(HostSpec(frozenset(keys), name, available))
+            canonical_host_by_key[key] = canonical_key
+        hosts.append(HostSpec(canonical_key, frozenset(keys), name, available))
 
     session_items = manifest.get("sessions")
     if not isinstance(session_items, list):
@@ -1118,12 +1661,26 @@ def load_manifest(manifest_path: Path, records_root: Path) -> tuple[
             # Supplemental source evidence never rewrites the digested capture.
             session["threshold"] = {**threshold, "comparison": supplied}
         validate_session(session, f"session {relative}")
-        session_id = session["session_id"]
-        if session_id in seen_ids:
-            fail(f"{where} repeats session_id {session_id!r}")
-        seen_ids.add(session_id)
-        if path.parent.name != session_id:
-            fail(f"session {relative} has session_id {session_id!r} "
+        raw_host = session["host"]["hostname"]
+        mapped_host = bench_pair.resolve_host_label(raw_host, host_map=resolved_host_map)
+        public_host = canonical_host_by_key.get(mapped_host, mapped_host)
+        raw_session_id = session["session_id"]
+        pub_session_id = bench_pair.public_session_id(raw_session_id, raw_host, public_host)
+        if raw_host.casefold() != public_host.casefold():
+            pub_comp = bench_pair.host_component(public_host)
+            if not re.fullmatch(
+                rf"\d{{8}}T\d{{6}}Z-{re.escape(pub_comp)}(?:-[0-9]+)?",
+                pub_session_id,
+            ):
+                fail(
+                    f"session {relative} projected public session_id {pub_session_id!r} "
+                    f"does not match timestamp-{pub_comp}[-N]"
+                )
+        if pub_session_id in seen_ids:
+            fail(f"{where} repeats session_id {pub_session_id!r}")
+        seen_ids.add(pub_session_id)
+        if path.parent.name != pub_session_id:
+            fail(f"session {relative} has public session_id {pub_session_id!r} "
                  f"but its directory is {path.parent.name!r}")
         if "kind" in entry and entry["kind"] != session["kind"]:
             fail(f"{where}.kind disagrees with the session")
@@ -1134,19 +1691,29 @@ def load_manifest(manifest_path: Path, records_root: Path) -> tuple[
         if harness in configurations and configurations[harness] != configuration:
             fail(f"{where} mixes feature sets or flags within the {harness} record")
         configurations[harness] = configuration
-        sessions.append(PublishedSession(relative, path, digest, session, index))
+        sessions.append(PublishedSession(
+            relative, path, digest, session, index, public_host, pub_session_id
+        ))
     competitors = _load_competitors(
         manifest.get("competitors", []), records_root, hosts)
-    return hosts, sessions, competitors, metadata
+    private_host_pairs = sorted({
+        (raw, pub) for raw, pub in resolved_host_map.items()
+        if raw.casefold() != pub.casefold()
+    })
+    metadata_out = dict(metadata)
+    if private_host_pairs:
+        metadata_out["_private_hosts"] = private_host_pairs
+    return hosts, sessions, competitors, metadata_out
 
 
 # ---------------------------------------------------------------------------
 # Published rows
 # ---------------------------------------------------------------------------
 
-def anchor_for(row: dict, harness: str = "operations") -> str:
+def anchor_for(row: dict, harness: str = "operations", *, host: str | None = None) -> str:
     prefix = "" if harness == "operations" else f"{harness}/"
-    return f"{prefix}{row['host']}/{row['tier']}/{row['cell']}"
+    row_host = row["host"] if host is None else host
+    return f"{prefix}{row_host}/{row['tier']}/{row['cell']}"
 
 
 def _cell_key(row: dict) -> tuple:
@@ -1187,8 +1754,12 @@ def _collect_rows(sessions: list[PublishedSession], kind: str) -> list[Published
             rows.append(PublishedRow(
                 session=session,
                 data=row,
-                anchor=anchor_for(row, session.data["snapshot"].get("bench", "operations")),
-                host=row["host"],
+                anchor=anchor_for(
+                    row,
+                    session.data["snapshot"].get("bench", "operations"),
+                    host=session.public_host,
+                ),
+                host=session.public_host,
                 tier=row["tier"],
                 cell=row["cell"],
                 cell_key=_cell_key(row),
@@ -1199,12 +1770,19 @@ def _collect_rows(sessions: list[PublishedSession], kind: str) -> list[Published
 
 
 class HostIndex:
-    def __init__(self, hosts: list[HostSpec], rows: list[PublishedRow]):
+    def __init__(self, hosts: list[HostSpec], rows: list[PublishedRow],
+                 sessions: list[PublishedSession] | None = None):
         self.specs = list(hosts)
         self.by_key: dict[str, int] = {}
         for index, spec in enumerate(self.specs):
+            self.by_key[spec.key] = index
             for key in spec.keys:
                 self.by_key[key] = index
+        for session in (sessions or ()):
+            if session.public_host not in self.by_key:
+                fail(f"host {session.public_host!r} is not declared in manifest metadata")
+            if not self.specs[self.by_key[session.public_host]].available:
+                fail(f"unavailable host {session.public_host!r} has published sessions")
         for row in rows:
             if row.host not in self.by_key:
                 fail(f"host {row.host!r} is not declared in manifest metadata")
@@ -1333,7 +1911,7 @@ def _measurement_table(rows: list[PublishedRow], host_index: HostIndex,
         maximum = row.data.get("max_ns")
         lines.append([host, row.tier, f"`{row.cell}`", row.arm, record, scope_label,
                       f"{session['config']['runs']} × {session['config']['rounds']}",
-                      f"`{row.data['library_sha']}`", f"`{row.session.data['session_id']}`",
+                      f"`{row.data['library_sha']}`", f"`{row.session.public_session_id}`",
                       "yes" if row.data["unstable"] else "-", value,
                       "-" if minimum is None else fmt_value(minimum, digits),
                       "-" if maximum is None else fmt_value(maximum, digits)])
@@ -1345,8 +1923,7 @@ def _host_facts(sessions: list[PublishedSession], kinds: tuple[str, ...] = KINDS
     for session in sessions:
         if session.data["kind"] not in kinds:
             continue
-        host = session.data["host"]
-        facts[host["hostname"]] = host
+        facts[session.public_host] = session.data["host"]
     return facts
 
 
@@ -1357,8 +1934,8 @@ def _host_table(hosts: list[HostSpec], sessions: list[PublishedSession],
     for session in sessions:
         if session.data["kind"] not in kinds:
             continue
-        for host in {row["host"] for row in session.data["rows"]}:
-            counts[host] = counts.get(host, 0) + 1
+        if session.data["rows"]:
+            counts[session.public_host] = counts.get(session.public_host, 0) + 1
     lines = []
     for spec in hosts:
         fact = next((facts[key] for key in spec.keys if key in facts), None)
@@ -1491,7 +2068,7 @@ def render_calibration(hosts: list[HostSpec], sessions: list[PublishedSession],
         measurements.append([
             host_index.name(row.host), row.tier, f"`{row.cell}`", row.arm,
             f"`{row.data['library_sha']}`",
-            f"`{row.session.data['session_id']}`",
+            f"`{row.session.public_session_id}`",
             "yes" if row.data["unstable"] else "-", mode, value,
         ])
     summaries = []
@@ -1503,7 +2080,7 @@ def render_calibration(hosts: list[HostSpec], sessions: list[PublishedSession],
         for tier, tier_record in recommendation["per_tier"].items():
             runs = tier_record.get("runs")
             summaries.append([
-                f"`{session.data['session_id']}`",
+                f"`{session.public_session_id}`",
                 calibration["mode"],
                 tier,
                 "-" if runs is None else str(runs),
@@ -1544,7 +2121,7 @@ def render_thresholds(hosts: list[HostSpec], sessions: list[PublishedSession],
             host_index.name(row.host), row.tier, f"`{row.cell}`", row.arm,
             *([_measurement_record(row)] if staged else []),
             f"`{row.data['library_sha']}`",
-            f"`{row.session.data['session_id']}`",
+            f"`{row.session.public_session_id}`",
             "yes" if row.data["unstable"] else "-", value,
         ])
     lines = [
@@ -1586,7 +2163,7 @@ def render_thresholds(hosts: list[HostSpec], sessions: list[PublishedSession],
                 record["superiority"]["passed"] for _, record in records
                 if (record.get("superiority") or {}).get("declared")
             ]
-            session_id = html.escape(session.data["session_id"], quote=True)
+            session_id = html.escape(session.public_session_id, quote=True)
             declarations.append([
                 f'<a id="threshold-{session_id}"></a>`{session_id}`',
                 f"`{threshold['item_key']}`",
@@ -1645,8 +2222,8 @@ def render_exceptions(hosts: list[HostSpec], sessions: list[PublishedSession],
             for cell in failed[tier]:
                 record = records.get(cell) or {}
                 rows.append([
-                    f"`{data['session_id']}`",
-                    host_index.name(data["host"]["hostname"]),
+                    f"`{session.public_session_id}`",
+                    host_index.name(session.public_host),
                     tier,
                     f"`{cell}`",
                     f"`{data['arms']['candidate']['sha']}`",
@@ -1729,6 +2306,48 @@ def render_competitors(hosts: list[HostSpec],
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _scan_private_host_leaks(
+    pages: dict[str, str],
+    sessions: list[PublishedSession],
+    private_hosts: Iterable[Any] = (),
+) -> None:
+    private_names: set[str] = set()
+    allowed_labels: set[str] = set()
+    for entry in private_hosts:
+        if isinstance(entry, (tuple, list)) and len(entry) == 2:
+            raw_name, pub_label = str(entry[0]), str(entry[1])
+            if raw_name and raw_name.casefold() != pub_label.casefold():
+                private_names.add(raw_name)
+                allowed_labels.add(pub_label)
+        elif isinstance(entry, str) and entry:
+            private_names.add(entry)
+    for session in sessions:
+        raw_host = session.data["host"]["hostname"]
+        if raw_host.casefold() != session.public_host.casefold():
+            private_names.add(raw_host)
+            allowed_labels.add(session.public_host)
+    if not private_names:
+        return
+    # Mask permitted public host labels first (longest first) so mappings like
+    # `box -> golden-box` still catch standalone `box` leaks without false
+    # positives on legitimate `golden-box` anchors or session IDs.
+    label_patterns = [
+        re.compile(rf"(?<![A-Za-z0-9]){re.escape(label)}(?![A-Za-z0-9])", re.IGNORECASE)
+        for label in sorted(allowed_labels, key=len, reverse=True)
+    ]
+    patterns = [
+        (name, re.compile(rf"(?<![A-Za-z0-9]){re.escape(name)}(?![A-Za-z0-9])", re.IGNORECASE))
+        for name in sorted(private_names)
+    ]
+    for page_path, text in pages.items():
+        masked = text
+        for label_pattern in label_patterns:
+            masked = label_pattern.sub("", masked)
+        for name, pattern in patterns:
+            if pattern.search(masked):
+                fail(f"rendered {page_path} contains mapped private hostname {name!r}")
+
+
 def generate(hosts: list[HostSpec], sessions: list[PublishedSession],
              competitors: list[CompetitorLog], metadata: dict) -> dict[str, bytes]:
     acceptance = _collect_rows(sessions, "acceptance")
@@ -1738,7 +2357,7 @@ def generate(hosts: list[HostSpec], sessions: list[PublishedSession],
     surfaces = [row for row in descriptive if row.session.data["snapshot"]["bench"] == "surfaces"]
     operations = acceptance + [row for row in descriptive if row.session.data["snapshot"]["bench"] == "operations"]
     all_rows = operations + surfaces + calibration + threshold
-    host_index = HostIndex(hosts, all_rows)
+    host_index = HostIndex(hosts, all_rows, sessions)
     hosts = host_index.specs
     tiers = _tier_order(metadata)
     pages = {
@@ -1753,6 +2372,7 @@ def generate(hosts: list[HostSpec], sessions: list[PublishedSession],
             hosts, sessions, host_index),
         "benchmarks/competitors.md": render_competitors(hosts, competitors, tiers),
     }
+    _scan_private_host_leaks(pages, sessions, metadata.get("_private_hosts") or ())
     return {path: content.encode("utf-8") for path, content in pages.items()}
 
 
@@ -1768,13 +2388,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="root holding the published session directories")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT,
                         help="root for BENCHMARKS.md and benchmarks/")
+    parser.add_argument("--host-map", type=Path, default=None,
+                        help="untracked JSON file mapping private hostnames to public host labels")
     parser.add_argument("--verify", action="store_true",
                         help="regenerate and compare bytes without writing")
     arguments = parser.parse_args(argv)
 
     try:
         hosts, sessions, competitors, metadata = load_manifest(
-            arguments.manifest, arguments.records)
+            arguments.manifest, arguments.records, host_map=arguments.host_map)
         pages = generate(hosts, sessions, competitors, metadata)
     except PublishError as exc:
         print(f"publish: {exc}", file=sys.stderr)
