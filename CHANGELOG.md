@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Use subfield descent and exact Frobenius rank for general const extension
+  irreducibility validation, avoiding `long_running_const_eval` on dense
+  relations while preserving representation limits and field conventions.
+  [#103](https://github.com/nanithefkuc/fgf/issues/103),
+  [#128](https://github.com/nanithefkuc/fgf/issues/128),
+  [#136](https://github.com/nanithefkuc/fgf/pull/136).
 - Paired performance checks compare measured page-placement distributions
   instead of a single buffer and stack placement, retaining per-placement
   diagnostics ([#120](https://github.com/nanithefkuc/fgf/issues/120),
