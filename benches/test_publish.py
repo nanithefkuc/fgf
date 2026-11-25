@@ -773,6 +773,7 @@ class PublisherTests(unittest.TestCase):
         session = make_runner_session("20261124T050000Z-willow")
         session["method_version"] = bench_pair.METHOD_VERSION
         session["config"]["placement_method"] = bench_pair.placement.METHOD
+        session["snapshot"]["placement_matches_snapshot"] = True
         rounds = int(session["config"]["rounds"])
         for run in session["runs"]:
             run_index = run["run"]
@@ -834,6 +835,11 @@ class PublisherTests(unittest.TestCase):
             self.assertIn("`" + CELL_A + "`", read_page(root, "BENCHMARKS.md"))
 
         # Corrupting a retained stratum round or control in a /6 session must fail validation.
+        bad_placement_match = copy.deepcopy(session)
+        bad_placement_match["snapshot"]["placement_matches_snapshot"] = False
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_placement_match, "unmatched /6 placement")
+
         bad_round = copy.deepcopy(session)
         bad_round["runs"][0]["placements"][0]["arms"]["base"]["cells"][CELL_A]["rounds_ns"] = [50.0, 50.0, 101.0]
         with self.assertRaises(publish.PublishError):

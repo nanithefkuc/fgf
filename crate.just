@@ -605,19 +605,30 @@ bench-pair *ARGS:
         --policy-json '{"runs":"{{PAIR_RUNS}}","drift_cap":"{{PAIR_DRIFT_CAP}}","rounds":"{{PAIR_ROUNDS}}","delta":"{{PAIR_DELTA}}","gamma":"{{PAIR_GAMMA}}","calibrated_hosts":"{{PAIR_CALIBRATED_HOSTS}}","calibrated_tiers":"{{PAIR_CALIBRATED_TIERS}}","calibrated_toolchain":"{{PAIR_CALIBRATED_TOOLCHAIN}}","calibrated_flags":"{{PAIR_CALIBRATED_FLAGS}}","smt_window":"{{PAIR_SMT_WINDOW}}","smt_busy_threshold":"{{PAIR_SMT_BUSY_THRESHOLD}}","chrt":"{{PAIR_CHRT}}","unstable_target_runs":"{{PAIR_UNSTABLE_TARGET_RUNS}}"}' \
         {{ARGS}}
 
-# Test and regenerate an external threshold inventory and its source positions.
+# Test and regenerate the threshold inventory and its source positions.
+# Uses the versioned in-tree `benches/threshold_scan.py` writing into
+# `target/threshold-inventory/` by default; setting `FGF_THRESHOLD_INVENTORY`
+# targets an explicit path (honoring an adjacent `scan.py`/`test_scan.py` if
+# present).
 [group('bench')]
 bench-threshold-scan:
     #!/usr/bin/env bash
     set -euo pipefail
-    inventory="${FGF_THRESHOLD_INVENTORY:?set FGF_THRESHOLD_INVENTORY to inventory.json}"
+    inventory="${FGF_THRESHOLD_INVENTORY:-target/threshold-inventory/inventory.json}"
     scan_dir="$(dirname "${inventory}")"
-    [[ -f "${scan_dir}/test_scan.py" ]] || {
-        printf 'bench-threshold-scan: test_scan.py is missing beside the inventory\n' >&2
-        exit 2
-    }
-    python3 -m unittest discover -s "${scan_dir}" -p 'test_scan.py'
-    exec python3 "${scan_dir}/scan.py" --root . --out "${inventory}" \
+    mkdir -p "${scan_dir}"
+    if [[ -n "${FGF_THRESHOLD_INVENTORY:-}" && -f "${scan_dir}/scan.py" ]]; then
+        [[ -f "${scan_dir}/test_scan.py" ]] || {
+            printf 'bench-threshold-scan: test_scan.py is missing beside %s\n' "${scan_dir}/scan.py" >&2
+            exit 2
+        }
+        python3 -m unittest discover -s "${scan_dir}" -p 'test_scan.py'
+        scanner="${scan_dir}/scan.py"
+    else
+        python3 -m unittest discover -s benches -p 'test_threshold_scan.py'
+        scanner="benches/threshold_scan.py"
+    fi
+    exec python3 "${scanner}" --root . --out "${inventory}" \
         --md "${scan_dir}/inventory.md" --positions "${scan_dir}/positions.json"
 
 # Observe per-row compiler-mapped kernel functions without timing.
@@ -629,17 +640,28 @@ bench-route-probe TIER *ARGS:
 # bench is rebuilt on the pinned nightly with branch coverage, `--check` runs
 # once per cell with its own profile, and the merged map relates every
 # kernel-registry entry and threshold branch to the cells that reached it.
-# The threshold inventory path comes from `FGF_THRESHOLD_INVENTORY`; the
-# scanner is read beside it.
+# By default, the threshold inventory is generated with the versioned in-tree
+# `benches/threshold_scan.py` into `target/threshold-inventory/inventory.json`;
+# setting `FGF_THRESHOLD_INVENTORY` selects an explicit pre-generated inventory.
 [group('bench')]
 bench-coverage-map TIER *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    inventory="${FGF_THRESHOLD_INVENTORY:-}"
-    [[ -n "${inventory}" ]] || {
-        printf 'bench-coverage-map: set FGF_THRESHOLD_INVENTORY to the threshold inventory.json\n' >&2
-        exit 2
-    }
+    if [[ -n "${FGF_THRESHOLD_INVENTORY:-}" ]]; then
+        inventory="${FGF_THRESHOLD_INVENTORY}"
+        scan_dir="$(dirname "${inventory}")"
+        if [[ -f "${scan_dir}/scan.py" ]]; then
+            scanner="${scan_dir}/scan.py"
+        else
+            scanner="benches/threshold_scan.py"
+        fi
+    else
+        inventory="target/threshold-inventory/inventory.json"
+        scanner="benches/threshold_scan.py"
+        mkdir -p "$(dirname "${inventory}")"
+        python3 "${scanner}" --root . --out "${inventory}" \
+            --positions "$(dirname "${inventory}")/positions.json"
+    fi
     registry=target/kernel-registry/registry.json
     private=target/kernel-registry/private.json
     if [[ ! -f "${registry}" || ! -f "${private}" ]] || \
@@ -650,7 +672,7 @@ bench-coverage-map TIER *ARGS:
     exec python3 benches/coverage_map.py \
         --tier {{TIER}} \
         --inventory "${inventory}" \
-        --scan "$(dirname "${inventory}")/scan.py" \
+        --scan "${scanner}" \
         --toolchain {{API_NIGHTLY}} \
         {{ARGS}}
 

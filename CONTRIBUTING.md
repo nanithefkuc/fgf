@@ -73,8 +73,8 @@ buffers retain their role-relative offsets (`Dst = 64`, `Src = 512`,
 Each stratum runs both arms under disabled ASLR with identical environments
 and equal-length executable paths. Arm order alternates across strata and runs
 so every destination, source, and relative phase is balanced 2/2 within each
-run and every stack padding is balanced 1/1 across every consecutive pair of
-runs. Per-placement round medians, controls, observed stack offsets, and raw
+run and every stack padding is balanced 1/1 across each aligned pair of runs
+`(2k, 2k+1)` (paired run counts must be even). Per-placement round medians, controls, observed stack offsets, and raw
 logs remain available; start-control drift gates per-stratum controls and
 preconditions re-check periodically within each sweep. The arm's run summary is
 the median across placements; only independent run summaries enter the paired

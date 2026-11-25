@@ -27,6 +27,54 @@ def cell(label="gf8-aes/mul_add/unprepared/65536x1x1/aligned"):
     return label
 
 
+def _mock_placement_run(run_index: int, cell_ids: list[str], rounds: int) -> dict:
+    arms = ("base", "candidate")
+    strata = []
+    for point in pair.placement.plan(run_index):
+        strata.append({
+            **point,
+            "order": pair.placement.arm_order(arms, run_index, point["index"]),
+            "environment_digest": f"env-{run_index}-{point['index']}",
+            "argv_lengths": {arm: 64 for arm in arms},
+            "observed": {
+                arm: {
+                    "dst_shift": point["dst_shift"],
+                    "src_shift": point["src_shift"],
+                    "stack_offset": point["stack_pad"] % 4096,
+                }
+                for arm in arms
+            },
+            "controls": {arm: {"start_ns": 100.0, "end_ns": 101.0} for arm in arms},
+            "arms": {
+                arm: {
+                    "cells": {
+                        cid: {"summary_ns": 1000.0, "rounds_ns": [1000.0] * rounds}
+                        for cid in cell_ids
+                    }
+                }
+                for arm in arms
+            },
+        })
+    return {
+        "run": run_index,
+        "stage": "main",
+        "tier": "v4x",
+        "order": pair.placement.arm_order(arms, run_index, 0),
+        "control": {"start_ns": 100.0, "end_ns": 101.0},
+        "controls": {arm: {"start_ns": 100.0, "end_ns": 101.0} for arm in arms},
+        "placements": strata,
+        "arms": {
+            arm: {
+                "cells": {
+                    cid: {"summary_ns": 1000.0, "rounds_ns": [1000.0] * rounds}
+                    for cid in cell_ids
+                }
+            }
+            for arm in arms
+        },
+    }
+
+
 def ratios(values):
     return {"cell": list(values)}
 
@@ -882,7 +930,7 @@ class ConfigurationTests(unittest.TestCase):
 
     def base_kwargs(self, **overrides):
         value = {
-            "runs": 5,
+            "runs": 6,
             "drift_cap": 0.02,
             "delta": 0.03,
             "gamma": 0.03,
@@ -914,6 +962,8 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn("uncalibrated_config", self.codes(runs=None))
         self.assertIn("insufficient_runs", self.codes(runs=4))
         self.assertNotIn("insufficient_runs", self.codes(runs=5))
+        self.assertIn("odd_runs", self.codes(runs=5))
+        self.assertNotIn("odd_runs", self.codes(runs=6))
 
     def test_placeholder_drift_cap_is_refused(self):
         self.assertIn("uncalibrated_config", self.codes(drift_cap=None))
@@ -1083,14 +1133,22 @@ class ConfigurationTests(unittest.TestCase):
             digest = pair.inventory_digest(
                 {cell_entry["id"]: cell_entry}, [cell_entry["id"]]
             )
+            cal_runs = [_mock_placement_run(idx, [cell_entry["id"]], 1) for idx in range(6)]
             cal_path = Path(tmp) / "cal.json"
             cal_path.write_text(json.dumps({
                 "kind": "calibration",
+                "method_version": pair.METHOD_VERSION,
                 "session_id": "20261109T161518Z-AlphaBox",
                 "rejected": False,
                 "rejections": [],
                 "host": {"hostname": "AlphaBox", "toolchain_id": "1.0.0/xyz"},
-                "snapshot": {"rustflags": pair.DEFAULT_ALIGN_FLAGS},
+                "config": {"runs": 6, "rounds": 1, "placement_method": pair.placement.METHOD},
+                "snapshot": {
+                    "rustflags": pair.DEFAULT_ALIGN_FLAGS,
+                    "runner_matches_snapshot": True,
+                    "placement_matches_snapshot": True,
+                },
+                "runs": cal_runs,
                 "inventory": {"base": [cell_entry], "order": [cell_entry["id"]], "digest": digest},
                 "calibration": {"recommendation": {"per_tier": {"v4x": {"unstable_cells": [cell_entry["id"]]}}}},
             }), encoding="utf-8")
@@ -1099,6 +1157,7 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             written = json.loads(out_unstable.read_text(encoding="utf-8"))
             self.assertEqual(written["entries"][0]["host"], "golden-cove")
+            self.assertEqual(written["entries"][0]["method_version"], pair.METHOD_VERSION)
             self.assertEqual(written["entries"][0]["sources"], ["20261109T161518Z-golden-cove"])
             self.assertIsNone(written["entries"][0]["owner_signature"])
         self.assertEqual(
@@ -1997,14 +2056,14 @@ class CampaignFailureTests(unittest.TestCase):
                         "candidate": {
                             "cells": {
                                 self.cell: {
-                                    "summary_ns": 100.0 + (10 if index == 0 else -10),
+                                    "summary_ns": 100.0 + (10 if index < 2 else -10),
                                     "rounds_ns": [100.0],
                                 }
                             }
                         },
                     },
                 }
-                for index in range(5)
+                for index in range(6)
             ]
             try:
                 self.assertEqual(
@@ -2012,7 +2071,7 @@ class CampaignFailureTests(unittest.TestCase):
                     0,
                 )
                 recommendation = campaign.session["calibration"]["recommendation"]
-                self.assertEqual(recommendation["runs"], 5)
+                self.assertEqual(recommendation["runs"], 6)
                 self.assertIn(
                     self.cell,
                     recommendation["per_tier"]["v4x"]["unstable_cells"],
@@ -2218,7 +2277,7 @@ class CampaignFailureTests(unittest.TestCase):
                             "summary_ns": 100.0, "rounds_ns": [100.0]}}},
                     },
                 }
-                for index in range(5)
+                for index in range(6)
             ]
             try:
                 self.assertEqual(
@@ -2295,6 +2354,7 @@ class UnstableListTests(unittest.TestCase):
         value = {
             "host": "host",
             "tier": "v4x",
+            "method_version": pair.METHOD_VERSION,
             "toolchain": "tc",
             "flags": self.flags,
             "inventory_digest": "digest",
@@ -2332,12 +2392,24 @@ class UnstableListTests(unittest.TestCase):
                 "entries": [self.entry(cells=[ids[3]], inventory_digest=digest)]
             }), encoding="utf-8")
 
-            def source(session_id, cells):
+            def source(session_id, cells, method_version=pair.METHOD_VERSION, *, valid_placement=True, run_count=6):
+                runs = [_mock_placement_run(idx, ids, 1) for idx in range(run_count)] if valid_placement else []
                 return {
                     "session_id": session_id, "kind": "calibration",
+                    "method_version": method_version,
                     "rejected": False, "rejections": [],
                     "host": {"hostname": "host", "toolchain_id": "tc"},
-                    "snapshot": {"rustflags": self.flags},
+                    "config": {
+                        "runs": run_count,
+                        "rounds": 1,
+                        "placement_method": pair.placement.METHOD if valid_placement else None,
+                    },
+                    "snapshot": {
+                        "rustflags": self.flags,
+                        "runner_matches_snapshot": True,
+                        "placement_matches_snapshot": valid_placement,
+                    },
+                    "runs": runs,
                     "inventory": {"digest": digest, "base": catalogue, "order": ids},
                     "calibration": {"recommendation": {
                         "per_tier": {"v4x": {"unstable_cells": cells}}}},
@@ -2362,6 +2434,50 @@ class UnstableListTests(unittest.TestCase):
             self.assertIsNone(rejection)
             self.assertEqual(set(exclusions), set(ids))
             self.assertEqual(uncalibrated, [])
+
+            # Missing or non-current method_version, or missing /6 placement evidence, is rejected.
+            bad = root / "bad.json"
+            bad_payload = source("s3", ids[:1])
+            bad_payload.pop("method_version")
+            bad.write_text(json.dumps(bad_payload))
+            self.assertEqual(pair.write_unstable_list(target, [bad], host_map={}), 2)
+
+            legacy = root / "legacy.json"
+            legacy.write_text(json.dumps(source("s5", ids[:1], method_version="fgf-pair/5")))
+            self.assertEqual(pair.write_unstable_list(target, [legacy], host_map={}), 2)
+
+            unverified = root / "unverified.json"
+            unverified.write_text(json.dumps(source("s6", ids[:1], valid_placement=False)))
+            self.assertEqual(pair.write_unstable_list(target, [unverified], host_map={}), 2)
+
+            # Incomplete or odd-budget calibrations must be rejected by write_unstable_list.
+            odd_budget = root / "odd.json"
+            odd_budget.write_text(json.dumps(source("s7", ids[:1], run_count=5)))
+            self.assertEqual(pair.write_unstable_list(target, [odd_budget], host_map={}), 2)
+
+            incomplete = root / "incomplete.json"
+            inc_payload = source("s8", ids[:1], run_count=6)
+            inc_payload["runs"].pop()
+            incomplete.write_text(json.dumps(inc_payload))
+            self.assertEqual(pair.write_unstable_list(target, [incomplete], host_map={}), 2)
+
+            omitted_stage = root / "omitted_stage.json"
+            stage_payload = source("s9", ids[:1], run_count=6)
+            stage_payload["runs"][0].pop("stage")
+            omitted_stage.write_text(json.dumps(stage_payload))
+            self.assertEqual(pair.write_unstable_list(target, [omitted_stage], host_map={}), 2)
+
+            # Writing a fresh /6 calibration replaces any prior /5 entry for the same host/tier/toolchain/flags.
+            legacy_list = root / "legacy_list.json"
+            legacy_list.write_text(json.dumps({
+                "entries": [self.entry(method_version="fgf-pair/5", cells=[ids[3]], inventory_digest="old-digest")]
+            }), encoding="utf-8")
+            self.assertEqual(pair.write_unstable_list(legacy_list, [first], host_map={}), 0)
+            replaced, rejection = pair.load_unstable_entries(legacy_list)
+            self.assertIsNone(rejection)
+            self.assertEqual(len(replaced), 1)
+            self.assertEqual(replaced[0]["method_version"], pair.METHOD_VERSION)
+            self.assertEqual(replaced[0]["inventory_digest"], digest)
 
 
 class ScopeDeclarationTests(unittest.TestCase):
@@ -2506,8 +2622,8 @@ class CalibratedInventoryTests(unittest.TestCase):
         ids = [entry["id"] for entry in entries]
         digest = pair.inventory_digest(entries, ids)
         (root / f"{digest}.json").write_text(json.dumps(entries), encoding="utf-8")
-        signed = {"host": "host", "tier": "v4x", "toolchain": "tc",
-                  "flags": self.flags, "inventory_digest": digest,
+        signed = {"host": "host", "tier": "v4x", "method_version": pair.METHOD_VERSION,
+                  "toolchain": "tc", "flags": self.flags, "inventory_digest": digest,
                   "cells": ids, "sources": ["session-1"], "owner_signature": "owner"}
         return signed
 
@@ -2564,11 +2680,52 @@ class CalibratedInventoryTests(unittest.TestCase):
                 ([dict(signed, owner_signature=None)], "unstable_list_unsigned"),
                 ([signed, signed], "unstable_list_stale"),
                 ([dict(signed, toolchain="other")], "unstable_list_stale"),
+                ([dict(signed, method_version="fgf-pair/5")], "unstable_list_stale"),
+                ([dict(signed, method_version=None)], "unstable_list_stale"),
                 ([dict(signed, host="other")], "unstable_list_missing"),
             ):
                 exclusions, _, rejection = self.match(root, records, live)
                 self.assertIsNone(exclusions)
                 self.assertEqual(rejection.code, code)
+
+    def test_load_unstable_entries_requires_method_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            entry = self.entry()
+            signed = self.fixture(root, [entry])
+            missing = dict(signed)
+            missing.pop("method_version")
+            path = root / "unstable_cells.json"
+            path.write_text(json.dumps({"entries": [missing]}), encoding="utf-8")
+            entries, rejection = pair.load_unstable_entries(path)
+            self.assertIsNone(entries)
+            self.assertEqual(rejection.code, "unstable_list_stale")
+            path.write_text(
+                json.dumps({"entries": [dict(signed, method_version="")]}),
+                encoding="utf-8",
+            )
+            entries, rejection = pair.load_unstable_entries(path)
+            self.assertIsNone(entries)
+            self.assertEqual(rejection.code, "unstable_list_stale")
+            path.write_text(
+                json.dumps({"entries": [dict(signed, method_version="fgf-pair/999")]}),
+                encoding="utf-8",
+            )
+            entries, rejection = pair.load_unstable_entries(path)
+            self.assertIsNone(entries)
+            self.assertEqual(rejection.code, "unstable_list_stale")
+
+    def test_coexisting_legacy_and_current_entries_select_current_without_duplicate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            entry = self.entry()
+            signed6 = self.fixture(root, [entry])
+            signed5 = dict(signed6, method_version="fgf-pair/5", cells=[])
+            live = {entry["id"]: entry}
+            exclusions, uncalibrated, rejection = self.match(root, [signed5, signed6], live)
+            self.assertIsNone(rejection)
+            self.assertEqual(exclusions, [entry["id"]])
+            self.assertEqual(uncalibrated, [])
 
 
 class MockedSessionTests(unittest.TestCase):
@@ -2611,6 +2768,10 @@ class MockedSessionTests(unittest.TestCase):
             Path(pair.__file__).resolve(),
             self.snapshot / "benches" / "bench_pair.py",
         )
+        shutil.copy2(
+            Path(pair.placement.__file__).resolve(),
+            self.snapshot / "benches" / "placement.py",
+        )
         (self.snapshot / "Cargo.toml").write_text("[package]\nname='fgf'\n")
         (self.snapshot / "Cargo.lock").write_text("version = 4\n")
         self.records = self.root / "records"
@@ -2635,6 +2796,7 @@ class MockedSessionTests(unittest.TestCase):
             "entries": [{
                 "host": self.hostname,
                 "tier": "v4x",
+                "method_version": pair.METHOD_VERSION,
                 "toolchain": "1.0.0/xyz",
                 "flags": pair.DEFAULT_ALIGN_FLAGS,
                 "inventory_digest": digest,
@@ -2793,7 +2955,7 @@ class MockedSessionTests(unittest.TestCase):
                 "--snapshot", str(self.snapshot),
                 "--tiers", "v4x",
                 "--rounds", "3",
-                "--runs", "5",
+                "--runs", "6",
                 "--drift-cap", "0.2",
                 "--calibrated-hosts", self.hostname,
                 "--calibrated-tiers", f"{self.hostname}:v4x",
@@ -2803,7 +2965,7 @@ class MockedSessionTests(unittest.TestCase):
                 "--unstable-file", str(self.unstable_file),
                 "--calibrated-inventories", str(self.calibrated),
                 "--policy-json", json.dumps({
-                    "runs": "5", "drift_cap": "0.2", "rounds": "3",
+                    "runs": "6", "drift_cap": "0.2", "rounds": "3",
                     "delta": "0.03", "gamma": "0.03",
                     "calibrated_hosts": self.hostname,
                     "calibrated_tiers": f"{self.hostname}:v4x",
@@ -2871,7 +3033,7 @@ class MockedSessionTests(unittest.TestCase):
 
     def test_main_outlier_passes_only_after_separate_confirmation(self):
         first = self.cells[0]["id"]
-        outliers = [-0.16, 0.0, 0.0, 0.0, 0.16]
+        outliers = [-0.16, 0.0, 0.0, 0.0, 0.0, 0.16]
         self.timing_factor = lambda arm, name, run, stage: (
             math.exp(outliers[run])
             if arm == "candidate" and name == first and stage == "main" else 1.0
@@ -3008,7 +3170,14 @@ class MockedSessionTests(unittest.TestCase):
         pair.write_session(session, source)
         self.assertEqual(pair.reanalyze_session(source, self.args()), 2)
 
-    def write_signed_unstable(self, cells, *, signature="test-owner", digest=None):
+    def write_signed_unstable(
+        self,
+        cells,
+        *,
+        signature="test-owner",
+        digest=None,
+        method_version=pair.METHOD_VERSION,
+    ):
         digest = digest or pair.inventory_digest(
             self.cells, [cell["id"] for cell in self.cells]
         )
@@ -3016,6 +3185,7 @@ class MockedSessionTests(unittest.TestCase):
             "entries": [{
                 "host": self.hostname,
                 "tier": "v4x",
+                "method_version": method_version,
                 "toolchain": "1.0.0/xyz",
                 "flags": pair.DEFAULT_ALIGN_FLAGS,
                 "inventory_digest": digest,
@@ -3502,6 +3672,68 @@ class MockedSessionTests(unittest.TestCase):
         self.assertIsNone(session["snapshot"]["runner_digest"])
         self.assertFalse(session["snapshot"]["runner_matches_snapshot"])
 
+    def test_missing_snapshot_placement_rejects_the_session(self):
+        (self.snapshot / "benches" / "placement.py").unlink()
+        self.assertEqual(pair.run(self.args()), 1)
+        session = self.session()
+        self.assertIn(
+            "snapshot_placement_missing",
+            [rejection["code"] for rejection in session["rejections"]],
+        )
+        self.assertIsNone(session["snapshot"]["placement_digest"])
+        self.assertFalse(session["snapshot"]["placement_matches_snapshot"])
+
+    def test_mismatched_snapshot_placement_rejects_the_session(self):
+        placement_path = self.snapshot / "benches" / "placement.py"
+        placement_path.write_text(
+            placement_path.read_text(encoding="utf-8") + "\n# tampered\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(pair.run(self.args()), 1)
+        session = self.session()
+        self.assertIn(
+            "snapshot_placement_mismatch",
+            [rejection["code"] for rejection in session["rejections"]],
+        )
+        self.assertNotEqual(
+            session["snapshot"]["placement_digest"],
+            session["snapshot"]["placement_self_digest"],
+        )
+        self.assertFalse(session["snapshot"]["placement_matches_snapshot"])
+
+    def test_legacy_pair5_unstable_entry_is_rejected_under_pair6(self):
+        self.write_signed_unstable([], method_version="fgf-pair/5")
+        self.assertEqual(pair.run(self.args()), 1)
+        session = self.session()
+        rejection = next(
+            item for item in session["rejections"]
+            if item["code"] == "unstable_list_stale"
+        )
+        self.assertIn("method_version", rejection["message"])
+
+    def test_odd_calibration_runs_reject_the_session(self):
+        self.assertEqual(
+            pair.run(self.args("--mode", "calibration", "--calibration-runs", "5")),
+            1,
+        )
+        session = self.session()
+        self.assertIn(
+            "odd_runs",
+            [rejection["code"] for rejection in session["rejections"]],
+        )
+
+    def test_snapshot_symlink_is_rejected(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "extra.rs").write_text("fn extra() {}\n", encoding="utf-8")
+        (self.snapshot / "benches" / "linked").symlink_to(outside)
+        self.assertEqual(pair.run(self.args()), 1)
+        session = self.session()
+        self.assertIn(
+            "snapshot_symlink",
+            [rejection["code"] for rejection in session["rejections"]],
+        )
+
     def test_candidate_manifest_change_is_rejected(self):
         self.candidate_dependency = {
             "name": "simdispatch",
@@ -3726,6 +3958,108 @@ class SnapshotTests(unittest.TestCase):
     def test_missing_snapshot_runner_is_rejected(self):
         rejection = pair.check_snapshot_runner(None, "self")
         self.assertEqual(rejection.code, "snapshot_runner_missing")
+
+    def test_snapshot_placement_must_match_the_running_placement(self):
+        self.assertIsNone(pair.check_snapshot_placement("same", "same"))
+        rejection = pair.check_snapshot_placement("other", "same")
+        self.assertEqual(rejection.code, "snapshot_placement_mismatch")
+
+    def test_missing_snapshot_placement_is_rejected(self):
+        rejection = pair.check_snapshot_placement(None, "self")
+        self.assertEqual(rejection.code, "snapshot_placement_missing")
+
+    def test_placement_loader_executes_source_bytes_ignoring_stale_pyc(self):
+        import importlib.util
+        import py_compile
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mod_path = root / "placement.py"
+            stale_src = "COUNT = 255\n"
+            real_src = "COUNT = 256\n"
+            mod_path.write_text(stale_src, encoding="utf-8")
+            pyc_path = Path(importlib.util.cache_from_source(str(mod_path)))
+            py_compile.compile(str(mod_path), cfile=str(pyc_path), doraise=True)
+            stat = mod_path.stat()
+            mod_path.write_text(real_src, encoding="utf-8")
+            os.utime(mod_path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            module, _, digest = pair._load_placement_from_source(mod_path)
+            self.assertEqual(module.COUNT, 256)
+            self.assertEqual(digest, hashlib.sha256(real_src.encode("utf-8")).hexdigest())
+
+    def test_snapshot_symlink_directory_rejected_by_validate_and_staging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            snap = self.snapshot_dir(root / "snap")
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "mod.rs").write_text("pub fn x() {}\n", encoding="utf-8")
+            (snap / "benches" / "linked").symlink_to(outside)
+            rejection = pair.validate_snapshot(snap)
+            self.assertEqual(rejection.code, "snapshot_symlink")
+            with self.assertRaises(ValueError):
+                pair.snapshot_digest(snap)
+            stage_rej = pair.stage_snapshot_directory(snap, root / "staged")
+            self.assertEqual(stage_rej.code, "snapshot_symlink")
+
+    def test_stage_snapshot_rejects_benches_root_swapped_to_symlink_after_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            snap = self.snapshot_dir(root / "snap")
+            outside = root / "outside_benches"
+            outside.mkdir()
+            (outside / "operations.rs").write_text("fn swapped() {}\n", encoding="utf-8")
+            swapped = {"done": False}
+            original_scan = pair._snapshot_symlinks
+
+            def swap_after_first_scan(path):
+                res = original_scan(path)
+                if path == snap and not swapped["done"]:
+                    swapped["done"] = True
+                    shutil.rmtree(snap / "benches")
+                    (snap / "benches").symlink_to(outside)
+                return res
+
+            with mock.patch.object(pair, "_snapshot_symlinks", side_effect=swap_after_first_scan):
+                stage_rej = pair.stage_snapshot_directory(snap, root / "staged")
+            self.assertIsNotNone(stage_rej)
+            self.assertEqual(stage_rej.code, "snapshot_symlink")
+            self.assertFalse((root / "staged").exists())
+
+    def test_stage_snapshot_rejects_snapshot_root_swapped_to_symlink_after_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            snap = self.snapshot_dir(root / "snap")
+            outside = self.snapshot_dir(root / "outside_snap")
+            swapped = {"done": False}
+            original_scan = pair._snapshot_symlinks
+
+            def swap_root_after_first_scan(path):
+                res = original_scan(path)
+                if path == snap and not swapped["done"]:
+                    swapped["done"] = True
+                    shutil.rmtree(snap)
+                    snap.symlink_to(outside)
+                return res
+
+            with mock.patch.object(pair, "_snapshot_symlinks", side_effect=swap_root_after_first_scan):
+                stage_rej = pair.stage_snapshot_directory(snap, root / "staged")
+            self.assertIsNotNone(stage_rej)
+            self.assertEqual(stage_rej.code, "snapshot_symlink")
+            self.assertFalse((root / "staged").exists())
+
+    def test_calibration_recommendation_even_runs_skips_odd_prefixes(self):
+        ratios = {"v4x": {"c": [0.0] * 6}}
+        rec_even, healthy = pair.calibration_recommendation(
+            ratios, 0.03, {"v4x": {"drift": 0.001}}, even_runs=True
+        )
+        self.assertTrue(healthy)
+        self.assertEqual(rec_even["runs"], 6)
+        rec_odd, healthy_odd = pair.calibration_recommendation(
+            {"v4x": {"c": [0.0] * 5}}, 0.03, {"v4x": {"drift": 0.001}}, even_runs=True
+        )
+        self.assertFalse(healthy_odd)
+        self.assertIsNone(rec_odd["runs"])
 
     def test_snapshot_toolchain_is_read_from_toml_and_plain_files(self):
         with tempfile.TemporaryDirectory() as directory:

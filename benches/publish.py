@@ -756,6 +756,7 @@ def _validate_staged_rows_and_drift(session: dict, where: str) -> None:
             drift_by_tier,
             drift_safety_factor=safety_factor,
             prior_drift=prior_drift,
+            even_runs=(method_version == METHOD_VERSION),
         )
         if rec_recorded.get("runs") != recomputed_rec.get("runs"):
             fail(f"{where}.calibration.recommendation.runs disagrees with retained runs")
@@ -913,6 +914,8 @@ def validate_session(session: dict, where: str) -> None:
         if session["method_version"] == METHOD_VERSION:
             if config.get("placement_method") != bench_pair.placement.METHOD:
                 fail(f"{where}.config has no matching placement method")
+            if snapshot.get("placement_matches_snapshot") is not True:
+                fail(f"{where}.snapshot has no matching placement module")
             try:
                 bench_pair.placement.validate_run(
                     item, int(config["rounds"]), expected_arms=("base", "candidate")
