@@ -1,4 +1,4 @@
-//! GF(2^32) tower kernels for x86 / `x86_64`.
+//! GF(2^32) tower kernels for `x86_64`.
 //!
 //! A GF(2^32) multiply is two GF(2^16) lane multiplies under a period-2
 //! coefficient — one of the source and one of the source with its two

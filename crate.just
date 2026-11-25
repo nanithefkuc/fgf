@@ -176,21 +176,20 @@ test-gather-validation-32:
         cargo run --release --target i686-unknown-linux-gnu ${args} --example backend_report -- scalar
     done
 
-# Compile the non-x86 library paths, including Wasm's explicit SIMD feature.
+# Compile the portable scalar library paths on non-x86 targets.
 [group('test')]
 cross-check:
     cargo check --target aarch64-unknown-linux-gnu --all-features --lib
     cargo check --target wasm32-unknown-unknown --all-features --lib
-    RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+simd128" cargo check --target wasm32-unknown-unknown --all-features --lib
 
-# Type-check every standalone comparison package under `external/` against
+# Type-check every standalone comparison package under `benches/compare/` against
 # this working copy, so public API changes cannot strand them.
 [group('test')]
-external-check:
+comparisons-check:
     #!/usr/bin/env bash
     set -euo pipefail
-    for manifest in external/*/Cargo.toml; do
-        echo "external-check: ${manifest%/Cargo.toml}"
+    for manifest in benches/compare/*/Cargo.toml; do
+        echo "comparisons-check: ${manifest%/Cargo.toml}"
         cargo check --manifest-path "${manifest}" --all-targets
     done
 
@@ -456,6 +455,10 @@ package-check:
     )
     archives=("$scratch/source/target/package/"*.crate)
     [[ "${#archives[@]}" -eq 1 ]] || { printf 'package_archive_count count=%s\n' "${#archives[@]}" >&2; exit 1; }
+    if tar -tf "${archives[0]}" | grep -F '/benches/compare/'; then
+        echo "package-check: standalone comparison package leaked into the archive" >&2
+        exit 1
+    fi
     tar -xf "${archives[0]}" -C "$scratch/package"
     (
         cd "$scratch/package"/*
@@ -485,6 +488,10 @@ package-api:
     )
     archives=("$scratch/source/target/package/"*.crate)
     [[ "${#archives[@]}" -eq 1 ]] || { printf 'package_archive_count count=%s\n' "${#archives[@]}" >&2; exit 1; }
+    if tar -tf "${archives[0]}" | grep -F '/benches/compare/'; then
+        echo "package-api: standalone comparison package leaked into the archive" >&2
+        exit 1
+    fi
     tar -xf "${archives[0]}" -C "$scratch/package"
     packaged=("$scratch/package"/*)
     cp -r api justfile crate.just "${packaged[0]}/"
@@ -712,7 +719,7 @@ MIRI_GFNI := '''--test ops gf8_matrix_scattered_matches_contiguous -- --exact
 # suite, the ISA-L and klauspost trio, and the native GF16 harness; `gdl`
 # (Goldilocks) and `m31` (Mersenne31 and QuadMersenne31) interleave the self
 # suite with the Plonky3 harness; `gf16` repeats the native GF16 harness alone
-# and passes ARGS to it. The harnesses live in `external/` as separate
+# and passes ARGS to it. The harnesses live in `benches/compare/` as separate
 # unpublished packages: linking a competitor needs a build script, and `fgf`
 # itself carries none. Every unit runs pinned to `FEC_GOLDEN_CORE`.
 # Five-round competitor campaign for one family: gf, gdl, m31, or gf16.
@@ -737,7 +744,7 @@ bench-comp FAMILY *ARGS:
             units=(self trio gf16)
             ;;
         gdl|m31)
-            RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
+            RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path benches/compare/prime/Cargo.toml --features fgf/simd512
             units=(self prime)
             ;;
         gf16)
@@ -762,9 +769,9 @@ bench-comp FAMILY *ARGS:
                         just bench compare
                     fi
                     ;;
-                trio) "${pin[@]}" external/bench-trio/target/release/fgf-bench-trio ;;
-                gf16) "${pin[@]}" external/gf16-bench/target/release/fgf-gf16-bench {{ARGS}} ;;
-                prime) "${pin[@]}" external/prime-bench/target/release/fgf-bench-prime {{FAMILY}} ;;
+                trio) "${pin[@]}" benches/compare/gf8/target/release/fgf-bench-trio ;;
+                gf16) "${pin[@]}" benches/compare/gf16/target/release/fgf-gf16-bench {{ARGS}} ;;
+                prime) "${pin[@]}" benches/compare/prime/target/release/fgf-bench-prime {{FAMILY}} ;;
             esac
         done
     done
@@ -772,18 +779,18 @@ bench-comp FAMILY *ARGS:
 # Build the byte-field competitor harness without running a timing campaign.
 [private]
 _trio-build:
-    cargo build --release --manifest-path external/bench-trio/Cargo.toml
+    cargo build --release --manifest-path benches/compare/gf8/Cargo.toml
 
 # Native GF16 field comparison; every arm is required and validated before timing.
 [private]
 [group('bench')]
 gf16-build:
-    cargo build --release --manifest-path external/gf16-bench/Cargo.toml
+    cargo build --release --manifest-path benches/compare/gf16/Cargo.toml
 
 [private]
 [group('bench')]
 gf16-check *ARGS: gf16-build
-    external/gf16-bench/target/release/fgf-gf16-bench --check {{ARGS}}
+    benches/compare/gf16/target/release/fgf-gf16-bench --check {{ARGS}}
 
 # Validate the portable public benchmark inventory and fixture results. Native
 # competitors require capable acceptance hardware and have a separate recipe.
@@ -809,7 +816,7 @@ benchmark-api-json:
 # lacking the required AVX2/GFNI/crypto capability.
 [group('bench')]
 benchmark-check-native: gf16-build
-    external/gf16-bench/target/release/fgf-gf16-bench --presentations --check
+    benches/compare/gf16/target/release/fgf-gf16-bench --presentations --check
     just gf16-check
 
 # Render the committed measurement record, or verify it without writing.
@@ -827,7 +834,7 @@ doc-stable:
 # Miri residue that CI runs as a separate job, and every crate-specific
 # acceptance recipe. Cross-compilation needs the aarch64 and wasm32 targets
 # installed, `unsafe-check-gfni` needs nightly Miri, the gather validation
-# needs `gcc-multilib`, and the external packages need their native
+# needs `gcc-multilib`, and the comparison packages need their native
 # toolchains (Go, Intel ISA-L, C/C++). Publication is gated separately by
 # `just publish-dry` from a clean tree; `isa-accept` needs the host's pinned
 # tier and stays a per-host call.
@@ -841,7 +848,7 @@ release-accept:
     just msrv-accept
     just cross-check
     just doc-stable
-    just external-check
+    just comparisons-check
     just test-gather-validation-32
     just examples
     just benchmark-check

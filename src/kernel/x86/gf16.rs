@@ -1,4 +1,4 @@
-//! GF(2^16) tower kernels for x86 / `x86_64`.
+//! GF(2^16) tower kernels for `x86_64`.
 //!
 //! Every kernel here is the same identity, spelled three ways. Interleaved
 //! bytes `[a, b]` are `a + b*u`; multiplying by `c0 + c1*u` gives

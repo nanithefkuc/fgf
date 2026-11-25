@@ -369,8 +369,8 @@ pub mod gf16 {
         /// broadcast words.
         #[cfg_attr(not(all(feature = "simd", target_arch = "x86_64")), allow(dead_code))]
         Compact(TowerCoeff),
-        /// Shuffle backends (AVX2, SSSE3, NEON, Wasm) for the Rijndael
-        /// tower: four nibble tables.
+        /// Shuffle backends (AVX2, SSSE3) for the Rijndael tower: four nibble
+        /// tables.
         #[cfg_attr(not(all(feature = "simd", target_arch = "x86_64")), allow(dead_code))]
         Tables(TowerTables),
         /// Shuffle backends (AVX2, SSSE3) for the Fan-Paar tower: its four

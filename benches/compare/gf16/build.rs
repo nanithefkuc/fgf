@@ -55,8 +55,8 @@ fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-changed=native/leopard.cpp");
     println!("cargo::rerun-if-changed=native/complete.c");
-    println!("cargo::rerun-if-changed=../../Cargo.toml");
-    let manifest = std::fs::read_to_string("../../Cargo.toml").unwrap();
+    println!("cargo::rerun-if-changed=../../../Cargo.toml");
+    let manifest = std::fs::read_to_string("../../../Cargo.toml").unwrap();
     let fgf_version = manifest
         .lines()
         .find_map(|line| line.strip_prefix("version = \""))
