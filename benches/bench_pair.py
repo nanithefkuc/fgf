@@ -62,6 +62,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime
+import errno
 import fcntl
 import functools
 import hashlib
@@ -73,23 +74,50 @@ import shlex
 import shutil
 import socket
 import signal
+import stat
 import statistics
 import subprocess
 import sys
 import tempfile
 import time
 import tomllib
+import types
 from pathlib import Path
 
-import placement
 
-METHOD_VERSION = "fgf-pair/6"
+def _load_placement_from_source(source_path: Path):
+    """Compile and execute placement.py directly from source bytes, never .pyc."""
+    resolved = source_path.resolve()
+    if source_path.is_symlink():
+        raise RuntimeError(f"placement module must not be a symlink: {source_path}")
+    source_bytes = resolved.read_bytes()
+    digest = hashlib.sha256(source_bytes).hexdigest()
+    module = types.ModuleType("placement")
+    module.__file__ = str(resolved)
+    exec(compile(source_bytes, str(resolved), "exec"), module.__dict__)
+    return module, resolved, digest
+
+
+placement, PLACEMENT_SOURCE_PATH, PLACEMENT_SOURCE_DIGEST = _load_placement_from_source(
+    Path(__file__).resolve().with_name("placement.py")
+)
+
+METHOD_VERSION = "fgf-pair/7"
 DRIFT_METHOD = "iqr_over_median"
 METHOD_DRIFT = {
     "fgf-pair/3": "p90_minus_p10_over_median",
     "fgf-pair/4": "p90_minus_p10_over_median",
     "fgf-pair/5": "iqr_over_median",
+    "fgf-pair/6": "iqr_over_median",
     METHOD_VERSION: DRIFT_METHOD,
+}
+PLACEMENT_METHODS = {
+    "fgf-pair/6": placement.STRATIFIED_METHOD,
+    METHOD_VERSION: placement.METHOD,
+}
+RUN_STRIDES = {
+    "fgf-pair/6": 2,
+    METHOD_VERSION: placement.RUN_STRIDE,
 }
 SUPPORTED_TIERS = ("v4x", "v3_gfni_crypto", "v3", "v2", "scalar")
 DEFAULT_TIERS = " ".join(SUPPORTED_TIERS)
@@ -760,6 +788,7 @@ def calibration_recommendation(
     *,
     drift_safety_factor: float = 1.25,
     prior_drift: float = 0.0,
+    run_step: int = 1,
 ):
     """Smallest common passing prefix and drift cap for a calibration.
 
@@ -767,6 +796,8 @@ def calibration_recommendation(
     Every remaining cell must pass at the same recommended prefix: signed-rank
     bounds need not be monotone as another run is added.
     """
+    if run_step < 1:
+        raise ValueError(f"run_step must be positive, got {run_step}")
     per_tier = {}
     full_by_tier = {}
     observed_drift = float(prior_drift or 0.0)
@@ -794,9 +825,10 @@ def calibration_recommendation(
     common_available = min(
         (record["available_runs"] for record in per_tier.values()), default=0
     )
+    first_runs = ((MIN_RUNS_FOR_BOUND + run_step - 1) // run_step) * run_step
     recommended_runs = None
     chosen = {}
-    for runs in range(MIN_RUNS_FOR_BOUND, common_available + 1):
+    for runs in range(first_runs, common_available + 1, run_step):
         candidate = {
             tier: {
                 cell: hl_upper_bound(ratios_by_tier[tier][cell][:runs])
@@ -813,8 +845,9 @@ def calibration_recommendation(
             break
 
     stable_bounds = []
+    fallback_runs = (common_available // run_step) * run_step
     diagnostic_runs = recommended_runs or (
-        common_available if common_available >= MIN_RUNS_FOR_BOUND else None
+        fallback_runs if fallback_runs >= first_runs else None
     )
     for tier, record in per_tier.items():
         full = full_by_tier[tier]
@@ -992,8 +1025,8 @@ def recorded_staged_decision(session: dict, tier: str, targets=None) -> dict:
             if run.get("tier") == tier and run.get("stage") == stage
         ]
         count = int(config["runs"]) if expected else 0
-        if len(runs) != count or {run["run"] for run in runs} != set(range(count)):
-            raise ValueError(f"tier {tier} has incomplete {stage} runs")
+        if len(runs) != count or any(run.get("run") != idx for idx, run in enumerate(runs)):
+            raise ValueError(f"tier {tier} has incomplete or out-of-order {stage} runs")
         for run in runs:
             for arm in ("base", "candidate"):
                 observed = ((run.get("arms") or {}).get(arm) or {}).get("cells") or {}
@@ -1170,13 +1203,18 @@ def load_unstable_entries(path: Path):
                 f"{path} entry {index} is not an object",
             )
         required = (
-            "host", "tier", "toolchain", "flags", "inventory_digest",
-            "cells", "sources", "owner_signature",
+            "host", "tier", "method_version", "toolchain", "flags",
+            "inventory_digest", "cells", "sources", "owner_signature",
         )
         if any(key not in entry for key in required):
             return None, reject(
                 "unstable_list_stale",
                 f"{path} entry {index} is missing required fields",
+            )
+        if not isinstance(entry["method_version"], str) or entry["method_version"] not in METHOD_DRIFT:
+            return None, reject(
+                "unstable_list_stale",
+                f"{path} entry {index} has an unsupported method_version",
             )
         if not isinstance(entry["cells"], list) or not all(
             isinstance(cell, str) for cell in entry["cells"]
@@ -1263,15 +1301,17 @@ def unstable_cells_for_inventory(
     live_inventory: dict,
     scope_ids,
     calibrated_root: Path,
+    *,
+    method_version: str = METHOD_VERSION,
 ):
     """Match one signed unstable entry without the live inventory digest.
 
-    Exactly one signed entry must bind (host, tier, toolchain, flags); the
-    live full-inventory digest plays no part in the match, so appending cells
-    to the bench inventory does not stale signed entries.  The matched entry's
-    calibrated inventory snapshot must hash to the entry digest, and every
-    selected cell recorded there must still match the live CELL record.
-    Selected cells absent from the calibrated catalogue stay in scope,
+    Exactly one signed entry must bind (host, tier, method_version, toolchain,
+    flags); the live full-inventory digest plays no part in the match, so
+    appending cells to the bench inventory does not stale signed entries.  The
+    matched entry's calibrated inventory snapshot must hash to the entry digest,
+    and every selected cell recorded there must still match the live CELL
+    record.  Selected cells absent from the calibrated catalogue stay in scope,
     uncalibrated, and are never excluded; exclusions are the calibrated
     unstable cells inside the scope only.  ``scope_ids`` restricts the
     compared and excluded cells; ``None`` selects the whole live inventory.
@@ -1288,8 +1328,18 @@ def unstable_cells_for_inventory(
             "unstable_list_missing",
             f"no unstable-cell entry for host {hostname!r} tier {tier!r}",
         )
-    exact = [
+    method_matches = [
         entry for entry in candidates
+        if entry.get("method_version") == method_version
+    ]
+    if not method_matches:
+        return None, None, reject(
+            "unstable_list_stale",
+            f"unstable-cell entry for host {hostname!r} tier {tier!r} does "
+            f"not match method_version {method_version!r}",
+        )
+    exact = [
+        entry for entry in method_matches
         if entry.get("toolchain") == toolchain_id
         and normalize_flags(entry.get("flags") or "") == normalize_flags(flags)
     ]
@@ -1590,13 +1640,58 @@ def _snapshot_meta(directory: Path) -> dict:
     return {}
 
 
+def _snapshot_symlinks(directory: Path) -> list[str]:
+    found = []
+    benches = directory / "benches"
+    if benches.is_symlink():
+        found.append("benches")
+    elif benches.is_dir():
+        for root, dirs, filenames in os.walk(benches, followlinks=False):
+            root_path = Path(root)
+            kept_dirs = []
+            for name in sorted(dirs):
+                if name == "__pycache__":
+                    continue
+                entry = root_path / name
+                if entry.is_symlink():
+                    found.append(str(entry.relative_to(directory)))
+                else:
+                    kept_dirs.append(name)
+            dirs[:] = kept_dirs
+            for name in sorted(filenames):
+                if name.endswith(".pyc"):
+                    continue
+                entry = root_path / name
+                if entry.is_symlink():
+                    found.append(str(entry.relative_to(directory)))
+    for name in ("Cargo.toml", "Cargo.lock"):
+        entry = directory / name
+        if entry.is_symlink():
+            found.append(name)
+    for entry in sorted(directory.glob("rust-toolchain*")):
+        if entry.is_symlink():
+            found.append(entry.name)
+    return sorted(found)
+
+
 def _snapshot_files(directory: Path) -> list[Path]:
+    symlinks = _snapshot_symlinks(directory)
+    if symlinks:
+        raise ValueError(
+            "snapshot must not contain symlinks: " + ", ".join(symlinks)
+        )
     files = []
     benches = directory / "benches"
     if benches.is_dir():
-        for path in sorted(benches.rglob("*")):
-            if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
-                files.append(path)
+        for root, dirs, filenames in os.walk(benches, followlinks=False):
+            dirs[:] = sorted(d for d in dirs if d != "__pycache__")
+            root_path = Path(root)
+            for name in sorted(filenames):
+                if name.endswith(".pyc"):
+                    continue
+                path = root_path / name
+                if path.is_file():
+                    files.append(path)
     for name in ("Cargo.toml", "Cargo.lock"):
         path = directory / name
         if path.is_file():
@@ -1605,6 +1700,111 @@ def _snapshot_files(directory: Path) -> list[Path]:
         if path.is_file():
             files.append(path)
     return files
+
+
+def _open_nofollow(name: str, flags: int, dir_fd: int | None = None) -> int:
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    return os.open(name, flags | nofollow, dir_fd=dir_fd)
+
+
+def _copy_file_nofollow(src_dir_fd: int, name: str, dst_path: Path) -> None:
+    fd = _open_nofollow(name, os.O_RDONLY, dir_fd=src_dir_fd)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise ValueError(f"snapshot entry is not a regular file: {name}")
+        with os.fdopen(fd, "rb", closefd=False) as src_file:
+            with dst_path.open("wb") as dst_file:
+                shutil.copyfileobj(src_file, dst_file)
+        os.chmod(dst_path, stat.S_IMODE(st.st_mode))
+    finally:
+        os.close(fd)
+
+
+def _copy_tree_nofollow(src_dir_fd: int, dst_dir: Path, rel_prefix: str) -> None:
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    for entry_name in sorted(os.listdir(src_dir_fd)):
+        if entry_name == "__pycache__" or entry_name.endswith(".pyc"):
+            continue
+        rel = f"{rel_prefix}/{entry_name}" if rel_prefix else entry_name
+        st = os.lstat(entry_name, dir_fd=src_dir_fd)
+        if stat.S_ISLNK(st.st_mode):
+            raise OSError(errno.ELOOP, "symlink in snapshot", rel)
+        if stat.S_ISDIR(st.st_mode):
+            child_fd = _open_nofollow(
+                entry_name, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0), dir_fd=src_dir_fd
+            )
+            try:
+                _copy_tree_nofollow(child_fd, dst_dir / entry_name, rel)
+            finally:
+                os.close(child_fd)
+        elif stat.S_ISREG(st.st_mode):
+            _copy_file_nofollow(src_dir_fd, entry_name, dst_dir / entry_name)
+
+
+def stage_snapshot_directory(source: Path, destination: Path) -> Rejection | None:
+    """Copy a directory snapshot into a private immutable staging tree."""
+    if source.is_symlink():
+        return reject(
+            "snapshot_symlink",
+            f"snapshot must not contain symlinks: {source}",
+        )
+    symlinks = _snapshot_symlinks(source)
+    if symlinks:
+        return reject(
+            "snapshot_symlink",
+            "snapshot must not contain symlinks: " + ", ".join(symlinks),
+        )
+    if destination.exists():
+        shutil.rmtree(destination)
+    root_fd = None
+    try:
+        root_fd = _open_nofollow(
+            str(source), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        )
+        destination.mkdir(parents=True, exist_ok=True)
+        try:
+            benches_fd = _open_nofollow(
+                "benches", os.O_RDONLY | getattr(os, "O_DIRECTORY", 0), dir_fd=root_fd
+            )
+        except FileNotFoundError:
+            benches_fd = None
+        if benches_fd is not None:
+            try:
+                _copy_tree_nofollow(benches_fd, destination / "benches", "benches")
+            finally:
+                os.close(benches_fd)
+        for name in ("Cargo.toml", "Cargo.lock"):
+            try:
+                _copy_file_nofollow(root_fd, name, destination / name)
+            except FileNotFoundError:
+                pass
+        for entry_name in sorted(os.listdir(root_fd)):
+            if entry_name.startswith("rust-toolchain"):
+                st = os.lstat(entry_name, dir_fd=root_fd)
+                if stat.S_ISLNK(st.st_mode):
+                    raise OSError(errno.ELOOP, "symlink in snapshot", entry_name)
+                if stat.S_ISREG(st.st_mode):
+                    _copy_file_nofollow(root_fd, entry_name, destination / entry_name)
+    except OSError as error:
+        shutil.rmtree(destination, ignore_errors=True)
+        if error.errno in (errno.ELOOP, errno.EMLINK, errno.ENOTDIR):
+            return reject(
+                "snapshot_symlink",
+                f"snapshot must not contain symlinks: {error.filename or source}",
+            )
+        return reject("snapshot_incomplete", f"cannot stage snapshot {source}: {error}")
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
+    staged_symlinks = _snapshot_symlinks(destination)
+    if staged_symlinks:
+        shutil.rmtree(destination, ignore_errors=True)
+        return reject(
+            "snapshot_symlink",
+            "snapshot must not contain symlinks: " + ", ".join(staged_symlinks),
+        )
+    return None
 
 
 def snapshot_digest(directory: Path) -> str:
@@ -1642,6 +1842,12 @@ def read_snapshot_toolchain(directory: Path) -> str | None:
 
 
 def validate_snapshot(directory: Path, bench: str = "operations") -> Rejection | None:
+    symlinks = _snapshot_symlinks(directory)
+    if symlinks:
+        return reject(
+            "snapshot_symlink",
+            "snapshot must not contain symlinks: " + ", ".join(symlinks),
+        )
     missing = []
     for relative in ("Cargo.toml", "Cargo.lock"):
         if not (directory / relative).is_file():
@@ -1723,6 +1929,24 @@ def check_snapshot_runner(snapshot_digest: str | None, self_digest: str) -> Reje
             "snapshot_runner_mismatch",
             "the snapshot supplies a different bench_pair.py; run the snapshot's "
             "runner so the measurement snapshot identifies the whole campaign",
+        )
+    return None
+
+
+def check_snapshot_placement(snapshot_digest: str | None, self_digest: str) -> Rejection | None:
+    if snapshot_digest is None:
+        return reject(
+            "snapshot_placement_missing",
+            "the snapshot does not supply benches/placement.py; the pinned "
+            "measurement snapshot must carry the placement module that defines "
+            "the campaign design",
+        )
+    if snapshot_digest != self_digest:
+        return reject(
+            "snapshot_placement_mismatch",
+            "the snapshot supplies a different benches/placement.py; run the "
+            "snapshot's runner and placement module so the measurement snapshot "
+            "identifies the whole campaign",
         )
     return None
 
@@ -2242,6 +2466,14 @@ def validate_acceptance_config(
                 "insufficient_runs",
                 f"acceptance needs at least {MIN_RUNS_FOR_BOUND} paired runs "
                 "for a 95% HL bound",
+            )
+        )
+    elif runs % placement.RUN_STRIDE != 0:
+        rejections.append(
+            reject(
+                "unaligned_runs",
+                f"{METHOD_VERSION} requires a multiple of {placement.RUN_STRIDE} paired runs "
+                "so destination and source cache-line offsets cover the page evenly",
             )
         )
     if drift_cap is None:
@@ -3075,8 +3307,12 @@ class Campaign:
         source_path = Path(origin)
         mechanism = None
         if source_path.exists():
-            directory = source_path.resolve()
-            resolved = str(directory)
+            resolved = str(source_path.resolve())
+            directory = self.scratch / "snapshot-staged"
+            problem = stage_snapshot_directory(source_path.resolve(), directory)
+            if problem is not None:
+                self.reject(problem)
+                return None
         else:
             try:
                 resolved = git_revision(self.repo, origin)
@@ -3867,7 +4103,7 @@ class Campaign:
         arm_order = placement.arm_order(base_arms, run_index, 0)
         strata = []
         for point in placement.plan(run_index):
-            if point["index"] > 0 and point["index"] % 64 == 0:
+            if point["index"] > 0 and point["index"] % placement.PROBE_STRIDE == 0:
                 if not self.check_preconditions(
                     tier, run_index, f"{stage}:place{point['index']:03d}"
                 ):
@@ -4006,6 +4242,24 @@ class Campaign:
             if problem is not None:
                 self.reject(problem)
                 return 1
+            snapshot_placement = snapshot.directory / "benches" / "placement.py"
+            session["snapshot"]["placement_digest"] = (
+                sha256_file(snapshot_placement)
+                if snapshot_placement.is_file() and not snapshot_placement.is_symlink()
+                else None
+            )
+            session["snapshot"]["placement_self_digest"] = PLACEMENT_SOURCE_DIGEST
+            session["snapshot"]["placement_matches_snapshot"] = (
+                session["snapshot"]["placement_digest"]
+                == session["snapshot"]["placement_self_digest"]
+            )
+            problem = check_snapshot_placement(
+                session["snapshot"]["placement_digest"],
+                session["snapshot"]["placement_self_digest"],
+            )
+            if problem is not None:
+                self.reject(problem)
+                return 1
             session["config"]["features"] = snapshot.features
             session["config"]["rustflags"] = snapshot.rustflags
             session["config"]["toolchain"] = snapshot.toolchain
@@ -4105,8 +4359,28 @@ class Campaign:
                         return 1
             else:
                 self.args_rounds = int(parse_number(args.rounds, "rounds"))
+                cal_runs = self.calibration_runs()
+                if cal_runs < MIN_RUNS_FOR_BOUND:
+                    self.reject(
+                        reject(
+                            "insufficient_runs",
+                            f"calibration needs at least {MIN_RUNS_FOR_BOUND} paired "
+                            "runs for a 95% HL bound",
+                        )
+                    )
+                    return 1
+                if cal_runs % placement.RUN_STRIDE != 0:
+                    self.reject(
+                        reject(
+                            "unaligned_runs",
+                            f"{METHOD_VERSION} requires a multiple of {placement.RUN_STRIDE} "
+                            "calibration runs so destination and source cache-line offsets "
+                            "cover the page evenly",
+                        )
+                    )
+                    return 1
                 session["config"]["rounds"] = self.args_rounds
-                session["config"]["runs"] = self.calibration_runs()
+                session["config"]["runs"] = cal_runs
                 session["config"]["delta"] = float(parse_number(args.delta, "delta"))
                 session["config"]["gamma"] = float(parse_number(args.gamma, "gamma"))
                 session["config"]["drift_cap"] = None
@@ -4345,6 +4619,7 @@ class Campaign:
                             base_inventory,
                             scope_ids,
                             Path(args.calibrated_inventories),
+                            method_version=session["method_version"],
                         )
                     )
                     if unstable_problem is not None:
@@ -4664,6 +4939,7 @@ class Campaign:
             drift_by_tier,
             drift_safety_factor=float(self.args.drift_safety_factor),
             prior_drift=prior_drift,
+            run_step=placement.RUN_STRIDE,
         )
         healthy = healthy and sufficient
         if any(
@@ -5190,10 +5466,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _unstable_key(host: str, tier: str, toolchain: str, flags: str, digest: str) -> tuple:
+def _unstable_key(
+    host: str,
+    tier: str,
+    method_version: str,
+    toolchain: str,
+    flags: str,
+    digest: str,
+) -> tuple:
     return (
         host,
         tier,
+        method_version,
         toolchain,
         normalize_flags(flags),
         digest,
@@ -5218,12 +5502,13 @@ def write_unstable_list(
     merged: dict[tuple, dict] = {}
     for entry in existing:
         key = _unstable_key(
-            entry["host"], entry["tier"], entry["toolchain"],
-            entry["flags"], entry["inventory_digest"],
+            entry["host"], entry["tier"], entry["method_version"],
+            entry["toolchain"], entry["flags"], entry["inventory_digest"],
         )
         merged[key] = {
             "host": entry["host"],
             "tier": entry["tier"],
+            "method_version": entry["method_version"],
             "toolchain": entry["toolchain"],
             "flags": normalize_flags(entry["flags"]),
             "inventory_digest": entry["inventory_digest"],
@@ -5306,25 +5591,123 @@ def write_unstable_list(
         except ValueError as error:
             print(f"bench_pair: {session_path}: {error}", file=sys.stderr)
             return 2
+        session_method = session.get("method_version")
+        if session_method != METHOD_VERSION:
+            print(
+                f"bench_pair: {session_path} method_version {session_method!r} "
+                f"does not match {METHOD_VERSION!r}",
+                file=sys.stderr,
+            )
+            return 2
+        if snapshot.get("runner_matches_snapshot") is not True:
+            print(
+                f"bench_pair: {session_path} does not record a matching snapshot runner",
+                file=sys.stderr,
+            )
+            return 2
+        if snapshot.get("placement_matches_snapshot") is not True:
+            print(
+                f"bench_pair: {session_path} does not record a matching snapshot placement module",
+                file=sys.stderr,
+            )
+            return 2
+        session_config = session.get("config") or {}
+        if session_config.get("placement_method") != placement.METHOD:
+            print(
+                f"bench_pair: {session_path} placement_method does not match {placement.METHOD!r}",
+                file=sys.stderr,
+            )
+            return 2
+        session_rounds = session_config.get("rounds")
+        session_run_budget = session_config.get("runs")
+        session_runs = session.get("runs")
+        if (
+            not isinstance(session_runs, list)
+            or not session_runs
+            or type(session_rounds) is not int
+            or session_rounds <= 0
+            or type(session_run_budget) is not int
+            or session_run_budget < MIN_RUNS_FOR_BOUND
+            or session_run_budget % placement.RUN_STRIDE != 0
+        ):
+            print(
+                f"bench_pair: {session_path} lacks a multiple-of-{placement.RUN_STRIDE} "
+                "calibrated run budget or retained placement runs",
+                file=sys.stderr,
+            )
+            return 2
+        if not per_tier:
+            print(f"bench_pair: {session_path} has no calibration tiers", file=sys.stderr)
+            return 2
+        next_run_by_tier: dict[str, int] = {tier: 0 for tier in per_tier}
+        for run_index, run_record in enumerate(session_runs):
+            if not isinstance(run_record, dict):
+                print(f"bench_pair: {session_path} run {run_index} is not an object", file=sys.stderr)
+                return 2
+            if run_record.get("stage") != "main":
+                print(
+                    f"bench_pair: {session_path} calibration run {run_index} has invalid stage {run_record.get('stage')!r}",
+                    file=sys.stderr,
+                )
+                return 2
+            run_tier = run_record.get("tier")
+            if run_tier not in next_run_by_tier:
+                print(
+                    f"bench_pair: {session_path} run {run_index} references undeclared tier {run_tier!r}",
+                    file=sys.stderr,
+                )
+                return 2
+            try:
+                placement.validate_run(
+                    run_record,
+                    session_rounds,
+                    expected_arms=("base", "candidate"),
+                    expected_cells=order,
+                )
+            except (ValueError, TypeError, KeyError) as error:
+                print(
+                    f"bench_pair: {session_path} run {run_index} failed placement validation: {error}",
+                    file=sys.stderr,
+                )
+                return 2
+            run_num = run_record["run"]
+            expected_run = next_run_by_tier[run_tier]
+            if run_num != expected_run:
+                print(
+                    f"bench_pair: {session_path} tier {run_tier} expected run {expected_run}, got {run_num}",
+                    file=sys.stderr,
+                )
+                return 2
+            next_run_by_tier[run_tier] = expected_run + 1
+        for tier, count in next_run_by_tier.items():
+            if count != session_run_budget:
+                print(
+                    f"bench_pair: {session_path} tier {tier} has incomplete run grid "
+                    f"(expected ascending 0..{session_run_budget - 1})",
+                    file=sys.stderr,
+                )
+                return 2
         for tier, record in per_tier.items():
             cells = record.get("unstable_cells") or []
             if not isinstance(cells, list) or not set(cells) <= set(entries):
                 print(f"bench_pair: {session_path} lists unstable cells outside its inventory", file=sys.stderr)
                 return 2
-            key = _unstable_key(hostname, tier, toolchain, flags, digest)
-            context = key[:-1]
+            key = _unstable_key(hostname, tier, session_method, toolchain, flags, digest)
+            context = (hostname, tier, toolchain, normalize_flags(flags))
             if context in selected_catalogues and selected_catalogues[context] != digest:
                 print("bench_pair: calibration inputs disagree on the inventory for one host/tier", file=sys.stderr)
                 return 2
             selected_catalogues[context] = digest
             for previous in list(merged):
-                if previous[:-1] == context and previous != key:
+                prev_context = (previous[0], previous[1], previous[3], previous[4])
+                if prev_context == context and previous != key:
                     del merged[previous]
             entry = merged.setdefault(
                 key,
                 {
                     "host": hostname,
                     "tier": tier,
+                    "method_version": session_method,
                     "toolchain": toolchain,
                     "flags": normalize_flags(flags),
                     "inventory_digest": digest,
@@ -5361,6 +5744,7 @@ def write_unstable_list(
             {
                 "host": entry["host"],
                 "tier": entry["tier"],
+                "method_version": entry["method_version"],
                 "toolchain": entry["toolchain"],
                 "flags": entry["flags"],
                 "inventory_digest": entry["inventory_digest"],
@@ -5527,6 +5911,32 @@ def reanalyze_session(path: Path, args) -> int:
         "insufficient_runs": False,
     }
     if kind == "calibration":
+        for run in source.get("runs") or []:
+            if run.get("stage", "main") != "main":
+                print(
+                    f"bench_pair: {path}: calibration run must have stage 'main'",
+                    file=sys.stderr,
+                )
+                return 2
+        expected_runs = config.get("runs")
+        for tier in sorted(runs_by_tier):
+            tier_runs = [
+                run for run in source.get("runs") or []
+                if run.get("tier") == tier and run.get("stage", "main") == "main"
+            ]
+            expected_len = (
+                expected_runs
+                if type(expected_runs) is int and expected_runs > 0
+                else len(tier_runs)
+            )
+            if len(tier_runs) != expected_len or any(
+                run.get("run") != idx for idx, run in enumerate(tier_runs)
+            ):
+                print(
+                    f"bench_pair: {path}: calibration tier {tier} must have ascending runs 0..{expected_len - 1}",
+                    file=sys.stderr,
+                )
+                return 2
         prior_drift = (
             (source.get("calibration") or {}).get("recommendation") or {}
         ).get("prior_drift")
@@ -5536,6 +5946,7 @@ def reanalyze_session(path: Path, args) -> int:
             drift_by_tier,
             drift_safety_factor=factor,
             prior_drift=0.0 if prior_drift is None else float(prior_drift),
+            run_step=RUN_STRIDES.get(source.get("method_version"), 1),
         )
         output["calibration"] = {
             "mode": (source.get("calibration") or {}).get("mode"),

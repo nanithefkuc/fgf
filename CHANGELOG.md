@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Harden placement-stratified paired benchmark acceptance (`fgf-pair/7`,
+  `page-sparse/1`), add the versioned in-tree threshold scanner and missing
+  GF(2)/`qm31` benchmark cells, and bind native calibrations across both
+  reference hosts. [#132](https://github.com/nanithefkuc/fgf/issues/132).
 - Remove private hostnames and local account identifiers from routing
   threshold citations, benchmark records, and benchmark tooling, and harden
   `benches/publish.py` to recompute published rows and enforce drift caps from

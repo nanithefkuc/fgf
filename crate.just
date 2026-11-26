@@ -516,12 +516,12 @@ package-api:
 # The calibrated host, tier, toolchain, and flag bindings are checked against
 # the live host before any acceptance measurement; `PAIR_CALIBRATED_FLAGS` must
 # equal `PAIR_ALIGN` for the host it was calibrated on.
-PAIR_RUNS := 'golden-cove:24 willow-cove:24'
+PAIR_RUNS := 'golden-cove:16 willow-cove:16'
 # Start-control IQR drift caps use half the noninferiority margin
 # (PAIR_DELTA / 2) as a host-independent policy budget, not a guarantee about
 # decision bias. The calibration recommendation's cap remains diagnostic.
 PAIR_DRIFT_CAP := 'golden-cove:0.015 willow-cove:0.015'
-PAIR_ROUNDS := '7'
+PAIR_ROUNDS := '1'
 PAIR_DELTA := '0.03'
 PAIR_GAMMA := '0.03'
 PAIR_FEATURES := 'simd512'
@@ -530,14 +530,17 @@ PAIR_ALIGN := '-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofal
 # 'host1:t1,t2 host2:t3,t4' (for example
 # 'willow-cove:v4x,v3,scalar golden-cove:v3_gfni_crypto,v3,scalar').
 PAIR_CALIBRATED_HOSTS := 'golden-cove willow-cove'
-PAIR_CALIBRATED_TIERS := 'golden-cove:v3_gfni_crypto,v3,v2,scalar willow-cove:v4x,v3,v2,scalar'
+PAIR_CALIBRATED_TIERS := 'golden-cove:v3_gfni_crypto,v3,v2,scalar willow-cove:v4x,v3_gfni_crypto,v3,v2,scalar'
 PAIR_CALIBRATED_TOOLCHAIN := '1.98.1/48a229ceaefd4985c50990b14116b6d856af0985'
 PAIR_CALIBRATED_FLAGS := '-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6'
-PAIR_SNAPSHOT := 'HEAD'
-# Calibration collects its own budget; PAIR_RUNS never caps it. The native
-# calibration sessions collected 24 runs, so the budget must be at least the
-# recommended run count above.
-PAIR_CALIBRATION_RUNS := '24'
+# Pinned to the calibrated measurement snapshot so `--layout-only` matches the
+# native `fgf-pair/7` calibration digest while live policy files
+# (`benches/unstable_cells.json`, `benches/calibrated_inventories/`) stay live.
+PAIR_SNAPSHOT := '433a0ed47d01da1cf40b947f0e5d5e14476ff0e6'
+# Calibration collects its own budget; PAIR_RUNS never caps it. Under
+# `fgf-pair/7` (`page-sparse/1`), run counts are multiples of 8; 16 runs cover
+# all 64 destination, source, and relative-phase cache lines twice.
+PAIR_CALIBRATION_RUNS := '16'
 # Recommended drift cap = observed maximum across calibration sessions times
 # this stated safety factor.
 PAIR_DRIFT_SAFETY_FACTOR := '1.25'
@@ -605,19 +608,30 @@ bench-pair *ARGS:
         --policy-json '{"runs":"{{PAIR_RUNS}}","drift_cap":"{{PAIR_DRIFT_CAP}}","rounds":"{{PAIR_ROUNDS}}","delta":"{{PAIR_DELTA}}","gamma":"{{PAIR_GAMMA}}","calibrated_hosts":"{{PAIR_CALIBRATED_HOSTS}}","calibrated_tiers":"{{PAIR_CALIBRATED_TIERS}}","calibrated_toolchain":"{{PAIR_CALIBRATED_TOOLCHAIN}}","calibrated_flags":"{{PAIR_CALIBRATED_FLAGS}}","smt_window":"{{PAIR_SMT_WINDOW}}","smt_busy_threshold":"{{PAIR_SMT_BUSY_THRESHOLD}}","chrt":"{{PAIR_CHRT}}","unstable_target_runs":"{{PAIR_UNSTABLE_TARGET_RUNS}}"}' \
         {{ARGS}}
 
-# Test and regenerate an external threshold inventory and its source positions.
+# Test and regenerate the threshold inventory and its source positions.
+# Uses the versioned in-tree `benches/threshold_scan.py` writing into
+# `target/threshold-inventory/` by default; setting `FGF_THRESHOLD_INVENTORY`
+# targets an explicit path (honoring an adjacent `scan.py`/`test_scan.py` if
+# present).
 [group('bench')]
 bench-threshold-scan:
     #!/usr/bin/env bash
     set -euo pipefail
-    inventory="${FGF_THRESHOLD_INVENTORY:?set FGF_THRESHOLD_INVENTORY to inventory.json}"
+    inventory="${FGF_THRESHOLD_INVENTORY:-target/threshold-inventory/inventory.json}"
     scan_dir="$(dirname "${inventory}")"
-    [[ -f "${scan_dir}/test_scan.py" ]] || {
-        printf 'bench-threshold-scan: test_scan.py is missing beside the inventory\n' >&2
-        exit 2
-    }
-    python3 -m unittest discover -s "${scan_dir}" -p 'test_scan.py'
-    exec python3 "${scan_dir}/scan.py" --root . --out "${inventory}" \
+    mkdir -p "${scan_dir}"
+    if [[ -n "${FGF_THRESHOLD_INVENTORY:-}" && -f "${scan_dir}/scan.py" ]]; then
+        [[ -f "${scan_dir}/test_scan.py" ]] || {
+            printf 'bench-threshold-scan: test_scan.py is missing beside %s\n' "${scan_dir}/scan.py" >&2
+            exit 2
+        }
+        python3 -m unittest discover -s "${scan_dir}" -p 'test_scan.py'
+        scanner="${scan_dir}/scan.py"
+    else
+        python3 -m unittest discover -s benches -p 'test_threshold_scan.py'
+        scanner="benches/threshold_scan.py"
+    fi
+    exec python3 "${scanner}" --root . --out "${inventory}" \
         --md "${scan_dir}/inventory.md" --positions "${scan_dir}/positions.json"
 
 # Observe per-row compiler-mapped kernel functions without timing.
@@ -629,17 +643,28 @@ bench-route-probe TIER *ARGS:
 # bench is rebuilt on the pinned nightly with branch coverage, `--check` runs
 # once per cell with its own profile, and the merged map relates every
 # kernel-registry entry and threshold branch to the cells that reached it.
-# The threshold inventory path comes from `FGF_THRESHOLD_INVENTORY`; the
-# scanner is read beside it.
+# By default, the threshold inventory is generated with the versioned in-tree
+# `benches/threshold_scan.py` into `target/threshold-inventory/inventory.json`;
+# setting `FGF_THRESHOLD_INVENTORY` selects an explicit pre-generated inventory.
 [group('bench')]
 bench-coverage-map TIER *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    inventory="${FGF_THRESHOLD_INVENTORY:-}"
-    [[ -n "${inventory}" ]] || {
-        printf 'bench-coverage-map: set FGF_THRESHOLD_INVENTORY to the threshold inventory.json\n' >&2
-        exit 2
-    }
+    if [[ -n "${FGF_THRESHOLD_INVENTORY:-}" ]]; then
+        inventory="${FGF_THRESHOLD_INVENTORY}"
+        scan_dir="$(dirname "${inventory}")"
+        if [[ -f "${scan_dir}/scan.py" ]]; then
+            scanner="${scan_dir}/scan.py"
+        else
+            scanner="benches/threshold_scan.py"
+        fi
+    else
+        inventory="target/threshold-inventory/inventory.json"
+        scanner="benches/threshold_scan.py"
+        mkdir -p "$(dirname "${inventory}")"
+        python3 "${scanner}" --root . --out "${inventory}" \
+            --positions "$(dirname "${inventory}")/positions.json"
+    fi
     registry=target/kernel-registry/registry.json
     private=target/kernel-registry/private.json
     if [[ ! -f "${registry}" || ! -f "${private}" ]] || \
@@ -650,7 +675,7 @@ bench-coverage-map TIER *ARGS:
     exec python3 benches/coverage_map.py \
         --tier {{TIER}} \
         --inventory "${inventory}" \
-        --scan "$(dirname "${inventory}")/scan.py" \
+        --scan "${scanner}" \
         --toolchain {{API_NIGHTLY}} \
         {{ARGS}}
 

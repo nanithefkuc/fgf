@@ -222,17 +222,18 @@ def make_runner_session(session_id: str = "20261107T050000Z-willow", *,
                         base_ns: float = 101.0,
                         candidate_ns: float = 100.0,
                         confirmation_ns: float | None = None,
-                        targets: list[str] | None = None) -> dict:
+                        targets: list[str] | None = None,
+                        runs: int = 5) -> dict:
     """Construct a historical staged, single-placement measurement."""
     args = argparse.Namespace(
-        mode="acceptance", runs="5", rounds="3", delta="0.03", gamma="0.03",
+        mode="acceptance", runs=str(runs), rounds="3", delta="0.03", gamma="0.03",
         drift_cap="0.01", features="simd512",
         rustflags=" ".join(publish.ALIGNMENT_FLAGS), toolchain="",
     )
     session = bench_pair.base_session(args, session_id)
     session["method_version"] = "fgf-pair/5"
     session["config"].update({
-        "runs": 5, "rounds": 3, "delta": 0.03, "gamma": 0.03,
+        "runs": runs, "rounds": 3, "delta": 0.03, "gamma": 0.03,
         "drift_cap": 0.01, "features": ["simd512"],
         "rustflags": " ".join(publish.ALIGNMENT_FLAGS),
         "toolchain": "rustc 1.93.0", "calibrated": True,
@@ -279,7 +280,7 @@ def make_runner_session(session_id: str = "20261107T050000Z-willow", *,
             "candidate": {"cells": {cell: {"summary_ns": candidate_ns,
                                            "rounds_ns": [candidate_ns, candidate_ns, candidate_ns]}}},
         },
-    } for index in range(5)]
+    } for index in range(runs)]
     if confirmation_ns is not None:
         confirmation = copy.deepcopy(session["runs"])
         for run in confirmation:
@@ -770,9 +771,10 @@ class PublisherTests(unittest.TestCase):
     def test_publishes_and_validates_distribution_session(self):
         import copy
         import statistics
-        session = make_runner_session("20261124T050000Z-willow")
+        session = make_runner_session("20261124T050000Z-willow", runs=8)
         session["method_version"] = bench_pair.METHOD_VERSION
         session["config"]["placement_method"] = bench_pair.placement.METHOD
+        session["snapshot"]["placement_matches_snapshot"] = True
         rounds = int(session["config"]["rounds"])
         for run in session["runs"]:
             run_index = run["run"]
@@ -825,7 +827,7 @@ class PublisherTests(unittest.TestCase):
                 for arm in arms
             }
         session["rows"] = bench_pair.build_rows(session, ["v4x"], [CELL_A])
-        publish.validate_session(session, "valid /6 session")
+        publish.validate_session(session, "valid /7 session")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             manifest = write_manifest(root, [session])
@@ -833,7 +835,182 @@ class PublisherTests(unittest.TestCase):
             self.assertEqual(code, 0, stderr)
             self.assertIn("`" + CELL_A + "`", read_page(root, "BENCHMARKS.md"))
 
+        # Unaligned or incomplete /7 run budgets must fail publisher validation.
+        for bad_runs in (5, 6):
+            unaligned7 = copy.deepcopy(session)
+            unaligned7["config"]["runs"] = bad_runs
+            unaligned7["runs"] = unaligned7["runs"][:bad_runs]
+            with self.assertRaises(publish.PublishError):
+                publish.validate_session(unaligned7, f"unaligned /7 runs={bad_runs}")
+        truncated7 = copy.deepcopy(session)
+        truncated7["runs"] = truncated7["runs"][:-1]
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(truncated7, "truncated /7 runs")
+        reordered7 = copy.deepcopy(session)
+        reordered7["runs"][0], reordered7["runs"][1] = reordered7["runs"][1], reordered7["runs"][0]
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(reordered7, "out-of-order /7 runs")
+
+        # Reordering runs in a /7 calibration session must fail even if derived
+        # calibration recommendation fields are recomputed for the permuted order.
+        cal7 = make_runner_session("20261124T050200Z-willow", runs=16)
+        cal7["method_version"] = bench_pair.METHOD_VERSION
+        cal7["kind"] = "calibration"
+        cal7["acceptance"] = False
+        cal7["config"]["placement_method"] = bench_pair.placement.METHOD
+        cal7["config"]["calibrated"] = False
+        cal7["config"]["confirmation"] = False
+        cal7["config"]["drift_cap"] = None
+        cal7["snapshot"]["placement_matches_snapshot"] = True
+        cal7["decisions"] = {}
+        cal7["confirmed_failures"] = {}
+        cal_ratios = [1.02, 1.02, 1.02, 1.0, 1.0, 1.0, 1.0, 1.0,
+                      1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        for run, ratio in zip(cal7["runs"], cal_ratios):
+            run_index = run["run"]
+            arms = ("base", "candidate")
+            strata = []
+            for point in bench_pair.placement.plan(run_index):
+                order = bench_pair.placement.arm_order(arms, run_index, point["index"])
+                strata.append({
+                    **point,
+                    "order": order,
+                    "environment_digest": f"cal-{run_index}-{point['index']}",
+                    "argv_lengths": {arm: 100 for arm in arms},
+                    "observed": {
+                        arm: {
+                            "dst_shift": point["dst_shift"],
+                            "src_shift": point["src_shift"],
+                            "stack_offset": (128 + ai * 16 + point["stack_pad"]) % 4096,
+                        }
+                        for ai, arm in enumerate(arms)
+                    },
+                    "controls": {arm: dict(run["controls"][arm]) for arm in arms},
+                    "arms": {
+                        "base": {"cells": {CELL_A: {"summary_ns": 100.0, "rounds_ns": [100.0] * rounds}}},
+                        "candidate": {"cells": {CELL_A: {"summary_ns": 100.0 * ratio, "rounds_ns": [100.0 * ratio] * rounds}}},
+                    },
+                })
+            run["order"] = bench_pair.placement.arm_order(arms, run_index, 0)
+            run["controls"] = {
+                arm: {key: statistics.median(p["controls"][arm][key] for p in strata) for key in ("start_ns", "end_ns")}
+                for arm in arms
+            }
+            run["control"] = run["controls"][run["order"][0]]
+            run["placements"] = strata
+            run["arms"] = {
+                arm: bench_pair.placement.summarize([p["arms"][arm] for p in strata], [CELL_A], rounds)
+                for arm in arms
+            }
+        cal7["arm_summaries"] = {
+            arm: {"v4x": {CELL_A: statistics.median(r["arms"][arm]["cells"][CELL_A]["summary_ns"] for r in cal7["runs"])}}
+            for arm in ("base", "candidate")
+        }
+        cal7["rows"] = bench_pair.build_rows(cal7, ["v4x"], [CELL_A])
+        rec_asc, _ = bench_pair.calibration_recommendation(
+            {"v4x": bench_pair.session_tier_ratios(cal7, "v4x", "main")},
+            0.03,
+            {"v4x": {"drift": 0.0}},
+            run_step=bench_pair.RUN_STRIDES[bench_pair.METHOD_VERSION],
+        )
+        cal7["calibration"] = {"mode": "base_vs_base", "prior_drift": 0.0, "recommendation": rec_asc}
+        self.assertEqual(rec_asc["runs"], 16)
+        publish.validate_session(cal7, "valid ascending /7 calibration session")
+
+        reordered_cal7 = copy.deepcopy(cal7)
+        reordered_cal7["runs"] = reordered_cal7["runs"][8:] + reordered_cal7["runs"][:8]
+        rec_perm, _ = bench_pair.calibration_recommendation(
+            {"v4x": bench_pair.session_tier_ratios(reordered_cal7, "v4x", "main")},
+            0.03,
+            {"v4x": {"drift": 0.0}},
+            run_step=bench_pair.RUN_STRIDES[bench_pair.METHOD_VERSION],
+        )
+        self.assertEqual(rec_perm["runs"], 8)
+        reordered_cal7["calibration"]["recommendation"] = rec_perm
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(reordered_cal7, "reordered /7 calibration session")
+        oversized_cal7 = copy.deepcopy(cal7)
+        oversized_cal7["config"]["runs"] = 8 * 10**11
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(oversized_cal7, "oversized /7 calibration budget")
+
+        # Frozen fgf-pair/6 (page-stratified/1, 256 strata) sessions also remain validatable.
+        legacy6 = make_runner_session("20261124T050500Z-willow", runs=6)
+        legacy6["method_version"] = "fgf-pair/6"
+        legacy6["config"]["placement_method"] = bench_pair.placement.STRATIFIED_METHOD
+        legacy6["snapshot"]["placement_matches_snapshot"] = True
+        for run in legacy6["runs"]:
+            run_index = run["run"]
+            arms = ("base", "candidate")
+            strata6 = []
+            for point in bench_pair.placement.plan(run_index, method=bench_pair.placement.STRATIFIED_METHOD):
+                order = bench_pair.placement.arm_order(
+                    arms, run_index, point["index"], method=bench_pair.placement.STRATIFIED_METHOD
+                )
+                strata6.append({
+                    **point,
+                    "order": order,
+                    "environment_digest": f"env6-{run_index}-{point['index']}",
+                    "argv_lengths": {arm: 100 for arm in arms},
+                    "observed": {
+                        arm: {
+                            "dst_shift": point["dst_shift"],
+                            "src_shift": point["src_shift"],
+                            "stack_offset": (128 + ai * 16 + point["stack_pad"]) % 4096,
+                        }
+                        for ai, arm in enumerate(arms)
+                    },
+                    "controls": {arm: dict(run["controls"][arm]) for arm in arms},
+                    "arms": {
+                        arm: {
+                            "cells": {
+                                cid: {"summary_ns": entry["summary_ns"], "rounds_ns": [entry["summary_ns"]] * rounds}
+                                for cid, entry in run["arms"][arm]["cells"].items()
+                            }
+                        }
+                        for arm in arms
+                    },
+                })
+            run["order"] = bench_pair.placement.arm_order(
+                arms, run_index, 0, method=bench_pair.placement.STRATIFIED_METHOD
+            )
+            run["controls"] = {
+                arm: {
+                    key: statistics.median(p["controls"][arm][key] for p in strata6)
+                    for key in ("start_ns", "end_ns")
+                }
+                for arm in arms
+            }
+            run["control"] = run["controls"][run["order"][0]]
+            run["placements"] = strata6
+            run["arms"] = {
+                arm: bench_pair.placement.summarize(
+                    [p["arms"][arm] for p in strata6],
+                    list(run["arms"][arm]["cells"]),
+                    rounds,
+                    method=bench_pair.placement.STRATIFIED_METHOD,
+                )
+                for arm in arms
+            }
+        legacy6["rows"] = bench_pair.build_rows(legacy6, ["v4x"], [CELL_A])
+        publish.validate_session(legacy6, "valid frozen /6 session")
+        for bad_runs in (4, 5):
+            unaligned6 = copy.deepcopy(legacy6)
+            unaligned6["config"]["runs"] = bad_runs
+            unaligned6["runs"] = unaligned6["runs"][:bad_runs]
+            with self.assertRaises(publish.PublishError):
+                publish.validate_session(unaligned6, f"invalid /6 runs={bad_runs}")
+        wrong_method = copy.deepcopy(legacy6)
+        wrong_method["method_version"] = bench_pair.METHOD_VERSION
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(wrong_method, "mismatched /6 placement under /7")
+
         # Corrupting a retained stratum round or control in a /6 session must fail validation.
+        bad_placement_match = copy.deepcopy(session)
+        bad_placement_match["snapshot"]["placement_matches_snapshot"] = False
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(bad_placement_match, "unmatched /6 placement")
+
         bad_round = copy.deepcopy(session)
         bad_round["runs"][0]["placements"][0]["arms"]["base"]["cells"][CELL_A]["rounds_ns"] = [50.0, 50.0, 101.0]
         with self.assertRaises(publish.PublishError):
@@ -868,8 +1045,9 @@ class PublisherTests(unittest.TestCase):
         # Consistent per-placement start controls whose recomputed drift exceeds drift_cap must fail.
         bad_drift = copy.deepcopy(session)
         for run in bad_drift["runs"]:
+            half = len(run["placements"]) // 2
             for idx, stratum in enumerate(run["placements"]):
-                start = 100.0 if idx < 128 else 110.0
+                start = 100.0 if idx < half else 110.0
                 for arm in ("base", "candidate"):
                     stratum["controls"][arm] = {"start_ns": start, "end_ns": start + 0.1}
             run["controls"] = {
@@ -912,7 +1090,7 @@ class PublisherTests(unittest.TestCase):
         for run in conf_runs:
             run["stage"] = "confirmation"
             for idx, stratum in enumerate(run["placements"]):
-                start = 100.0 if idx < 128 else 110.0
+                start = 100.0 if idx < bench_pair.placement.COUNT // 2 else 110.0
                 for arm in ("base", "candidate"):
                     stratum["controls"][arm] = {"start_ns": start, "end_ns": start + 0.1}
                     stratum["arms"]["candidate"]["cells"][CELL_A] = {
@@ -1013,10 +1191,10 @@ class PublisherTests(unittest.TestCase):
             stratum["controls"] = {"base": stratum["controls"]["base"], "layout_control": stratum["controls"]["candidate"]}
             stratum["arms"] = {"base": stratum["arms"]["base"], "layout_control": stratum["arms"]["candidate"]}
 
-        # Isolate each /6 layout_only failure cause: omitted remeasured_bound,
+        # Isolate each /7 layout_only failure cause: omitted remeasured_bound,
         # omitted calibration_spread, fabricated spread, and short placement count.
         rem_runs = []
-        for idx in range(5):
+        for idx in range(int(session["config"]["runs"])):
             r = copy.deepcopy(bad_layout_run)
             r["run"] = idx
             r["order"] = bench_pair.placement.arm_order(("base", "layout_control"), idx, 0)
@@ -1051,7 +1229,7 @@ class PublisherTests(unittest.TestCase):
             },
             "remeasured": {"v4x": {"placements": rem_runs}},
         }
-        publish.validate_session(valid_layout, "valid /6 layout exception")
+        publish.validate_session(valid_layout, "valid /7 layout exception")
 
         no_rem_bound = copy.deepcopy(valid_layout)
         no_rem_bound["layout_only"]["per_tier"]["v4x"][CELL_A].pop("remeasured_bound")
@@ -1064,13 +1242,13 @@ class PublisherTests(unittest.TestCase):
             publish.validate_session(no_cal_spread, "omitted calibration_spread")
 
         fewer_rem = copy.deepcopy(valid_layout)
-        fewer_rem["layout_only"]["remeasured"]["v4x"]["placements"] = rem_runs[:4]
+        fewer_rem["layout_only"]["remeasured"]["v4x"]["placements"] = rem_runs[:-1]
         with self.assertRaises(publish.PublishError):
             publish.validate_session(fewer_rem, "fewer than config.runs layout placements")
         over_drift_layout = copy.deepcopy(bad_layout)
         over_drift_run = copy.deepcopy(bad_layout_run)
         for idx, stratum in enumerate(over_drift_run["placements"]):
-            start = 100.0 if idx < 128 else 110.0
+            start = 100.0 if idx < bench_pair.placement.COUNT // 2 else 110.0
             for arm in ("base", "layout_control"):
                 stratum["controls"][arm] = {"start_ns": start, "end_ns": start + 0.1}
         over_drift_run["controls"] = {

@@ -47,7 +47,8 @@ import bench_pair
 
 METHOD_VERSION = bench_pair.METHOD_VERSION
 SUPPORTED_METHODS = tuple(bench_pair.METHOD_DRIFT)
-STAGED_METHODS = ("fgf-pair/4", "fgf-pair/5", METHOD_VERSION)
+PLACEMENT_METHODS = bench_pair.PLACEMENT_METHODS
+STAGED_METHODS = ("fgf-pair/4", "fgf-pair/5", "fgf-pair/6", METHOD_VERSION)
 SOURCE_DECIMALS = 9
 KINDS = ("acceptance", "calibration", "threshold", "descriptive")
 ARM_ORDER = ("base", "layout_control", "candidate")
@@ -460,7 +461,7 @@ def _recomputed_drift(
 ) -> float:
     expected_set = set(expected_arms)
     samples: list[float] = []
-    use_placements = method_version == METHOD_VERSION
+    use_placements = method_version in PLACEMENT_METHODS
     for index, run in enumerate(stage_runs):
         run_where = f"{where}[{index}]"
         if use_placements:
@@ -575,7 +576,7 @@ def _validate_staged_rows_and_drift(session: dict, where: str) -> None:
             fail(f"{where}.runs[{r_index}].tier {tier!r} is not declared by the session")
         if session["kind"] == "calibration" and run.get("stage", "main") != "main":
             fail(f"{where}.runs[{r_index}].stage must be 'main' for calibration")
-        if method_version != METHOD_VERSION:
+        if method_version not in PLACEMENT_METHODS:
             if run.get("placements") is not None:
                 fail(f"{where}.runs[{r_index}].placements is not allowed for {method_version}")
             for arm in ("base", "candidate"):
@@ -624,12 +625,12 @@ def _validate_staged_rows_and_drift(session: dict, where: str) -> None:
         ]
         if not main_runs:
             fail(f"{where}: tier {tier} has no main-stage runs")
-        if session["kind"] == "calibration":
-            if len(main_runs) != config_runs or {
-                run.get("run") for run in main_runs
-            } != set(range(config_runs)):
+        if session["kind"] == "calibration" or method_version in PLACEMENT_METHODS:
+            if len(main_runs) != config_runs or any(
+                run.get("run") != idx for idx, run in enumerate(main_runs)
+            ):
                 fail(
-                    f"{where}: calibration tier {tier} must have complete runs 0..{config_runs - 1}"
+                    f"{where}: {session['kind']} tier {tier} must have ascending runs 0..{config_runs - 1}"
                 )
         for arm in ("base", "candidate"):
             first_cells: set[str] | None = None
@@ -756,10 +757,11 @@ def _validate_staged_rows_and_drift(session: dict, where: str) -> None:
             drift_by_tier,
             drift_safety_factor=safety_factor,
             prior_drift=prior_drift,
+            run_step=bench_pair.RUN_STRIDES.get(method_version, 1),
         )
         if rec_recorded.get("runs") != recomputed_rec.get("runs"):
             fail(f"{where}.calibration.recommendation.runs disagrees with retained runs")
-        if method_version == METHOD_VERSION or "prior_drift" in calibration:
+        if method_version in PLACEMENT_METHODS or "prior_drift" in calibration:
             if not math.isclose(
                 float(rec_recorded["drift_cap"]),
                 float(recomputed_rec["drift_cap"]),
@@ -874,8 +876,25 @@ def validate_session(session: dict, where: str) -> None:
 
     config = _require_mapping(session["config"], f"{where}.config")
     _require_keys(config, CONFIG_KEYS, f"{where}.config")
-    _require_positive_int(config["runs"], f"{where}.config.runs")
+    config_runs = _require_positive_int(config["runs"], f"{where}.config.runs")
     _require_positive_int(config["rounds"], f"{where}.config.rounds")
+    if session["method_version"] in PLACEMENT_METHODS:
+        expected_placement_method = PLACEMENT_METHODS[session["method_version"]]
+        if config.get("placement_method") != expected_placement_method:
+            fail(f"{where}.config has no matching placement method")
+        if snapshot.get("placement_matches_snapshot") is not True:
+            fail(f"{where}.snapshot has no matching placement module")
+        run_stride = bench_pair.RUN_STRIDES[session["method_version"]]
+        if config_runs < bench_pair.MIN_RUNS_FOR_BOUND:
+            fail(
+                f"{where}.config.runs must be at least "
+                f"{bench_pair.MIN_RUNS_FOR_BOUND} for {session['method_version']}"
+            )
+        if config_runs % run_stride != 0:
+            fail(
+                f"{where}.config.runs must be a multiple of {run_stride} for "
+                f"{session['method_version']}"
+            )
     for key in ("delta", "gamma"):
         _require_positive_number(config[key], f"{where}.config.{key}")
     if config["drift_cap"] is None:
@@ -910,12 +929,18 @@ def validate_session(session: dict, where: str) -> None:
         if session["method_version"] in STAGED_METHODS:
             if item.get("stage") not in ("main", "confirmation"):
                 fail(f"{where}.runs[{index}].stage is invalid")
-        if session["method_version"] == METHOD_VERSION:
-            if config.get("placement_method") != bench_pair.placement.METHOD:
+        if session["method_version"] in PLACEMENT_METHODS:
+            expected_placement_method = PLACEMENT_METHODS[session["method_version"]]
+            if config.get("placement_method") != expected_placement_method:
                 fail(f"{where}.config has no matching placement method")
+            if snapshot.get("placement_matches_snapshot") is not True:
+                fail(f"{where}.snapshot has no matching placement module")
             try:
                 bench_pair.placement.validate_run(
-                    item, int(config["rounds"]), expected_arms=("base", "candidate")
+                    item,
+                    int(config["rounds"]),
+                    expected_arms=("base", "candidate"),
+                    method=expected_placement_method,
                 )
             except (ValueError, TypeError, KeyError) as error:
                 fail(f"{where}.runs[{index}]: {error}")
@@ -1161,14 +1186,14 @@ def validate_session(session: dict, where: str) -> None:
                     _require_string(signature, f"{cell_where}.owner_signature")
         tol = 1e-9
         failed_by_tier = _failed_cells_by_tier(decisions)
-        if session["method_version"] == METHOD_VERSION:
+        if session["method_version"] in PLACEMENT_METHODS:
             if failed_by_tier and "remeasured" not in layout:
                 fail(f"{where}.layout_only.remeasured is required for failed tiers")
         if session["method_version"] in STAGED_METHODS and "remeasured" in layout:
             remeasured_map = _require_mapping(
                 layout["remeasured"], f"{where}.layout_only.remeasured"
             )
-            if session["method_version"] == METHOD_VERSION and failed_by_tier:
+            if session["method_version"] in PLACEMENT_METHODS and failed_by_tier:
                 if set(remeasured_map) != set(failed_by_tier):
                     fail(
                         f"{where}.layout_only.remeasured tiers disagree with failed tiers"
@@ -1179,11 +1204,16 @@ def validate_session(session: dict, where: str) -> None:
                 placements = rem_obj.get("placements")
                 if not isinstance(placements, list) or not placements:
                     fail(f"{rem_where}.placements must be a non-empty list")
-                if session["method_version"] == METHOD_VERSION:
-                    if {p.get("run") for p in placements if isinstance(p, dict)} != set(
-                        range(len(placements))
+                if session["method_version"] in PLACEMENT_METHODS:
+                    expected_placement_method = PLACEMENT_METHODS[session["method_version"]]
+                    if any(
+                        not isinstance(p, dict) or p.get("run") != idx
+                        for idx, p in enumerate(placements)
                     ):
-                        fail(f"{rem_where}.placements must have consecutive run ids")
+                        fail(
+                            f"{rem_where}.placements must have ascending run ids "
+                            f"0..{len(placements) - 1}"
+                        )
                     expected_failed = set(failed_by_tier.get(tier, ()))
                     for p_index, p_run in enumerate(placements):
                         try:
@@ -1192,6 +1222,7 @@ def validate_session(session: dict, where: str) -> None:
                                 int(config["rounds"]),
                                 expected_arms=("base", "layout_control"),
                                 expected_cells=expected_failed if expected_failed else None,
+                                method=expected_placement_method,
                             )
                         except (ValueError, TypeError, KeyError) as error:
                             fail(f"{rem_where}.placements[{p_index}]: {error}")

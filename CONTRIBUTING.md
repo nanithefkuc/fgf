@@ -61,26 +61,32 @@ through pkg-config, Go, and C/C++ compilers.
 Public measurement records use processor-architecture labels and sanitized
 environment facts, never SSH aliases, hostnames, or local account paths.
 
-`just bench-pair` compares equally weighted page-placement distributions.
-Each independent paired run measures a fixed 256-stratum design: destination
-offsets, source offsets, and relative `(src - dst) mod 4096` phases each cover
-every 64-byte cache-line offset equally (4× per run), and unread environment
-padding covers every 16-byte ABI-aligned initial stack offset once per run.
-This is a stratified design, not a Cartesian sweep of all interactions; source
-buffers retain their role-relative offsets (`Dst = 64`, `Src = 512`,
-`Src2 = 960`, `Region = 1408`).
+`just bench-pair` compares equally weighted sparse page-placement distributions
+(`fgf-pair/7`, `page-sparse/1`). Each independent paired run measures a fixed
+8-stratum design (`PAIR_ROUNDS = 1`) without repeating placements across
+consecutive runs: within each run, destination offsets, source offsets, and
+unread stack padding cover all eight 512-byte page segments, relative
+`(src - dst) mod 4096` phases cover four values twice (balanced 1/1 across arm
+orders), and mod-64 stack classes cover all four classes twice (1/1 across arm
+orders). Across every 8-run block, destination and source offsets cover all 64
+cache-line offsets once; across 16 runs, destination, source, and relative
+phases cover all 64 offsets twice (with 1/1 destination order balance); across
+32 runs, stack padding covers all 256 16-byte offsets. This is a sparse
+stratified design, not an exhaustive per-run sweep; source buffers retain
+their role-relative offsets (`Dst = 64`, `Src = 512`, `Src2 = 960`,
+`Region = 1408`).
 
 Each stratum runs both arms under disabled ASLR with identical environments
-and equal-length executable paths. Arm order alternates across strata and runs
-so every destination, source, and relative phase is balanced 2/2 within each
-run and every stack padding is balanced 1/1 across every consecutive pair of
-runs. Per-placement round medians, controls, observed stack offsets, and raw
-logs remain available; start-control drift gates per-stratum controls and
-preconditions re-check periodically within each sweep. The arm's run summary is
-the median across placements; only independent run summaries enter the paired
-bound. A slow placement is not an individual noninferiority failure. Persistent
-code regressions still face the unchanged margin and confidence rule. Old
-single-placement sessions cannot establish a placement-distribution result.
+and equal-length executable paths. Arm order splits 4/4 within every run (2/2
+in each 4-stratum half), and paired run counts must be multiples of 8.
+Per-placement round medians, controls, observed stack offsets, and raw logs
+remain available; start-control drift gates per-stratum controls and
+preconditions re-check at the start and midpoint (stratum 4) of each sweep.
+The arm's run summary is the median across the 8 placements; only independent
+run summaries enter the paired bound. A slow placement is not an individual
+noninferiority failure. Persistent code regressions still face the unchanged
+margin and confidence rule. Old single-placement sessions cannot establish a
+placement-distribution result.
 
 `just bench-placement-check` exercises the placement and decision rules;
 `just bench-placement-build` builds the operation harness used for native

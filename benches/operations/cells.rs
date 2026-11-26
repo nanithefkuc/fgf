@@ -498,6 +498,18 @@ fn add_bits(cells: &mut Vec<Cell>) {
         ("set_range", "unprepared", MID, 1, 1, 0),
         ("weight", "unprepared", MID, 1, 1, 0),
         ("weight", "unprepared", LARGE, 1, 1, 0),
+        // `gf1::parity` walks 512-byte blocks, a loop-free sub-block remainder
+        // fold (256/128/64/32/16/8-byte conditional steps), and a masked
+        // partial trailing word: cover short (#124 64 B), mid sub-block
+        // (256 B), all six remainder steps right below the block boundary
+        // (504 B = 256+128+64+32+16+8), at/above 512 B (512 B, 768 B), and a
+        // partial-word case (523 B = 512 + 8 + 3) exercising all three stages.
+        ("dot_product", "unprepared", 64, 1, 2, 0),
+        ("dot_product", "unprepared", 256, 1, 2, 0),
+        ("dot_product", "unprepared", 504, 1, 2, 0),
+        ("dot_product", "unprepared", 512, 1, 2, 0),
+        ("dot_product", "unprepared", 768, 1, 2, 0),
+        ("dot_product", "unprepared", 523, 1, 2, 0),
         ("dot_product", "unprepared", MID, 1, 2, 0),
         ("dot_product", "unprepared", LARGE, 1, 2, 0),
         ("xor_gather", "unprepared", MID, 1, 8, 0),
@@ -613,21 +625,27 @@ fn add_gf8_thresholds<F: FieldBuffer>(cells: &mut Vec<Cell>, field: &'static str
 }
 
 fn add_qm31_thresholds(cells: &mut Vec<Cell>) {
+    // `QUAD_VECTOR_ADD_MIN_BYTES` (64) separates scalar vs AVX2 on `V3+` while
+    // `V2` always serves SSE4.2 (16-byte lanes, 64-byte tiles, 8-byte scalar
+    // tail). Include odd-element lengths (24 B below, 88 B above) alongside
+    // the 32 B vector-aligned short shape and the `[48, 64, 96, 128]` grid.
     for operation in [
         "add_assign",
         "sub_assign",
         "add_assign_scalar",
         "sub_assign_scalar",
     ] {
-        push_single::<fgf::extension::QuadMersenne31>(
-            cells,
-            fields::QM31,
-            fields::FAMILY_M31,
-            operation,
-            "unprepared",
-            32,
-            0,
-        );
+        for row_len in [24, 32, 88] {
+            push_single::<fgf::extension::QuadMersenne31>(
+                cells,
+                fields::QM31,
+                fields::FAMILY_M31,
+                operation,
+                "unprepared",
+                row_len,
+                0,
+            );
+        }
     }
     for operation in [
         "mul_add",
@@ -781,7 +799,7 @@ fn add_threshold_evidence_cells(cells: &mut Vec<Cell>) {
         }
     }
 
-    // `quad_mersenne31.rs::VECTOR_ADD_MIN_BYTES`: 32-byte shapes are
+    // `routing::QUAD_VECTOR_ADD_MIN_BYTES`: 24-, 32-, and 88-byte shapes are
     // registered by `add_qm31_thresholds`.
     for operation in [
         "add_assign",
