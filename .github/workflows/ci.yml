@@ -79,39 +79,19 @@ jobs:
   # modules whose per-type, per-tier arms hosted runners cannot all execute;
   # every other kernel file gates the 95%. Acceptance hosts report each list
   # natively through `just cover-native`.
-  coverage:
-    name: coverage >=95% (llvm-cov)
+  #
+  # Hosted runner CPUs differ, and `SIMD_BACKEND` only downgrades, so the
+  # GFNI and AVX-512 tiers (`COV_EMULATED_TIERS`) run under Intel SDE with
+  # Sapphire Rapids CPUID, each in its own shard; the native shard runs every
+  # other pass. The SDE archive is pinned by SHA-256. `coverage` merges the
+  # shard exports and applies the gate once.
+  coverage-shard:
+    name: coverage shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-llvm-cov@0.9.0,cargo-nextest@0.9.148
-      - uses: extractions/setup-just@v2
-      - name: runner CPU
-        run: |
-          grep -m1 'model name' /proc/cpuinfo
-          for flag in avx2 gfni vaes avx512f avx512bw avx512vl; do
-            grep -qw "$flag" /proc/cpuinfo && echo "$flag yes" || echo "$flag no"
-          done
-      - run: just cover
-      - run: just cover-lcov
-        if: always()
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-lcov
-          path: coverage.lcov
-
-  # The GFNI and AVX-512 tier passes run under Intel SDE (Sapphire Rapids
-  # CPUID), so they execute the same paths on every hosted runner CPU; the
-  # other passes run natively. The SDE archive is pinned by SHA-256.
-  coverage-sde:
-    name: coverage >=95% (llvm-cov, SDE upper tiers)
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [native, v4x, v3_gfni_crypto]
     env:
       SDE_VERSION: sde-external-10.13.1-2026-07-28-lin
       SDE_URL: https://downloadmirror.intel.com/924984/sde-external-10.13.1-2026-07-28-lin.tar.xz
@@ -132,6 +112,7 @@ jobs:
             grep -qw "$flag" /proc/cpuinfo && echo "$flag yes" || echo "$flag no"
           done
       - name: install Intel SDE
+        if: matrix.shard != 'native'
         run: |
           curl -sSfL --retry 5 -o "$RUNNER_TEMP/sde.tar.xz" "$SDE_URL"
           echo "$SDE_SHA256  $RUNNER_TEMP/sde.tar.xz" | sha256sum -c -
@@ -139,19 +120,40 @@ jobs:
           echo "SDE_PATH=$RUNNER_TEMP/$SDE_VERSION" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=$GITHUB_WORKSPACE/.github/scripts/sde-runner.sh" >> "$GITHUB_ENV"
       - name: emulated tier reports the requested backend
+        if: matrix.shard != 'native'
         run: |
-          for tier in v4x v3_gfni_crypto; do
-            report="$(SIMD_BACKEND="$tier" cargo run -q --all-features --example backend_report)"
-            printf '%s\n' "$report" | sed -n 1,2p
-            printf '%s\n' "$report" | grep -qx "actual=$tier"
-          done
-      - run: just cover
-      - run: just cover-lcov
-        if: always()
+          report="$(SIMD_BACKEND='${{ matrix.shard }}' cargo run -q --all-features --example backend_report)"
+          printf '%s\n' "$report" | sed -n 1,2p
+          printf '%s\n' "$report" | grep -qx 'actual=${{ matrix.shard }}'
+      - run: just cover-shard ${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.shard }}
+          path: coverage-${{ matrix.shard }}/
+          if-no-files-found: error
+
+  coverage:
+    name: coverage >=95% (llvm-cov)
+    runs-on: ubuntu-latest
+    needs: coverage-shard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov@0.9.0,cargo-nextest@0.9.148
+      - uses: extractions/setup-just@v2
+      # Each artifact downloads into its own `coverage-SHARD/` directory.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+      - run: just cover-merge coverage-native coverage-v4x coverage-v3_gfni_crypto
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: coverage-lcov-sde
+          name: coverage-lcov
           path: coverage.lcov
 
   cross:

@@ -518,7 +518,11 @@ may resolve to another supported tier; inspect reported backends before treating
 a green run as ISA coverage.
 
 Hosted coverage excludes only the explicit file lists in `crate.just`; the
-hosted runner cannot guarantee GFNI or AVX-512.
+hosted runner cannot guarantee GFNI or AVX-512. CI runs it as `just
+cover-shard` jobs merged by `just cover-merge`: the `COV_EMULATED_TIERS`
+shards (`v4x`, `v3_gfni_crypto`) run under Intel SDE with Sapphire Rapids
+CPUID through `.github/scripts/sde-runner.sh`, so every hosted runner
+executes the same tier paths; `just cover` remains the local single-host form.
 
 | Group | Files relative to `src/kernel/` | Why hosted runners cannot cover it |
 |---|---|---|

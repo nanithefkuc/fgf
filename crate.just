@@ -55,6 +55,69 @@ COV_IGNORE := '"' + COV_IGNORE_GFNI + '|' + COV_IGNORE_AVX512 + '|' + COV_IGNORE
 cover-lcov:
     cargo llvm-cov report --lcov --output-path coverage.lcov --ignore-filename-regex {{COV_IGNORE}}
 
+# Tiers whose hosted coverage passes run under Intel SDE (see
+# `.github/scripts/sde-runner.sh`): hosted runners differ in CPU generation,
+# and `SIMD_BACKEND` only downgrades.
+COV_EMULATED_TIERS := 'v4x v3_gfni_crypto'
+
+# One hosted coverage shard: its raw profiles are copied to
+# `coverage-SHARD/`. `native` runs the unforced pass, the natively executable
+# tiers and the no-default-features end; an emulated tier name runs that tier
+# alone. Together the shards make the same passes as `cover`.
+[group('cover')]
+cover-shard SHARD:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export CARGO_PROFILE_TEST_OPT_LEVEL=0
+    run=(cargo llvm-cov nextest --no-report --no-tests=warn)
+    emulated=({{COV_EMULATED_TIERS}})
+    cargo llvm-cov clean --workspace
+    if [[ "{{SHARD}}" == native ]]; then
+        "${run[@]}" --all-features
+        for tier in {{TIERS}}; do
+            [[ " ${emulated[*]} " == *" ${tier} "* ]] && continue
+            echo "── SIMD_BACKEND=${tier}"
+            SIMD_BACKEND="${tier}" "${run[@]}" --all-features
+        done
+        "${run[@]}" --no-default-features
+    elif [[ " ${emulated[*]} " == *" {{SHARD}} "* ]]; then
+        echo "── SIMD_BACKEND={{SHARD}}"
+        SIMD_BACKEND="{{SHARD}}" "${run[@]}" --all-features
+    else
+        printf 'cover-shard: unknown shard %s\n' "{{SHARD}}" >&2
+        exit 2
+    fi
+    rm -rf "coverage-{{SHARD}}"
+    mkdir "coverage-{{SHARD}}"
+    cp target/llvm-cov-target/*.profraw "coverage-{{SHARD}}/"
+
+# Merge shard profiles and apply the same gate as `cover`. The instrumented
+# test binaries are rebuilt from this tree without running a test, every
+# shard directory's raw profiles join them, and `llvm-cov` reports once, so
+# the line metric is exactly the one `cover` gates.
+[group('cover')]
+cover-merge *SHARDS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export CARGO_PROFILE_TEST_OPT_LEVEL=0
+    build=(cargo llvm-cov nextest --no-report --no-tests=pass -E 'none()')
+    cargo llvm-cov clean --workspace
+    "${build[@]}" --all-features
+    "${build[@]}" --no-default-features
+    for shard in {{SHARDS}}; do
+        files=("${shard}"/*.profraw)
+        [[ -e "${files[0]}" ]] || { printf 'cover-merge: %s holds no profiles\n' "${shard}" >&2; exit 1; }
+        printf 'cover-merge: %s: %d profiles\n' "${shard}" "${#files[@]}"
+        # Process IDs in profile names can repeat across runners.
+        for file in "${files[@]}"; do
+            cp "${file}" "target/llvm-cov-target/$(basename "${shard}")-$(basename "${file}")"
+        done
+    done
+    ignore=(--ignore-filename-regex {{COV_IGNORE}})
+    cargo llvm-cov report --summary-only "${ignore[@]}"
+    cargo llvm-cov report --lcov --output-path coverage.lcov "${ignore[@]}"
+    cargo llvm-cov report --fail-under-lines {{COV_MIN}} "${ignore[@]}"
+
 # Native coverage on an acceptance host that executes every declared ISA
 # (AVX-512 and GFNI included): the same per-tier walk as the hosted `cover`,
 # a report of every file, and a separate extraction of the GFNI, AVX-512,
