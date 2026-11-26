@@ -118,7 +118,7 @@ pub(super) const XOR_PEEL_MIN: usize = 512;
 /// multiply stays on the GFNI body at every size. The halved 32768
 /// candidate fails superiority, so the cutoff stays; the two-arm evidence
 /// is the threshold record at
-/// <https://github.com/nanithefkuc/fgf/blob/v4/benchmarks/thresholds.md#threshold-20261108T143928Z-golden-cove>.
+/// <https://github.com/nanithefkuc/fgf/blob/v4.0.1/benchmarks/thresholds.md#threshold-20261108T143928Z-golden-cove>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(super) const GF8_NIBBLE_MUL_ASSIGN_MIN: usize = 65_536;
 
@@ -176,7 +176,7 @@ pub(super) const MUL_ADD_PEEL_MIN: usize = 3584;
 /// one full vector of four complex elements. Both halved and doubled
 /// neighbours fail superiority on both hosts; the two-arm evidence is the
 /// threshold record at
-/// <https://github.com/nanithefkuc/fgf/blob/v4/benchmarks/thresholds.md#threshold-20261108T142824Z-golden-cove>.
+/// <https://github.com/nanithefkuc/fgf/blob/v4.0.1/benchmarks/thresholds.md#threshold-20261108T142824Z-golden-cove>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(super) const QUAD_VECTOR_MUL_MIN_BYTES: usize = 32;
 
@@ -185,7 +185,7 @@ pub(super) const QUAD_VECTOR_MUL_MIN_BYTES: usize = 32;
 /// `V2` hosts route all additive rows through the 16-byte SSE4.2 kernels.
 /// The halved neighbour passes on Willow and fails on Golden Cove, so the
 /// AVX2 cutoff stays; the two-arm evidence is the threshold record at
-/// <https://github.com/nanithefkuc/fgf/blob/v4/benchmarks/thresholds.md#threshold-20261108T142601Z-golden-cove>.
+/// <https://github.com/nanithefkuc/fgf/blob/v4.0.1/benchmarks/thresholds.md#threshold-20261108T142601Z-golden-cove>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(super) const QUAD_VECTOR_ADD_MIN_BYTES: usize = 64;
 

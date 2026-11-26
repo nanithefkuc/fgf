@@ -6,37 +6,32 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-11-26
+
 ### Fixed
 
-- Harden placement-stratified paired benchmark acceptance (`fgf-pair/7`,
-  `page-sparse/1`), add the versioned in-tree threshold scanner and missing
-  GF(2)/`qm31` benchmark cells, and bind native calibrations across both
-  reference hosts. [#132](https://github.com/nanithefkuc/fgf/issues/132).
-- Remove private hostnames and local account identifiers from routing
-  threshold citations, benchmark records, and benchmark tooling, and harden
-  `benches/publish.py` to recompute published rows and enforce drift caps from
-  retained run data.
-  [#129](https://github.com/nanithefkuc/fgf/issues/129).
-- Use subfield descent and exact Frobenius rank for general const extension
-  irreducibility validation, avoiding `long_running_const_eval` on dense
-  relations while preserving representation limits and field conventions.
-  [#103](https://github.com/nanithefkuc/fgf/issues/103),
+- General const extension irreducibility validation uses subfield descent and
+  exact Frobenius rank, so dense relations no longer hit
+  `long_running_const_eval`. Representation limits and field conventions are
+  unchanged. [#103](https://github.com/nanithefkuc/fgf/issues/103),
   [#128](https://github.com/nanithefkuc/fgf/issues/128),
   [#136](https://github.com/nanithefkuc/fgf/pull/136).
-- Paired performance checks compare measured page-placement distributions
-  instead of a single buffer and stack placement, retaining per-placement
-  diagnostics ([#120](https://github.com/nanithefkuc/fgf/issues/120),
-  [#121](https://github.com/nanithefkuc/fgf/pull/121)).
-- Portable benchmark builds retain the residue strategy type used by scalar
-  route reporting, including all-feature i686 builds.
-- Small unprepared GF(2^64) `mul_add` and `mul_into` calls no longer expand
-  wide-tower coefficient preparation into each operation.
-  [#106](https://github.com/nanithefkuc/fgf/issues/106).
-- GF(2^16) AVX2 scatter performance no longer depends on the caller's stack
-  alignment. [#105](https://github.com/nanithefkuc/fgf/issues/105).
-- AVX2 Fan–Paar GF(2^16)/GF(2^32) and 64-bit residue performance no longer
-  depends on the caller's stack alignment.
-  [#115](https://github.com/nanithefkuc/fgf/issues/115).
+- Small unprepared GF(2^64) `mul_add` and `mul_into` calls no longer inline
+  wide-tower coefficient preparation into every operation.
+  [#106](https://github.com/nanithefkuc/fgf/issues/106),
+  [#107](https://github.com/nanithefkuc/fgf/pull/107).
+- GF(2^16) AVX2 scatter, AVX2 Fan–Paar GF(2^16)/GF(2^32) and 64-bit residue
+  kernel performance no longer depends on the caller's stack alignment.
+  [#105](https://github.com/nanithefkuc/fgf/issues/105),
+  [#114](https://github.com/nanithefkuc/fgf/pull/114),
+  [#115](https://github.com/nanithefkuc/fgf/issues/115),
+  [#116](https://github.com/nanithefkuc/fgf/pull/116).
+- `bits::dot_product` and `bits::weight` walk whole words in fixed blocks on
+  every tier, removing input-dependent timing levels.
+  [#108](https://github.com/nanithefkuc/fgf/issues/108),
+  [#109](https://github.com/nanithefkuc/fgf/pull/109),
+  [#110](https://github.com/nanithefkuc/fgf/pull/110),
+  [#124](https://github.com/nanithefkuc/fgf/pull/124).
 - Short `QuadMersenne31` additive and scalar-broadcast operations recover
   dispatch overhead on x86-64 `V3`/`V4x` hosts.
   [#117](https://github.com/nanithefkuc/fgf/issues/117),
@@ -45,191 +40,38 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- SSE4.2 (`V2`) additive and scalar-broadcast kernels for `QuadMersenne31`
-  (`add_assign`, `sub_assign`, `add_assign_scalar`, `sub_assign_scalar`).
+- SSE4.2 (`V2`) `QuadMersenne31` kernels for `add_assign`, `sub_assign`,
+  `add_assign_scalar` and `sub_assign_scalar`. On `V2` hosts
+  `backend_for::<QuadMersenne31>()` now reports `Backend::V2` instead of
+  `Backend::Scalar`, within its documented contract.
   [#118](https://github.com/nanithefkuc/fgf/issues/118),
   [#127](https://github.com/nanithefkuc/fgf/pull/127).
-- `just bench-baseline` records standalone descriptive measurements across
-  scalar arithmetic, representations, storage, generic extensions, maps,
-  preparation, and bulk operations, without requiring paired acceptance or
-  calibration. An explicit harness or case selection narrows the capture.
-- `bench-pair --cells` declares a timing scope and rationale while retaining
-  full cross-arm correctness checks and the calibrated paired decision rules.
-- Calibrated inventory records preserve signed unstable-cell classifications
-  when optimization targets extend the catalogue; new cases face the paired
-  gate without an exclusion.
-- `just kernel-registry-check` derives x86 entry identities and token tiers
-  from pinned compiler rustdoc data, audits reachability and explicit helper
-  exceptions, and binds native-acceptance artifacts to their tested tree.
-- `just cover-native` reports GFNI, AVX-512, and dispatch-module coverage
-  separately on a host that executes every ISA, and applies the 95% gate to
-  the hosted scope.
-- `just bench-pair` measures a candidate library revision against a base
-  revision under one measurement snapshot, with pinned-core and host
-  preconditions, counterbalanced runs, Hodges–Lehmann location estimates and
-  one-sided Wilcoxon signed-rank bounds against `PAIR_DELTA` and `PAIR_GAMMA`,
-  per-host `PAIR_RUNS` and `PAIR_DRIFT_CAP` bindings, interquartile-range drift
-  relative to the median, per-tier unstable-cell reporting and stable-cell run counts,
-  calibration, threshold, and layout-only modes, `--reanalyze` of a stored
-  session, and `--write-unstable` merging of calibration sessions.
-- `benches/unstable_cells.json` records owner-signed unstable cells per host,
-  tier, toolchain, flags, and inventory digest. Listed cells are measured and
-  published with the Unstable marker but excluded from the paired decisions
-  unless a target declaration with at least `PAIR_UNSTABLE_TARGET_RUNS` runs
-  includes them.
-- The `operations` bench measures public `ops` and `ops::bits` call shapes
-  over page-aligned deterministic fixtures with fixed role offsets, with an
-  independent oracle and a fixed cell inventory that drives paired measurement
-  and coverage mapping.
-- `just bench-coverage-map TIER` maps kernel-registry entries and threshold
-  branches to the operations cells that execute them under instrumented
-  coverage, with a reviewed exceptions file for unmapped and unreachable
-  items.
-- `just bench-publish` renders and verifies `BENCHMARKS.md` and the
-  `benchmarks/` record pages from the committed session manifest and captured
-  competitor logs.
 
 ### Changed
 
-- Normalize x86 kernel layout and naming (`x86/gf32/gfni.rs`, `x86/gf64/gfni.rs`,
-  `fan_paar/gf16/{ssse3,avx2}.rs`, `fan_paar/{gf32,gf64}/avx2.rs`,
-  `gf8/rows.rs`), adopt operation–ISA–`_with` order across unstable `internals`
-  kernel entries, move scalar `gf32_tiles` and `gf64_tiles` to
-  `internals::kernel::tables`, remove the empty tokenless kernel-registry
-  allowlist, and remove module-level lint suppressions under `src/kernel/`.
-  [#133](https://github.com/nanithefkuc/fgf/issues/133).
-- Coverage-map call-site attribution must equal the reviewed
-  `benches/call_sites.json` table; `just bench-call-sites-update` rewrites it.
-  [#133](https://github.com/nanithefkuc/fgf/issues/133).
-- Consolidate comparison packages under `benches/compare/`, enable `v4` push
-  CI, remove retired Wasm `simd128` / NEON references, and align contributor
-  documentation while keeping `benches/operations/**` in the crate package.
+- Dispatch resolves one cached kernel strategy per field family; routing
+  thresholds and their values are unchanged.
+  [#130](https://github.com/nanithefkuc/fgf/issues/130).
+- Unstable `internals` only (no compatibility guarantee): x86 kernel modules
+  and entries are renamed to an operation–ISA–`_with` layout,
+  `internals::kernel::residue` moves to `internals::kernel::routing`, scalar
+  `gf32_tiles`/`gf64_tiles` move to `internals::kernel::tables`, and
+  `KernelBackend`, `has_vector_elementwise`, `vector_elementwise_min_bytes`
+  and `residue::vector_backend` are removed; use `backend_for`.
+  [#130](https://github.com/nanithefkuc/fgf/issues/130),
+  [#133](https://github.com/nanithefkuc/fgf/issues/133),
+  [#140](https://github.com/nanithefkuc/fgf/pull/140).
+- Development tooling, not shipped behavior: the `operations` benchmark,
+  placement-stratified paired acceptance (`just bench-pair`), kernel-registry
+  and coverage-map gates, benchmark publication without private host
+  identities, and consolidated CI.
   [#101](https://github.com/nanithefkuc/fgf/issues/101),
-  [#131](https://github.com/nanithefkuc/fgf/issues/131).
-- `bits::dot_product` walks whole words in fixed 512-byte blocks with a
-  loop-free remainder decomposition, replacing the 64-byte block walk.
-  [#108](https://github.com/nanithefkuc/fgf/issues/108),
-  [#109](https://github.com/nanithefkuc/fgf/pull/109),
-  [#124](https://github.com/nanithefkuc/fgf/pull/124).
-- `bits::weight` walks whole words in fixed blocks on every tier without the
-  AVX-512 popcount kernel, without a per-word end-of-input check in its loop.
-  [#108](https://github.com/nanithefkuc/fgf/issues/108),
-  [#110](https://github.com/nanithefkuc/fgf/pull/110).
-- Paired measurement preserves cross-arm output mismatch rejections, checks
-  complete normal-dependency identities, requires verifiable SMT and snapshot
-  runner state, and enforces drift limits on layout remeasurements.
-- Calibration selects the smallest common passing prefix across tiers.
-  Threshold declarations retain source comparison semantics and reject
-  noninteger cutoffs or empty target sets; publication rechecks predicates
-  against recorded targets.
-- Threshold records retain unsuccessful neighbour comparisons as evidence,
-  with explicit decision columns and stable citation anchors, without
-  treating those candidates as accepted current results.
-- Benchmark coverage attributes macro-expanded operations to their concrete
-  function instances and derives private-helper tier requirements from callers,
-  retaining conservative requirements when attribution is ambiguous.
-- Coverage exceptions require measured source-owner witnesses and matching
-  operation geometry, including count boundaries and complete tuning schedules.
-  Scalar bulk operations contribute exact compiler function counters.
-- Coverage-exception declarations can scope straddling cells per tier and
-  prove an opaque nested kernel through a fingerprinted direct caller, a
-  proof that never credits the callee with execution.
-- Coverage maps defer unobserved tier-specific sites to their own tier sessions;
-  observed fallback routes and unknown site owners remain required.
-- Coverage isolates operation-time function counts from inventory startup,
-  checks element schedules using compiler-owned lane geometry, rejects
-  aggregates that defer a threshold at every tier, and excludes non-code
-  regions from entry execution evidence.
-- Stronger-tier coverage requires direct execution evidence rather than a
-  potential dispatch call. Short-gather fixtures exercise source-count and
-  remainder-alignment boundaries; exception geometry respects preceding guards.
-- `just bench-threshold-scan` tests and regenerates an external threshold
-  inventory. Compound constant expressions do not claim bare scalar cutoffs.
-- Paired measurements collect optional per-row compiler-function observations
-  from separate instrumented artifacts without using them in decision rules.
-  Diagnostic deadlines terminate their child processes before measurement.
-- Calibration diagnostics retain the common-prefix estimates and prior drift.
-  Threshold mode rejects independent target declarations and unsupported units.
-- Aggregate coverage retains failures from every required host/tier row.
-  Ambiguous attribution remains a failure and is not suggested as an exception.
-- Routing applicability follows closed strategy guards and complete helper
-  chains without treating unexecuted vector-only selectors as scalar work.
-- Paired drift gating uses the start-control interquartile range relative to
-  the median within each tier and stage. Every host's cap is half the
-  noninferiority margin; the calibration-derived cap remains a reported
-  diagnostic. Record validation
-  uses the drift metric associated with each method version.
-- Paired acceptance and threshold campaigns confirm eligible noninferiority
-  failures in fresh same-session processes without pooling stages. Session
-  records and reanalysis retain both stage outcomes; publication distinguishes
-  confirmed regressions from unconfirmed main-stage diagnostics. Reanalysis
-  of earlier single-stage records applies their recorded signed-unstable
-  exclusions, as their live decisions did.
-- Dispatch resolves one cached kernel-strategy enum per family beside the
-  process backend, and every dispatch arm matches that strategy — or a
-  prepared coefficient's variant, which carries the choice its preparation
-  made — instead of rematching the process backend per call. Public
-  `backend` queries and `backend_for` results are unchanged.
-- Every routing threshold and the residue geometry selectors live in one
-  private routing module, `kernel::routing`; kernel tuning parameters stay
-  with their kernels. `fgf::internals::kernel::residue` moves to
-  `fgf::internals::kernel::routing`, its selectors now return the exposed
-  `fgf::internals::kernel::ResidueStrategy` class, and every threshold value
-  is unchanged.
-- The Mersenne31 and Goldilocks dispatch impls, the GF(2^32)/GF(2^64)
-  storage dispatch, and the portable scaled-row loops of `kernel::scalar`
-  and `kernel::prime` share one generator each; each convention keeps its
-  own byte-level zero and unit shortcuts.
-- Benchmark publication refreshes measured anchors independently, preserving
-  each row's revision, session, scope, and method. Descriptive surface
-  measurements have a separate table; latest measurements do not imply a
-  synchronized snapshot of the newest release.
-- Same-session measurement applies to the relevant before/after or competitor
-  comparison, not to unrelated historical rows. Both runners share one
-  campaign lock, and benchmark validation includes the Python tooling suites.
-- Direct kernel differentials share deterministic raw fixtures and a
-  request-bounded token gate. Successful arithmetic comparisons emit the
-  compiler's entry definition path; required-tier hardware shortfalls fail
-  independently of downgrade requests.
-- `just isa-accept` audits every initial and downgraded run against the entry
-  registry. CI consumes the generated artifact and rejects missing or stale
-  artifacts instead of regenerating them.
-- Kernel tests split by field family and ISA; quadratic Mersenne comparisons
-  move from production kernel files into that shared test tree.
-- Hosted coverage excludes explicit GFNI and AVX-512 files and the
-  `kernel/gf8.rs` and `kernel/tower.rs` dispatch modules, rather than whole
-  binary-field families.
-- Benchmark records publish through `BENCHMARKS.md`: rows are anchored by
-  host, tier, and cell, history is append-only, current rows track the latest
-  session, and calibration, threshold, layout-exception, and competitor
-  measurements have dedicated tables.
-- `bench-comp` drives the stable-API `operations` family panel as its self
-  arm; the `kernels` bench retains the internals-only direct-kernel panels.
-- Paired measurement resolves `PAIR_RUNS` and
-  `PAIR_DRIFT_CAP` per hostname, disables ASLR for every check and timing
-  child, gives both arms one identical environment block and equal argv
-  lengths, and excludes signed unstable cells from the decision rules.
-- The private storage dispatch contract declares every row entry that
-  previously existed only as an engine fallback: the overwrite
-  scatter/gather/matrix forms, the scattered matrix family, pairwise row
-  add/sub, and the prepared `_with`/`_plan` providers. Extension rows now
-  route every entry through their storage, so the two contracts cannot
-  diverge, and each storage keeps the same default composition as before.
-- Engine fallback entry lists derive from one shared default set plus
-  per-family additions instead of one hand-kept list per implementation.
-
-### Removed
-
-- `fgf::internals::kernel::KernelBackend`, including `has_native_mul` and
-  `has_blocked_rows`, is deleted. The implemented tier ladder remains at
-  `fgf::internals::kernel::FGF_TIERS`, and `backend_for` reports the
-  field-strategy summary.
-- The free `fgf::internals::kernel::has_vector_elementwise` and
-  `vector_elementwise_min_bytes` queries, and
-  `fgf::internals::kernel::residue::vector_backend`, are deleted together
-  with the private dispatch entries they wrapped. Use `backend_for` for the
-  field-strategy summary; per-operation vector thresholds are no longer
-  exposed.
+  [#120](https://github.com/nanithefkuc/fgf/issues/120),
+  [#121](https://github.com/nanithefkuc/fgf/pull/121),
+  [#129](https://github.com/nanithefkuc/fgf/issues/129),
+  [#131](https://github.com/nanithefkuc/fgf/issues/131),
+  [#132](https://github.com/nanithefkuc/fgf/issues/132),
+  [#133](https://github.com/nanithefkuc/fgf/issues/133).
 
 ## [4.0.0] - 2026-11-06
 
@@ -2263,7 +2105,8 @@ behaviour.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v4.0.0...HEAD
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v4.0.1...HEAD
+[4.0.1]: https://github.com/nanithefkuc/fgf/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/nanithefkuc/fgf/compare/v3.0.2...v4.0.0
 [3.0.2]: https://github.com/nanithefkuc/fgf/compare/v3.0.1...v3.0.2
 [3.0.1]: https://github.com/nanithefkuc/fgf/compare/v3.0.0...v3.0.1

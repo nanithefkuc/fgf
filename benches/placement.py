@@ -224,6 +224,11 @@ def validate_run(record, rounds, expected_arms=None, expected_cells=None, method
         raise ValueError("arm summaries differ from expected cells")
 
     for point, stratum in zip(expected_plan, strata):
+        if method == METHOD:
+            missing = [key for key in ("order", "environment_digest", "argv_lengths")
+                       if key not in stratum]
+            if missing:
+                raise ValueError("stratum is missing " + ", ".join(missing))
         if "order" in stratum:
             if stratum["order"] != arm_order(base_arms, run_index, point["index"], method=method):
                 raise ValueError("stratum arm order differs from the declared design")

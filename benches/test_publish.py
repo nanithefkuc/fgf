@@ -850,6 +850,19 @@ class PublisherTests(unittest.TestCase):
         reordered7["runs"][0], reordered7["runs"][1] = reordered7["runs"][1], reordered7["runs"][0]
         with self.assertRaises(publish.PublishError):
             publish.validate_session(reordered7, "out-of-order /7 runs")
+        # /7 strata must carry their design evidence; dropping it fails validation.
+        for key in ("order", "environment_digest", "argv_lengths"):
+            stripped7 = copy.deepcopy(session)
+            for run in stripped7["runs"]:
+                for stratum in run["placements"]:
+                    del stratum[key]
+            with self.subTest(key=key), self.assertRaises(publish.PublishError):
+                publish.validate_session(stripped7, f"/7 strata without {key}")
+        # A tier that ran on a different backend than requested is not evidence for it.
+        mislabelled7 = copy.deepcopy(session)
+        mislabelled7["tiers"][0]["reported"] = "scalar"
+        with self.assertRaises(publish.PublishError):
+            publish.validate_session(mislabelled7, "/7 tier on another backend")
 
         # Reordering runs in a /7 calibration session must fail even if derived
         # calibration recommendation fields are recomputed for the permuted order.
