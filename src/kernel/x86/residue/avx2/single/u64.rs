@@ -194,13 +194,7 @@ pub fn mul_into_avx2(
 /// `p` is odd, and `c_mont` is below `p`.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_avx2(
-    _token: archmage::X64V3Token,
-    dst: &mut [u8],
-    src: &[u8],
-    c_mont: u64,
-    p: u64,
-) {
+pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8], c_mont: u64, p: u64) {
     align_spill_slots();
     assert_eq!(
         dst.len(),
