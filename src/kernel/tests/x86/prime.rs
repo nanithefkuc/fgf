@@ -37,7 +37,7 @@ const GLD_COEFFS: [u64; 8] = [
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn prime_avx2_kernels_match_reference() {
+fn kernels_avx2_match_reference() {
     tier_gate::run_entry(x86::mersenne31::add_assign_avx2, |token, entry| {
         drive_prime_len::<Mersenne31>(
             M31_LENS,
@@ -272,7 +272,7 @@ fn prime_avx2_kernels_match_reference() {
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn prime_sse42_kernels_match_reference() {
+fn kernels_sse42_match_reference() {
     tier_gate::run_entry(x86::mersenne31::add_assign_sse42, |token, entry| {
         drive_prime_len::<Mersenne31>(
             M31_LENS,
@@ -515,7 +515,7 @@ const GLD_WIDE: &[usize] = &[0, 8, 56, 64, 72, 96, 128, 200, 264, 1024, 1032];
 #[cfg(feature = "simd512")]
 #[test]
 #[allow(clippy::too_many_lines)]
-fn prime_avx512_kernels_match_reference() {
+fn kernels_avx512_match_reference() {
     tier_gate::run_entry(
         x86::mersenne31::add_assign_avx512,
         |token: X64V4xToken, entry| {
@@ -855,6 +855,7 @@ fn prime_entries_canonicalize_noncanonical_lanes() {
     const C64: &[u64] = &[0, 1, 2, 0x53, PGLD, u64::MAX];
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::cast_possible_truncation)]
     fn drive_m31(
         label: &str,
         add: impl Fn(&mut [u8], &[u8]),
@@ -1967,7 +1968,7 @@ fn prime_entries_canonicalize_noncanonical_lanes() {
 #[test]
 // Five m31 and three qm31 entries per alias placement: a table by nature.
 #[allow(clippy::too_many_lines)]
-fn mersenne_avx512_screen_reaches_every_lane() {
+fn mersenne_kernels_avx512_screen_reaches_every_lane() {
     use crate::field::quad_mersenne31::QuadMersenne31;
     const P: u32 = crate::field::mersenne31::MODULUS;
     // Forty-nine 64-byte lanes and a sub-lane tail of one QM31 element.

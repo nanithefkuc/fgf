@@ -29,6 +29,7 @@ fn zeros(len: usize) -> Vec<u8> {
     (0..len).map(|_| 0u8).collect()
 }
 
+#[allow(clippy::cast_possible_truncation)]
 fn noise_bits(bits: usize, seed: u64) -> Vec<u8> {
     let mut state = seed | 1;
     let mut buf = zeros(bits.div_ceil(8));
@@ -144,6 +145,7 @@ fn range_kernels_match_oracle() {
 }
 
 #[test]
+#[allow(clippy::cast_possible_truncation)]
 fn weight_parity_and_gather_match_oracle() {
     for &bits_len in BITS {
         let a = noise_bits(bits_len, 0x60 + bits_len as u64);

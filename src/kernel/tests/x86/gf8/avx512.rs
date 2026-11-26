@@ -13,7 +13,7 @@ use super::*;
 #[allow(clippy::type_complexity)]
 // Exhaustive coefficient forms with all-byte-values sources.
 #[allow(clippy::too_many_lines)]
-fn gf8_avx512_kernels_match_reference() {
+fn kernels_avx512_match_reference() {
     if tier_gate::summon::<X64V4xToken>().is_none() {
         return;
     }
@@ -792,7 +792,7 @@ fn check_matrix_resolve_chunks<E: Copy>(
 #[allow(clippy::type_complexity)]
 #[cfg(feature = "simd512")]
 #[test]
-fn gf8_avx512_matrix_straddles_resolve_chunk() {
+fn mul_add_matrix_avx512_with_straddles_resolve_chunk() {
     if tier_gate::summon::<X64V4xToken>().is_some() {
         let entries: [MatrixEntry<'_, Elem<FiniteField<2, 8, Polynomial<RS>>>>; 1] =
             [("mul_add", false, &|rows,
@@ -1154,7 +1154,7 @@ fn gf8_avx512_matrix_straddles_resolve_chunk() {
 #[cfg(feature = "simd512")]
 #[test]
 #[allow(clippy::too_many_lines)]
-fn gf8_avx512_matrix_column_blocks_match_reference() {
+fn matrix_kernels_avx512_column_blocks_match_reference() {
     if tier_gate::summon::<X64V4xToken>().is_some() {
         for offset in [16usize, 0] {
             check_matrix_column_blocks(

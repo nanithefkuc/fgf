@@ -15,7 +15,7 @@
 //! dependency this family retains.
 
 use super::super::{BodySite, EntryBody};
-use super::{bfactor_gfni, bmul_gfni, bmul_half_gfni};
+use super::{bfactor_gfni, bmul_gfni, bmul_gfni_half};
 use crate::kernel::gf8::{Prepared, mul_add_nibble, mul_assign_nibble, mul_into_nibble};
 use crate::kernel::routing::HALF_LANE_PEEL_MIN;
 
@@ -47,7 +47,7 @@ pub fn mul_add_gfni<const NATIVE: bool>(
         let d0 = _mm_loadu_si128(&d[0]);
         _mm_storeu_si128(
             &mut d[0],
-            _mm_xor_si128(d0, bmul_half_gfni::<NATIVE>(x, factor_half)),
+            _mm_xor_si128(d0, bmul_gfni_half::<NATIVE>(x, factor_half)),
         );
         mul_add_gfni_impl::<NATIVE, EntryBody>(&mut dst[16..], coeff, &src[16..]);
     } else {
@@ -106,7 +106,7 @@ pub(in crate::kernel::x86::gf8) fn mul_add_gfni_impl<const NATIVE: bool, S: Body
     for (d16, s16) in dst16.iter_mut().zip(src16) {
         let x = _mm_loadu_si128(s16);
         let d = _mm_loadu_si128(d16);
-        let r = _mm_xor_si128(d, bmul_half_gfni::<NATIVE>(x, factor_half));
+        let r = _mm_xor_si128(d, bmul_gfni_half::<NATIVE>(x, factor_half));
         _mm_storeu_si128(d16, r);
     }
 
@@ -143,7 +143,7 @@ pub(in crate::kernel::x86::gf8) fn mul_assign_gfni_impl<const NATIVE: bool, S: B
     };
     if head != 0 {
         let (d, _) = dst[..head].as_chunks_mut::<16>();
-        let value = bmul_half_gfni::<NATIVE>(_mm_loadu_si128(&d[0]), factor_half);
+        let value = bmul_gfni_half::<NATIVE>(_mm_loadu_si128(&d[0]), factor_half);
         _mm_storeu_si128(&mut d[0], value);
     }
     let dst = &mut dst[head..];
@@ -157,7 +157,7 @@ pub(in crate::kernel::x86::gf8) fn mul_assign_gfni_impl<const NATIVE: bool, S: B
     let (sixteens, tail) = rest.as_chunks_mut::<16>();
     for s16 in sixteens {
         let d = _mm_loadu_si128(&*s16);
-        _mm_storeu_si128(s16, bmul_half_gfni::<NATIVE>(d, factor_half));
+        _mm_storeu_si128(s16, bmul_gfni_half::<NATIVE>(d, factor_half));
     }
 
     mul_assign_nibble(tail, coeff.table);
@@ -279,7 +279,7 @@ pub(in crate::kernel::x86::gf8) fn mul_into_gfni_impl<
     let (src16, src_tail) = src_mid2.as_chunks::<16>();
     for (d16, s16) in dst16.iter_mut().zip(src16) {
         let x = _mm_loadu_si128(s16);
-        _mm_storeu_si128(d16, bmul_half_gfni::<NATIVE>(x, factor_half));
+        _mm_storeu_si128(d16, bmul_gfni_half::<NATIVE>(x, factor_half));
     }
 
     mul_into_nibble(dst_tail, coeff.table, src_tail);

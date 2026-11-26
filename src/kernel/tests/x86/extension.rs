@@ -75,6 +75,7 @@ fn rs_extension_kernels_match_scalar() {
 /// one-shot raw-element forms resolve against the RS bank on access.
 #[test]
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::cast_possible_truncation)]
 fn rs_extension_dispatch_matches_scalar() {
     let Some(_) = tier_gate::summon::<X64V2Token>() else {
         eprintln!("skipping: no SSSE3 on this host");
@@ -326,6 +327,7 @@ fn custom_normal_base_tower_bulk_matches_scalar() {
 /// scalar reference.
 #[allow(clippy::too_many_lines)]
 #[test]
+#[allow(clippy::cast_possible_truncation)]
 fn aes_tower_multi_row_matches_scalar() {
     let Some(_) = tier_gate::summon::<X64V2Token>() else {
         eprintln!("skipping: no SSSE3 on this host");

@@ -429,7 +429,7 @@ pub(super) fn gf_mul_ref(mut a: u8, mut b: u8, reduction: u8) -> u8 {
 
 /// The 16-byte form of [`multiply_vectors_avx2`](super::multiply_vectors_avx2).
 #[archmage::rite(v2)]
-pub fn multiply_vectors_ssse3(mut a: __m128i, mut b: __m128i, reduction: u8) -> __m128i {
+pub(crate) fn multiply_vectors_ssse3(mut a: __m128i, mut b: __m128i, reduction: u8) -> __m128i {
     let zero = _mm_setzero_si128();
     let one = _mm_set1_epi8(1);
     let reduction = _mm_set1_epi8(reduction.cast_signed());

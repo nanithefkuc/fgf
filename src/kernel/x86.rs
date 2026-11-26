@@ -22,8 +22,6 @@
 //!   per lane, so `c * x` becomes two shuffles and an XOR against the
 //!   precomputed [`ScaleTable`](crate::field::binary::byte::ScaleTable).
 
-#![allow(clippy::incompatible_msrv)]
-
 pub mod bytes;
 pub mod fan_paar;
 pub mod gf16;

@@ -8,15 +8,8 @@
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-mod matrix;
-mod single;
-
-pub use matrix::{mul_add_matrix_u32_avx2_with, mul_into_matrix_u32_avx2_with};
-pub use single::{
-    mul_add_u8_avx2, mul_add_u32_avx2, mul_add_u64_avx2, mul_assign_u8_avx2, mul_assign_u32_avx2,
-    mul_assign_u64_avx2, mul_elementwise_assign_u32_avx2, mul_elementwise_u32_avx2,
-    mul_into_u8_avx2, mul_into_u32_avx2, mul_into_u64_avx2,
-};
+pub mod matrix;
+pub mod single;
 
 /// One conditional subtract of `p` over four packed 64-bit lanes.
 #[archmage::rite(v3)]

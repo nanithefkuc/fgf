@@ -7,7 +7,7 @@ use crate::kernel::tests::tier_gate;
 /// residues that peel, their odd neighbours that decline, and every
 /// destination offset against the byte-wise reference.
 #[test]
-fn bytes_avx2_peels_half_lane() {
+fn xor_avx2_peels_half_lane() {
     tier_gate::run_entry(x86::bytes::xor_avx2, |token, entry| {
         let floor = crate::kernel::routing::HALF_LANE_PEEL_MIN;
         for len in [floor - 2, floor - 1, floor, floor + 1, floor + 130, 1152] {

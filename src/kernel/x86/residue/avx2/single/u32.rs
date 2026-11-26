@@ -120,15 +120,25 @@ fn tail_mul_assign(dest: &mut [u8], src: &[u8], modulus: u32) {
     clippy::cast_possible_truncation
 )]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_u32_avx2(
+pub fn mul_elementwise_avx2(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
     a: &[u8],
     b: &[u8],
     params: U32Params,
 ) {
-    check_geometry_u32("residue::mul_elementwise_u32_avx2", dst.len(), "a", a.len());
-    check_geometry_u32("residue::mul_elementwise_u32_avx2", dst.len(), "b", b.len());
+    check_geometry_u32(
+        "residue::avx2::single::u32::mul_elementwise_avx2",
+        dst.len(),
+        "a",
+        a.len(),
+    );
+    check_geometry_u32(
+        "residue::avx2::single::u32::mul_elementwise_avx2",
+        dst.len(),
+        "b",
+        b.len(),
+    );
     let p = _mm256_set1_epi64x(params.p as u64 as i64);
     let mu = _mm256_set1_epi64x(params.barrett_mu as u64 as i64);
     let norm_mu = _mm256_set1_epi64x(u64::from(params.norm_mu) as i64);
@@ -147,7 +157,7 @@ pub fn mul_elementwise_u32_avx2(
 
 /// `dst[i] = dst[i] * src[i] (mod p)` over four-byte residue lanes, AVX2.
 ///
-/// The in-place form of [`mul_elementwise_u32_avx2`]: the `src` lanes
+/// The in-place form of [`mul_elementwise_avx2`]: the `src` lanes
 /// normalize on load and every stored lane is canonical.
 ///
 /// # Panics
@@ -161,14 +171,14 @@ pub fn mul_elementwise_u32_avx2(
     clippy::cast_possible_truncation
 )]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_assign_u32_avx2(
+pub fn mul_elementwise_assign_avx2(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
     src: &[u8],
     params: U32Params,
 ) {
     check_geometry_u32(
-        "residue::mul_elementwise_assign_u32_avx2",
+        "residue::avx2::single::u32::mul_elementwise_assign_avx2",
         dst.len(),
         "src",
         src.len(),
@@ -205,7 +215,7 @@ pub fn mul_elementwise_assign_u32_avx2(
 /// four-byte lanes.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_u32_avx2(
+pub fn mul_into_avx2(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
     src: &[u8],
@@ -213,7 +223,12 @@ pub fn mul_into_u32_avx2(
     q: u32,
     p: u32,
 ) {
-    check_geometry_u32("residue::mul_into_u32_avx2", dst.len(), "src", src.len());
+    check_geometry_u32(
+        "residue::avx2::single::u32::mul_into_avx2",
+        dst.len(),
+        "src",
+        src.len(),
+    );
     let cv = _mm256_set1_epi32(c as i32);
     let qv = _mm256_set1_epi32(q as i32);
     let p64 = _mm256_set1_epi64x(i64::from(p));
@@ -251,7 +266,7 @@ pub fn mul_into_u32_avx2(
 /// four-byte lanes.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_u32_avx2(
+pub fn mul_add_avx2(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
     src: &[u8],
@@ -259,7 +274,12 @@ pub fn mul_add_u32_avx2(
     q: u32,
     p: u32,
 ) {
-    check_geometry_u32("residue::mul_add_u32_avx2", dst.len(), "src", src.len());
+    check_geometry_u32(
+        "residue::avx2::single::u32::mul_add_avx2",
+        dst.len(),
+        "src",
+        src.len(),
+    );
     let cv = _mm256_set1_epi32(c as i32);
     let qv = _mm256_set1_epi32(q as i32);
     let p64 = _mm256_set1_epi64x(i64::from(p));
@@ -307,10 +327,10 @@ pub fn mul_add_u32_avx2(
 /// Panics if `dst` holds a partial four-byte lane.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_u32_avx2(_token: archmage::X64V3Token, dst: &mut [u8], c: u32, q: u32, p: u32) {
+pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], c: u32, q: u32, p: u32) {
     assert!(
         dst.len().is_multiple_of(4),
-        "residue::mul_assign_u32_avx2: dst lane width is 4 bytes but the buffer is {} bytes",
+        "residue::avx2::single::u32::mul_assign_avx2: dst lane width is 4 bytes but the buffer is {} bytes",
         dst.len()
     );
     let cv = _mm256_set1_epi32(c as i32);

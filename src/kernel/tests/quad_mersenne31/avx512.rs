@@ -135,7 +135,7 @@ fn model_zip(
 /// lengths, canonical random fixtures, and canonical edge elements in
 /// the source operands.
 #[test]
-fn avx512_matches_independent_model() {
+fn mul_elementwise_avx512_matches_independent_model() {
     tier_gate::run_entry(
         x86::quad_mersenne31::mul_elementwise_avx512,
         |token, entry| {
@@ -210,7 +210,7 @@ fn avx512_matches_independent_model() {
 /// Every entry agrees with the portable [`prime`] differential oracle
 /// over lengths straddling the vector lane.
 #[test]
-fn avx512_matches_portable_reference() {
+fn kernels_avx512_match_portable_reference() {
     // Sub-lane, exact lanes, lane-plus-tail, and a different tail.
     for &len in &[40usize, 64, 72, 136] {
         let src = edges(len);
@@ -247,7 +247,7 @@ fn avx512_matches_portable_reference() {
 /// unaligned load or store. Each offset window holds canonical element
 /// bytes copied in; only its address is odd.
 #[test]
-fn avx512_unaligned_slices() {
+fn kernels_avx512_unaligned_slices() {
     let len = 136;
     let src_elems = edges(len);
     let dst_elems = canonical(len, 0x82);
@@ -322,7 +322,7 @@ fn expect_geometry_panic(label: &str, dst: &mut [u8], invoke: impl FnOnce(&mut [
 /// partial trailing element, and every multi-operand entry rejects a
 /// length mismatch.
 #[test]
-fn avx512_geometry_validation_precedes_writes() {
+fn kernels_avx512_geometry_validation_precedes_writes() {
     let Some(token) = tier_gate::summon::<archmage::X64V4Token>() else {
         eprintln!("skipping: no AVX-512 on this host");
         return;

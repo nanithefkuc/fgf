@@ -140,7 +140,7 @@ fn tile_group<M: Matrix<PreparedResidue> + ?Sized>(
     clippy::used_underscore_binding
 )]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_matrix_u32_avx512_with<M: Matrix<PreparedResidue> + ?Sized>(
+pub fn mul_into_matrix_avx512_with<M: Matrix<PreparedResidue> + ?Sized>(
     _token: archmage::X64V4Token,
     rows: &mut [u8],
     row_len: usize,
@@ -149,7 +149,7 @@ pub fn mul_into_matrix_u32_avx512_with<M: Matrix<PreparedResidue> + ?Sized>(
     p: u32,
 ) {
     run_delayed::<M, false>(
-        "residue::mul_into_matrix_u32_avx512_with",
+        "residue::avx512::matrix::mul_into_matrix_avx512_with",
         rows,
         row_len,
         nrows,
@@ -178,7 +178,7 @@ pub fn mul_into_matrix_u32_avx512_with<M: Matrix<PreparedResidue> + ?Sized>(
     clippy::used_underscore_binding
 )]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_u32_avx512_with<M: Matrix<PreparedResidue> + ?Sized>(
+pub fn mul_add_matrix_avx512_with<M: Matrix<PreparedResidue> + ?Sized>(
     _token: archmage::X64V4Token,
     rows: &mut [u8],
     row_len: usize,
@@ -187,7 +187,7 @@ pub fn mul_add_matrix_u32_avx512_with<M: Matrix<PreparedResidue> + ?Sized>(
     p: u32,
 ) {
     run_delayed::<M, true>(
-        "residue::mul_add_matrix_u32_avx512_with",
+        "residue::avx512::matrix::mul_add_matrix_avx512_with",
         rows,
         row_len,
         nrows,
@@ -205,7 +205,7 @@ pub(crate) fn mul_into_with<const P: u64>(
     nrows: usize,
     terms: &(impl Matrix<PreparedResidue> + ?Sized),
 ) {
-    mul_into_matrix_u32_avx512_with(
+    mul_into_matrix_avx512_with(
         crate::kernel::x86_v4_token(),
         rows,
         row_len,
@@ -224,7 +224,7 @@ pub(crate) fn mul_add_with<const P: u64>(
     nrows: usize,
     terms: &(impl Matrix<PreparedResidue> + ?Sized),
 ) {
-    mul_add_matrix_u32_avx512_with(
+    mul_add_matrix_avx512_with(
         crate::kernel::x86_v4_token(),
         rows,
         row_len,

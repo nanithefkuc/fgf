@@ -50,12 +50,12 @@ fn tables(c: u8, p: u8) -> ([u8; 32], [u8; 32]) {
 /// 127.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_u8_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8], c: u8, p: u8) {
+pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8], c: u8, p: u8) {
     assert!(p <= 127, "residue byte: modulus {p} exceeds 127");
     assert_eq!(
         dst.len(),
         src.len(),
-        "residue::mul_into_u8_avx2: dst length differs from src"
+        "residue::avx2::single::u8::mul_into_avx2: dst length differs from src"
     );
     let (lo, hi) = tables(c, p);
     let lo_v = _mm256_loadu_si256(&lo);
@@ -94,12 +94,12 @@ pub fn mul_into_u8_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8]
 /// 127.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_u8_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8], c: u8, p: u8) {
+pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8], c: u8, p: u8) {
     assert!(p <= 127, "residue byte: modulus {p} exceeds 127");
     assert_eq!(
         dst.len(),
         src.len(),
-        "residue::mul_add_u8_avx2: dst length differs from src"
+        "residue::avx2::single::u8::mul_add_avx2: dst length differs from src"
     );
     let (lo, hi) = tables(c, p);
     let lo_v = _mm256_loadu_si256(&lo);
@@ -158,7 +158,7 @@ pub fn mul_add_u8_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8],
 /// (unreachable: every byte is a lane).
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_u8_avx2(_token: archmage::X64V3Token, dst: &mut [u8], c: u8, p: u8) {
+pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], c: u8, p: u8) {
     assert!(p <= 127, "residue byte: modulus {p} exceeds 127");
     let (lo, hi) = tables(c, p);
     let lo_v = _mm256_loadu_si256(&lo);

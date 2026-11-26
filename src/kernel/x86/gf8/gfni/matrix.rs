@@ -13,8 +13,8 @@
 //! [`Matrix`](crate::kernel::Matrix) provider for per-term coefficient counts
 //! — the one provider-callback residue in this family.
 
+use super::super::rows::{MAX_GROUP_ROWS, group_rows, matrix_group};
 use super::super::{ColumnWindow, RESOLVE_CHUNK, check_scattered, column_blocked, column_blocks};
-use super::rows::{MAX_GROUP_ROWS, group_rows, matrix_group};
 use crate::kernel::Matrix;
 use crate::kernel::gf8::Prepared;
 

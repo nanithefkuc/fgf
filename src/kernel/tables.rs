@@ -721,6 +721,87 @@ impl<E: crate::field::FieldElem> Tower2Coeff<E> {
     }
 }
 
+/// Pack two GF(2^16) [`TowerCoeff`] broadcast words into one 4-byte tile.
+///
+/// The low word applies to the even GF(2^16) lane, the high word to the odd
+/// lane, so a `_mm256_set1_epi32` of the result repeats the pair at the
+/// 4-byte period the GF(2^32) lane multiply needs.
+#[inline]
+#[allow(dead_code)]
+const fn pack32(lo: u16, hi: u16) -> u32 {
+    (lo as u32) | ((hi as u32) << 16)
+}
+
+/// The four 4-byte GFNI broadcast tiles for one GF(2^32) coefficient.
+///
+/// `same_a`/`cross_a` scale the source's two GF(2^16) lanes; `same_b`/
+/// `cross_b` scale the half-swapped source's. Each tile packs the two-byte
+/// [`TowerCoeff`] broadcast of its GF(2^16) lane coefficient. Built once in
+/// `prepare` and reused across the whole buffer; GF(2^64) reuses this to
+/// build its own 8-byte tiles.
+#[inline]
+#[must_use]
+#[allow(dead_code)]
+pub fn gf32_tiles(coeff: Elem<crate::field::binary::tower::Rijndael32Field>) -> [u32; 4] {
+    let [c0, c1] = coeff.to_components();
+    // `same = [c0, c0 + c1]` multiplies the source; `cross = [DELTA*c1, c1]`
+    // the half-swapped source, with `DELTA` the Rijndael32 relation's
+    // constant coefficient.
+    let delta = Elem::<crate::field::binary::tower::Rijndael16Field>::from_raw(0x2000);
+    let t = Tower2Coeff::derive(c0, c1, delta);
+    let [s0, s1] = t.same;
+    let [x0, x1] = t.cross;
+    let same_a = pack32(TowerCoeff::new(s0).same, TowerCoeff::new(s1).same);
+    let cross_a = pack32(TowerCoeff::new(s0).cross, TowerCoeff::new(s1).cross);
+    let same_b = pack32(TowerCoeff::new(x0).same, TowerCoeff::new(x1).same);
+    let cross_b = pack32(TowerCoeff::new(x0).cross, TowerCoeff::new(x1).cross);
+    [same_a, cross_a, same_b, cross_b]
+}
+
+/// Pack two 4-byte GF(2^32) tiles into one 8-byte tile.
+///
+/// The low tile applies to the even GF(2^32) lane, the high tile to the odd
+/// lane, so a `_mm256_set1_epi64x` of the result repeats the pair at the
+/// 8-byte period the GF(2^64) lane multiply needs.
+#[inline]
+#[allow(dead_code)]
+const fn pack64(lo: u32, hi: u32) -> u64 {
+    (lo as u64) | ((hi as u64) << 32)
+}
+
+/// The eight 8-byte GFNI broadcast tiles for one GF(2^64) coefficient.
+///
+/// Tiles 0–3 are the four GF(2^32) tiles of the `same` pair `[c0, c0 + c1]`
+/// (applied to the source and its inner shuffles); tiles 4–7 are those of
+/// the `cross` pair `[DELTA·c1, c1]` (applied to the half-swapped source).
+/// Each 8-byte tile packs two 4-byte [`gf32_tiles`] entries, so
+/// GF(2^64) reuses the GF(2^32) tile derivation unchanged.
+#[inline]
+#[must_use]
+#[allow(dead_code)]
+pub fn gf64_tiles(coeff: Elem<crate::field::binary::tower::Rijndael64Field>) -> [u64; 8] {
+    let [c0, c1] = coeff.to_components();
+    // `DELTA` is the Rijndael64 relation's constant coefficient.
+    let delta = Elem::<crate::field::binary::tower::Rijndael32Field>::from_raw(0x2000_0000);
+    let tower = Tower2Coeff::derive(c0, c1, delta);
+    let [s0, s1] = tower.same;
+    let [x0, x1] = tower.cross;
+    let same0 = gf32_tiles(s0);
+    let same1 = gf32_tiles(s1);
+    let cross0 = gf32_tiles(x0);
+    let cross1 = gf32_tiles(x1);
+    [
+        pack64(same0[0], same1[0]),
+        pack64(same0[1], same1[1]),
+        pack64(same0[2], same1[2]),
+        pack64(same0[3], same1[3]),
+        pack64(cross0[0], cross1[0]),
+        pack64(cross0[1], cross1[1]),
+        pack64(cross0[2], cross1[2]),
+        pack64(cross0[3], cross1[3]),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

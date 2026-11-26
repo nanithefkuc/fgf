@@ -1,4 +1,4 @@
-//! Register-blocked row-group bodies behind the matrix kernels.
+//! Register-blocked row-group bodies shared by GFNI contiguous and scattered matrix walks.
 //!
 //! A group of one to [`MAX_GROUP_ROWS`] rows resolves its coefficients into
 //! one stack array, runs the tile loops over that chunk, and finishes the
@@ -11,8 +11,8 @@
 //! scratch is a `MaybeUninit` staging array whose occupied prefix is written
 //! before it is read.
 
-use super::super::RESOLVE_CHUNK;
-use super::{bmul_gfni, brem_gfni, factor_word_gfni, wfactor_gfni};
+use super::RESOLVE_CHUNK;
+use super::gfni::{bmul_gfni, brem_gfni, factor_word_gfni, wfactor_gfni};
 use crate::kernel::Matrix;
 use crate::kernel::gf8::Prepared;
 
@@ -316,7 +316,7 @@ fn rows_resolved<
 /// Six rows of two 32-byte lanes hold twelve accumulators, leaving the two
 /// source lanes and one factor inside the sixteen `ymm` registers. The group
 /// widths are measured parameters.
-pub(super) const MAX_GROUP_ROWS: usize = 6;
+pub(in crate::kernel::x86::gf8) const MAX_GROUP_ROWS: usize = 6;
 
 /// Term counts at or below this bound cap row groups at four rows.
 ///
@@ -367,7 +367,7 @@ const fn three_lanes(nterms: usize, row_len: usize) -> bool {
 ///
 /// # Panics
 /// Panics if `done >= nrows`.
-pub(super) fn group_rows(nrows: usize, done: usize, nterms: usize) -> usize {
+pub(in crate::kernel::x86::gf8) fn group_rows(nrows: usize, done: usize, nterms: usize) -> usize {
     let left = nrows - done;
     let widest = if nterms <= FEW_TERMS {
         4
@@ -384,7 +384,7 @@ pub(super) fn group_rows(nrows: usize, done: usize, nterms: usize) -> usize {
 /// The caller stages one to [`MAX_GROUP_ROWS`] pairwise-disjoint row windows of
 /// `row_len` bytes each, the first being row `g` of the matrix.
 #[archmage::rite(v3_gfni_crypto)]
-pub(super) fn matrix_group<
+pub(in crate::kernel::x86::gf8) fn matrix_group<
     const NATIVE: bool,
     M: Matrix<Prepared> + ?Sized,
     const OVERWRITE: bool,

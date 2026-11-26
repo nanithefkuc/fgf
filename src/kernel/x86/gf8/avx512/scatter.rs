@@ -4,7 +4,7 @@
 //! immediate is the XOR constant, so `<0>` selects the pure linear map, and
 //! each factor replicates one 64-bit map qword to all eight 64-bit lanes.
 
-use super::{bfactor_avx512, bmul_avx512, brem_avx512, brem_half_avx512};
+use super::{bfactor_avx512, bmul_avx512, brem_avx512, brem_avx512_half};
 use crate::kernel::gf8::{Coeffs, Prepared};
 use crate::kernel::routing::SCATTER_PEEL_MIN;
 
@@ -338,6 +338,6 @@ fn scatter_span<const N: usize>(
             table: coeffs.table(pick),
             affine,
         };
-        brem_half_avx512(dst, coeff, &src[start..end]);
+        brem_avx512_half(dst, coeff, &src[start..end]);
     }
 }

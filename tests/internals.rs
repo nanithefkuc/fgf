@@ -602,7 +602,7 @@ fn proven_gf8_mul_kernels_match_scalar() {
 }
 
 #[test]
-fn proven_gf8_rs_gfni_kernels_match_scalar() {
+fn proven_gf8_rs_kernels_gfni_match_scalar() {
     let coeffs = gf8_rs_coeffs();
     tier_gate::run_entry(x86::gf8::mul_add_gfni::<false>, |token, entry| {
         check_mul_add(
@@ -1468,11 +1468,11 @@ fn for_residue_kernels(mut check: impl FnMut(ResidueToken)) {
 /// Direct dispatch on a summoned token for the geometry-panic checks;
 /// earns no execution receipts.
 macro_rules! residue_call {
-    ($token:expr, $avx2:ident, $avx512:ident $(, $arg:expr)* $(,)?) => {
+    ($token:expr, $avx2:path, $avx512:path $(, $arg:expr)* $(,)?) => {
         match $token {
-            ResidueToken::Avx2(token) => x86::residue::$avx2(token $(, $arg)*),
+            ResidueToken::Avx2(token) => $avx2(token $(, $arg)*),
             #[cfg(feature = "simd512")]
-            ResidueToken::Avx512(token) => x86::residue::$avx512(token $(, $arg)*),
+            ResidueToken::Avx512(token) => $avx512(token $(, $arg)*),
         }
     };
 }
@@ -1482,15 +1482,15 @@ macro_rules! residue_call {
 /// token and emits the entry's receipt after a successful body, so each
 /// tier's entry is reported on its own.
 macro_rules! residue_entry {
-    ($token:expr, $avx2:ident, $avx512:ident $(, $arg:expr)* => $check:block) => {
+    ($token:expr, $avx2:path, $avx512:path $(, $arg:expr)* => $check:block) => {
         match $token {
             ResidueToken::Avx2(..) => tier_gate::run_entry(
-                x86::residue::$avx2,
+                $avx2,
                 |token, entry| { entry(token $(, $arg)*); $check },
             ),
             #[cfg(feature = "simd512")]
             ResidueToken::Avx512(..) => tier_gate::run_entry(
-                x86::residue::$avx512,
+                $avx512,
                 |token, entry| { entry(token $(, $arg)*); $check },
             ),
         }
@@ -1581,8 +1581,8 @@ fn proven_residue_u32_elementwise_matches_oracle() {
                         );
                         residue_entry!(
                             token,
-                            mul_elementwise_u32_avx2,
-                            mul_elementwise_u32_avx512,
+                            x86::residue::avx2::single::u32::mul_elementwise_avx2,
+                            x86::residue::avx512::single::u32::mul_elementwise_avx512,
                             dst,
                             a_win,
                             b_win,
@@ -1606,8 +1606,8 @@ fn proven_residue_u32_elementwise_matches_oracle() {
                         );
                         residue_entry!(
                             token,
-                            mul_elementwise_assign_u32_avx2,
-                            mul_elementwise_assign_u32_avx512,
+                            x86::residue::avx2::single::u32::mul_elementwise_assign_avx2,
+                            x86::residue::avx512::single::u32::mul_elementwise_assign_avx512,
                             dst,
                             src,
                             params => {
@@ -1701,8 +1701,8 @@ fn proven_residue_u32_shoup_coeff_matches_oracle() {
                             );
                             residue_entry!(
                                 token,
-                                mul_into_u32_avx2,
-                                mul_into_u32_avx512,
+                                x86::residue::avx2::single::u32::mul_into_avx2,
+                                x86::residue::avx512::single::u32::mul_into_avx512,
                                 dst,
                                 s,
                                 c32,
@@ -1739,8 +1739,8 @@ fn proven_residue_u32_shoup_coeff_matches_oracle() {
                             );
                             residue_entry!(
                                 token,
-                                mul_add_u32_avx2,
-                                mul_add_u32_avx512,
+                                x86::residue::avx2::single::u32::mul_add_avx2,
+                                x86::residue::avx512::single::u32::mul_add_avx512,
                                 dst,
                                 s,
                                 c32,
@@ -1762,8 +1762,8 @@ fn proven_residue_u32_shoup_coeff_matches_oracle() {
                             let dst = &mut backing_s[offset..offset + lanes * 4];
                             residue_entry!(
                                 token,
-                                mul_assign_u32_avx2,
-                                mul_assign_u32_avx512,
+                                x86::residue::avx2::single::u32::mul_assign_avx2,
+                                x86::residue::avx512::single::u32::mul_assign_avx512,
                                 dst,
                                 c32,
                                 q,
@@ -1857,8 +1857,8 @@ fn proven_residue_u64_redc_coeff_matches_oracle() {
                             );
                             residue_entry!(
                                 token,
-                                mul_into_u64_avx2,
-                                mul_into_u64_avx512,
+                                x86::residue::avx2::single::u64::mul_into_avx2,
+                                x86::residue::avx512::single::u64::mul_into_avx512,
                                 dst,
                                 s,
                                 c_mont,
@@ -1898,8 +1898,8 @@ fn proven_residue_u64_redc_coeff_matches_oracle() {
                             );
                             residue_entry!(
                                 token,
-                                mul_add_u64_avx2,
-                                mul_add_u64_avx512,
+                                x86::residue::avx2::single::u64::mul_add_avx2,
+                                x86::residue::avx512::single::u64::mul_add_avx512,
                                 dst,
                                 s,
                                 c_mont,
@@ -1920,8 +1920,8 @@ fn proven_residue_u64_redc_coeff_matches_oracle() {
                             let dst = &mut backing_s[offset..offset + lanes * 8];
                             residue_entry!(
                                 token,
-                                mul_assign_u64_avx2,
-                                mul_assign_u64_avx512,
+                                x86::residue::avx2::single::u64::mul_assign_avx2,
+                                x86::residue::avx512::single::u64::mul_assign_avx512,
                                 dst,
                                 c_mont,
                                 p => {
@@ -1970,8 +1970,8 @@ fn proven_residue_u8_lookup_coeff_is_exhaustive() {
                 let mut got = vec![0u8; 256];
                 residue_entry!(
                     token,
-                    mul_into_u8_avx2,
-                    mul_into_u8_avx512,
+                    x86::residue::avx2::single::u8::mul_into_avx2,
+                    x86::residue::avx512::single::u8::mul_into_avx512,
                     &mut got,
                     &full,
                     c8,
@@ -1985,8 +1985,8 @@ fn proven_residue_u8_lookup_coeff_is_exhaustive() {
                 }
                 residue_entry!(
                     token,
-                    mul_add_u8_avx2,
-                    mul_add_u8_avx512,
+                    x86::residue::avx2::single::u8::mul_add_avx2,
+                    x86::residue::avx512::single::u8::mul_add_avx512,
                     &mut acc,
                     &full,
                     c8,
@@ -1995,8 +1995,8 @@ fn proven_residue_u8_lookup_coeff_is_exhaustive() {
                 let mut got_assign = full.clone();
                 residue_entry!(
                     token,
-                    mul_assign_u8_avx2,
-                    mul_assign_u8_avx512,
+                    x86::residue::avx2::single::u8::mul_assign_avx2,
+                    x86::residue::avx512::single::u8::mul_assign_avx512,
                     &mut got_assign,
                     c8,
                     p8 => { assert_eq!(got_assign, want_full, "lookup assign p {p} c {c}"); }
@@ -2026,7 +2026,7 @@ fn proven_residue_u8_lookup_coeff_is_exhaustive() {
                             &mut backing_d[doff..doff + len],
                             &backing_s[soff..soff + len],
                         );
-                        residue_entry!(token, mul_into_u8_avx2, mul_into_u8_avx512, dst, s, c8, p8 => {
+                        residue_entry!(token, x86::residue::avx2::single::u8::mul_into_avx2, x86::residue::avx512::single::u8::mul_into_avx512, dst, s, c8, p8 => {
                             assert_eq!(dst, &want, "lookup into tail p {p} c {c} len {len}");
                         });
                     }
@@ -2051,7 +2051,7 @@ fn proven_residue_u8_lookup_coeff_is_exhaustive() {
                             &mut backing_a[doff..doff + len],
                             &backing_s[soff..soff + len],
                         );
-                        residue_entry!(token, mul_add_u8_avx2, mul_add_u8_avx512, dst, s, c8, p8 => {
+                        residue_entry!(token, x86::residue::avx2::single::u8::mul_add_avx2, x86::residue::avx512::single::u8::mul_add_avx512, dst, s, c8, p8 => {
                             assert_eq!(dst, &want_add, "lookup add tail p {p} c {c} len {len}");
                         });
                     }
@@ -2067,7 +2067,7 @@ fn proven_residue_u8_lookup_coeff_is_exhaustive() {
                     let before_m = backing_m.clone();
                     {
                         let dst = &mut backing_m[doff..doff + len];
-                        residue_entry!(token, mul_assign_u8_avx2, mul_assign_u8_avx512, dst, c8, p8 => {
+                        residue_entry!(token, x86::residue::avx2::single::u8::mul_assign_avx2, x86::residue::avx512::single::u8::mul_assign_avx512, dst, c8, p8 => {
                             assert_eq!(dst, &want, "lookup assign tail p {p} c {c} len {len}");
                         });
                     }
@@ -2210,8 +2210,8 @@ fn proven_residue_delayed_matrix_matches_oracle() {
                                     }
                                     residue_entry!(
                                         token,
-                                        mul_into_matrix_u32_avx2_with,
-                                        mul_into_matrix_u32_avx512_with,
+                                        x86::residue::avx2::matrix::mul_into_matrix_avx2_with,
+                                        x86::residue::avx512::matrix::mul_into_matrix_avx512_with,
                                         rows,
                                         row_len,
                                         nrows,
@@ -2267,8 +2267,8 @@ fn proven_residue_delayed_matrix_matches_oracle() {
                                     let rows = &mut backing[offset..offset + nrows * row_len];
                                     residue_entry!(
                                         token,
-                                        mul_add_matrix_u32_avx2_with,
-                                        mul_add_matrix_u32_avx512_with,
+                                        x86::residue::avx2::matrix::mul_add_matrix_avx2_with,
+                                        x86::residue::avx512::matrix::mul_add_matrix_avx512_with,
                                         rows,
                                         row_len,
                                         nrows,
@@ -2316,8 +2316,8 @@ fn proven_residue_delayed_matrix_rejects_even_modulus() {
                 if into {
                     residue_call!(
                         token,
-                        mul_into_matrix_u32_avx2_with,
-                        mul_into_matrix_u32_avx512_with,
+                        x86::residue::avx2::matrix::mul_into_matrix_avx2_with,
+                        x86::residue::avx512::matrix::mul_into_matrix_avx512_with,
                         &mut rows,
                         32,
                         1,
@@ -2327,8 +2327,8 @@ fn proven_residue_delayed_matrix_rejects_even_modulus() {
                 } else {
                     residue_call!(
                         token,
-                        mul_add_matrix_u32_avx2_with,
-                        mul_add_matrix_u32_avx512_with,
+                        x86::residue::avx2::matrix::mul_add_matrix_avx2_with,
+                        x86::residue::avx512::matrix::mul_add_matrix_avx512_with,
                         &mut rows,
                         32,
                         1,
@@ -2339,8 +2339,8 @@ fn proven_residue_delayed_matrix_rejects_even_modulus() {
             }));
             outcome.expect_err(&format!("{entry} must reject an even modulus"));
         };
-        rows_of("residue::mul_into_matrix_u32_avx2_with", true);
-        rows_of("residue::mul_add_matrix_u32_avx2_with", false);
+        rows_of("residue::avx2::matrix::mul_into_matrix_avx2_with", true);
+        rows_of("residue::avx2::matrix::mul_add_matrix_avx2_with", false);
     });
 }
 /// The delayed entries reject a non-positive modulus before the first lane.
@@ -2356,18 +2356,34 @@ fn proven_residue_delayed_matrix_rejects_non_positive_modulus() {
             sources: &[src.as_slice()],
         };
         for (entry, into, modulus) in [
-            ("residue::mul_into_matrix_u32_avx2_with", true, 0u32),
-            ("residue::mul_add_matrix_u32_avx2_with", false, 0u32),
-            ("residue::mul_into_matrix_u32_avx2_with", true, 1u32),
-            ("residue::mul_add_matrix_u32_avx2_with", false, 1u32),
+            (
+                "residue::avx2::matrix::mul_into_matrix_avx2_with",
+                true,
+                0u32,
+            ),
+            (
+                "residue::avx2::matrix::mul_add_matrix_avx2_with",
+                false,
+                0u32,
+            ),
+            (
+                "residue::avx2::matrix::mul_into_matrix_avx2_with",
+                true,
+                1u32,
+            ),
+            (
+                "residue::avx2::matrix::mul_add_matrix_avx2_with",
+                false,
+                1u32,
+            ),
         ] {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let mut rows = vec![0u8; 32];
                 if into {
                     residue_call!(
                         token,
-                        mul_into_matrix_u32_avx2_with,
-                        mul_into_matrix_u32_avx512_with,
+                        x86::residue::avx2::matrix::mul_into_matrix_avx2_with,
+                        x86::residue::avx512::matrix::mul_into_matrix_avx512_with,
                         &mut rows,
                         32,
                         1,
@@ -2377,8 +2393,8 @@ fn proven_residue_delayed_matrix_rejects_non_positive_modulus() {
                 } else {
                     residue_call!(
                         token,
-                        mul_add_matrix_u32_avx2_with,
-                        mul_add_matrix_u32_avx512_with,
+                        x86::residue::avx2::matrix::mul_add_matrix_avx2_with,
+                        x86::residue::avx512::matrix::mul_add_matrix_avx512_with,
                         &mut rows,
                         32,
                         1,
@@ -2407,16 +2423,16 @@ fn proven_residue_delayed_matrix_rejects_shallow_depth() {
             sources: &[src.as_slice()],
         };
         for (entry, into) in [
-            ("residue::mul_into_matrix_u32_avx2_with", true),
-            ("residue::mul_add_matrix_u32_avx2_with", false),
+            ("residue::avx2::matrix::mul_into_matrix_avx2_with", true),
+            ("residue::avx2::matrix::mul_add_matrix_avx2_with", false),
         ] {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let mut rows = vec![0u8; 32];
                 if into {
                     residue_call!(
                         token,
-                        mul_into_matrix_u32_avx2_with,
-                        mul_into_matrix_u32_avx512_with,
+                        x86::residue::avx2::matrix::mul_into_matrix_avx2_with,
+                        x86::residue::avx512::matrix::mul_into_matrix_avx512_with,
                         &mut rows,
                         32,
                         1,
@@ -2426,8 +2442,8 @@ fn proven_residue_delayed_matrix_rejects_shallow_depth() {
                 } else {
                     residue_call!(
                         token,
-                        mul_add_matrix_u32_avx2_with,
-                        mul_add_matrix_u32_avx512_with,
+                        x86::residue::avx2::matrix::mul_add_matrix_avx2_with,
+                        x86::residue::avx512::matrix::mul_add_matrix_avx512_with,
                         &mut rows,
                         32,
                         1,
@@ -2459,8 +2475,8 @@ fn proven_residue_delayed_matrix_rejects_noncanonical_coefficient() {
             let mut rows = vec![0u8; 32];
             residue_call!(
                 token,
-                mul_into_matrix_u32_avx2_with,
-                mul_into_matrix_u32_avx512_with,
+                x86::residue::avx2::matrix::mul_into_matrix_avx2_with,
+                x86::residue::avx512::matrix::mul_into_matrix_avx512_with,
                 &mut rows,
                 32,
                 1,
@@ -2474,8 +2490,8 @@ fn proven_residue_delayed_matrix_rejects_noncanonical_coefficient() {
             let mut rows = vec![0u8; 32];
             residue_call!(
                 token,
-                mul_add_matrix_u32_avx2_with,
-                mul_add_matrix_u32_avx512_with,
+                x86::residue::avx2::matrix::mul_add_matrix_avx2_with,
+                x86::residue::avx512::matrix::mul_add_matrix_avx512_with,
                 &mut rows,
                 32,
                 1,
@@ -2507,8 +2523,8 @@ fn proven_residue_delayed_matrix_rejects_overflowing_geometry() {
                 if into {
                     residue_call!(
                         token,
-                        mul_into_matrix_u32_avx2_with,
-                        mul_into_matrix_u32_avx512_with,
+                        x86::residue::avx2::matrix::mul_into_matrix_avx2_with,
+                        x86::residue::avx512::matrix::mul_into_matrix_avx512_with,
                         &mut rows,
                         32,
                         usize::MAX,
@@ -2518,8 +2534,8 @@ fn proven_residue_delayed_matrix_rejects_overflowing_geometry() {
                 } else {
                     residue_call!(
                         token,
-                        mul_add_matrix_u32_avx2_with,
-                        mul_add_matrix_u32_avx512_with,
+                        x86::residue::avx2::matrix::mul_add_matrix_avx2_with,
+                        x86::residue::avx512::matrix::mul_add_matrix_avx512_with,
                         &mut rows,
                         32,
                         usize::MAX,

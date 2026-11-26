@@ -10,7 +10,7 @@ use crate::kernel::x86;
 /// inputs, operands at `p − 1`, and products whose fold both borrows and
 /// wraps — against the `u128 % p` model.
 #[test]
-fn gld_avx512_lane_edges_match_u128_model() {
+fn kernels_avx512_lane_edges_match_u128_model() {
     let modulus = goldilocks::MODULUS;
     let edges: [u64; 12] = [
         0,

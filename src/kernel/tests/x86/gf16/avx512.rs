@@ -6,7 +6,7 @@ use crate::kernel::tests::tier_gate;
 
 /// Checks the token-proven tower lanes directly against scalar arithmetic.
 #[test]
-fn gf16_wide_kernels_match_reference() {
+fn kernels_avx512_match_reference() {
     tier_gate::run_entry(x86::gf16::mul_add_avx512, |token, entry| {
         check_gf16_mul_add_tables("gf16 wide", |dst, tables, src| {
             entry(token, dst, tables.compact(), src);
@@ -47,7 +47,7 @@ fn gf16_wide_kernels_match_reference() {
 /// Misaligned destinations on both sides of the `mul_add` peel floor,
 /// with even (peelable) and odd (unpeelable) heads.
 #[test]
-fn gf16_wide_mul_add_peels_misaligned_rows() {
+fn mul_add_avx512_peels_misaligned_rows() {
     let floor = crate::kernel::routing::MUL_ADD_PEEL_MIN;
     tier_gate::run_entry(x86::gf16::mul_add_avx512, |token, entry| {
         for len in [floor - 2, floor, floor + 2, floor + 130, 4096 + 66] {
@@ -74,7 +74,7 @@ fn gf16_wide_mul_add_peels_misaligned_rows() {
 /// Misaligned destinations across the shared 64-byte peel floor for the
 /// wide overwrite body, beside the `mul_add` coverage above.
 #[test]
-fn gf16_wide_mul_into_peels_misaligned_rows() {
+fn mul_into_avx512_peels_misaligned_rows() {
     let floor = crate::kernel::routing::MUL_ADD_PEEL_MIN;
     tier_gate::run_entry(x86::gf16::mul_into_avx512, |token, entry| {
         for len in [floor - 2, floor, floor + 2, floor + 130, 4096 + 66] {
@@ -100,7 +100,7 @@ fn gf16_wide_mul_into_peels_misaligned_rows() {
 
 /// Compares wide matrix tiles and their remainders with independent row sums.
 #[test]
-fn gf16_wide_matrix_matches_reference() {
+fn mul_add_matrix_avx512_with_matches_reference() {
     if tier_gate::summon::<X64V4xToken>().is_none() {
         return;
     }

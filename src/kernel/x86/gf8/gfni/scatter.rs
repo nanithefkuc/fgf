@@ -8,7 +8,7 @@
 //! geometry contract; the row-group bodies keep the offset-addressed-row
 //! residue in [`archmage::rite`] helpers.
 
-use super::{bfactor_gfni, bfactor_half_gfni, bmul_gfni, bmul_half_gfni, brem_gfni};
+use super::{bfactor_gfni, bfactor_gfni_half, bmul_gfni, bmul_gfni_half, brem_gfni};
 use crate::kernel::gf8::{Coeffs, Prepared, mul_add_nibble};
 
 #[cfg(target_arch = "x86_64")]
@@ -327,7 +327,7 @@ fn scatter_span<'a, const NATIVE: bool>(
     }
     let vector_end = start + ((end - start) & !15);
     for (&row, &coeff) in rows {
-        let factor = bfactor_half_gfni::<NATIVE>(coeff);
+        let factor = bfactor_gfni_half::<NATIVE>(coeff);
         let mut offset = start;
         while offset < vector_end {
             // SAFETY:
@@ -342,7 +342,7 @@ fn scatter_span<'a, const NATIVE: bool>(
                 let d = _mm_loadu_si128(ptr.cast());
                 _mm_storeu_si128(
                     ptr.cast(),
-                    _mm_xor_si128(d, bmul_half_gfni::<NATIVE>(x, factor)),
+                    _mm_xor_si128(d, bmul_gfni_half::<NATIVE>(x, factor)),
                 );
             }
             offset += 16;

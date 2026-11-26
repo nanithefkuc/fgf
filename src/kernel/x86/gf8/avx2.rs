@@ -603,7 +603,7 @@ pub fn mul_add_gather_avx2(
 /// doubles each lane (a left shift that drops the carry) and the signed
 /// `PCMPGTB` against zero recovers the bit it dropped.
 #[archmage::rite(v3)]
-pub fn multiply_vectors_avx2(mut a: __m256i, mut b: __m256i, reduction: u8) -> __m256i {
+pub(crate) fn multiply_vectors_avx2(mut a: __m256i, mut b: __m256i, reduction: u8) -> __m256i {
     let zero = _mm256_setzero_si256();
     let one = _mm256_set1_epi8(1);
     let reduction = _mm256_set1_epi8(reduction.cast_signed());

@@ -1350,6 +1350,57 @@ class TierHintTests(unittest.TestCase):
             "v3",
         )
 
+    def test_qualified_shared_helpers_keep_distinct_tier_requirements(self):
+        lower = "src/kernel/x86/gf8/rows.rs"
+        wider = "src/kernel/x86/gf8/wide_rows.rs"
+        helper = (
+            "const CUTOFF: usize = 8;\n"
+            "pub(super) fn group(n: usize) -> bool { guard(n) }\n"
+            "fn guard(n: usize) -> bool { n < CUTOFF }\n"
+        )
+        sources = {
+            lower: helper,
+            wider: helper,
+            "src/kernel/x86/gf8/gfni/matrix.rs": (
+                "fn dispatch(n: usize) -> bool { super::super::rows::group(n) }\n"
+            ),
+            "src/kernel/x86/gf8/avx512/matrix.rs": (
+                "fn dispatch(n: usize) -> bool { super::super::wide_rows::group(n) }\n"
+            ),
+        }
+        for portable in (False, True):
+            world = dict(sources)
+            if portable:
+                world["src/kernel/x86/gf8/portable.rs"] = (
+                    "fn dispatch(n: usize) -> bool { super::rows::group(n) }\n"
+                )
+            coverage_map.configure_caller_tiers({
+                name: source_model(text) for name, text in world.items()
+            })
+            try:
+                for file, own_tier in ((lower, "v3_gfni_crypto"), (wider, "v4x")):
+                    site = coverage_map.SiteTarget(
+                        site_id=0, item_key=file + "::CUTOFF",
+                        file=file, line=3, column=32, role="branch",
+                    )
+                    item = {
+                        "key": site.item_key, "class": "tuning_parameter", "value": 8,
+                        "unit": "bytes", "axis": "row length", "routes": "row schedule",
+                        "site_ids": [0], "mapped": False,
+                    }
+                    for requested in ("v3_gfni_crypto", "v4x"):
+                        with self.subTest(file=file, tier=requested, portable=portable):
+                            row, = coverage_map.summarize_thresholds(
+                                [item], [site], [], {}, requested
+                            )
+                            required = requested == own_tier or (portable and file == lower)
+                            self.assertEqual(row["required"], required)
+                            self.assertEqual(
+                                len(coverage_map.failures([], [row])), int(required)
+                            )
+            finally:
+                coverage_map.configure_sources()
+
     def test_unresolved_or_indirect_helper_callers_prevent_a_tier_hint(self):
         for text in (
             "fn portable() {\n    blocked();\n}\n",
@@ -2441,24 +2492,47 @@ class BoundaryRuleTests(unittest.TestCase):
 
 
 class AggregateTests(unittest.TestCase):
+    TABLE = b'{"format": "fgf-call-sites/1", "sites": []}\n'
+    DIGEST = hashlib.sha256(TABLE).hexdigest()
+
+    def test_a_report_gated_by_another_call_site_table_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exceptions = root / "exceptions.json"
+            exceptions.write_text(json.dumps({"exceptions": []}), encoding="utf-8")
+            table = root / "call_sites.json"
+            table.write_bytes(self.TABLE)
+            report = root / "report.json"
+            for digest in (None, hashlib.sha256(b"other").hexdigest()):
+                fields = {"host": "host", "tier": "v3", "entries": [], "thresholds": []}
+                if digest is not None:
+                    fields["call_sites_sha256"] = digest
+                report.write_text(json.dumps(fields), encoding="utf-8")
+                with self.assertRaises(coverage_map.CoverageMapError):
+                    coverage_map.aggregate_reports(
+                        [report], exceptions, root / "aggregate.json", root / "aggregate.md", table,
+                    )
+
     def test_a_passing_tier_cannot_hide_a_failed_required_row(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             exceptions = root / "exceptions.json"
             exceptions.write_text(json.dumps({"exceptions": []}), encoding="utf-8")
+            table = root / "call_sites.json"
+            table.write_bytes(self.TABLE)
             key = "src/kernel/routing.rs::BOUND"
             inputs = [root / "first.json", root / "second.json"]
             for failure in ("one_sided", "unexecuted", "unmapped", "partial_mapping", "ambiguous"):
                 for passing in ("both_ways", "exercised", "excused"):
                     for path, host, status in zip(inputs, ("first", "second"), (passing, failure)):
                         path.write_text(json.dumps({
-                            "host": host, "tier": "v3", "entries": [],
+                            "host": host, "tier": "v3", "entries": [], "call_sites_sha256": self.DIGEST,
                             "thresholds": [{"key": key, "status": status}],
                         }), encoding="utf-8")
                     with self.subTest(passing=passing, failure=failure):
                         out = root / "aggregate.json"
                         self.assertEqual(
-                            coverage_map.aggregate_reports(inputs, exceptions, out, root / "aggregate.md"), 1,
+                            coverage_map.aggregate_reports(inputs, exceptions, out, root / "aggregate.md", table), 1,
                         )
                         self.assertEqual(json.loads(out.read_text())["thresholds"][key], "gap")
 
@@ -2467,15 +2541,20 @@ class AggregateTests(unittest.TestCase):
             root = Path(temporary)
             exceptions = root / "exceptions.json"
             exceptions.write_text(json.dumps({"exceptions": []}), encoding="utf-8")
+            table = root / "call_sites.json"
+            table.write_bytes(self.TABLE)
             inputs = [root / "first.json", root / "second.json"]
             for statuses in (("executed", "unexecuted"), ("unexecuted", "executed")):
                 for path, host, status in zip(inputs, ("first", "second"), statuses):
                     path.write_text(json.dumps({
-                        "host": host, "tier": "v3", "thresholds": [],
+                        "host": host, "tier": "v3", "thresholds": [], "call_sites_sha256": self.DIGEST,
                         "entries": [{"entry": "kernel", "tier": "v3", "status": status}],
                     }), encoding="utf-8")
                 self.assertEqual(
-                    coverage_map.aggregate_reports(inputs, exceptions, root / "aggregate.json", root / "aggregate.md"), 1,
+                    coverage_map.aggregate_reports(
+                        inputs, exceptions, root / "aggregate.json", root / "aggregate.md", table,
+                    ),
+                    1,
                 )
 
     def test_a_threshold_deferred_in_every_session_is_not_covered(self) -> None:
@@ -2483,28 +2562,445 @@ class AggregateTests(unittest.TestCase):
             root = Path(temporary)
             exceptions = root / "exceptions.json"
             exceptions.write_text(json.dumps({"exceptions": []}), encoding="utf-8")
+            table = root / "call_sites.json"
+            table.write_bytes(self.TABLE)
             key = "src/kernel/x86/gf16.rs::TERM_TILE"
             inputs = []
             for tier in ("v3", "v4x"):
                 path = root / f"{tier}.json"
                 path.write_text(json.dumps({
-                    "host": "host", "tier": tier, "entries": [],
+                    "host": "host", "tier": tier, "entries": [], "call_sites_sha256": self.DIGEST,
                     "thresholds": [{"key": key, "status": "tier_not_required"}],
                 }), encoding="utf-8")
                 inputs.append(path)
             out = root / "aggregate.json"
             summary = root / "aggregate.md"
-            self.assertEqual(coverage_map.aggregate_reports(inputs, exceptions, out, summary), 1)
+            self.assertEqual(coverage_map.aggregate_reports(inputs, exceptions, out, summary, table), 1)
             gaps = json.loads(out.read_text(encoding="utf-8"))["gaps"]
             self.assertTrue(any(gap["kind"] == "threshold" and gap["item"] == key for gap in gaps))
             own = root / "v2.json"
             own.write_text(json.dumps({
-                "host": "host", "tier": "v2", "entries": [],
+                "host": "host", "tier": "v2", "entries": [], "call_sites_sha256": self.DIGEST,
                 "thresholds": [{"key": key, "status": "both_ways"}],
             }), encoding="utf-8")
             self.assertEqual(
-                coverage_map.aggregate_reports(inputs + [own], exceptions, out, summary), 0,
+                coverage_map.aggregate_reports(inputs + [own], exceptions, out, summary, table), 0,
             )
+
+    def test_call_site_discovery_does_not_cross_credit_residue_lane_widths(self) -> None:
+        entries = [
+            {"entry": "fgf::kernel::x86::residue::avx2::single::u8::mul_add_avx2", "tier": "v3"},
+            {"entry": "fgf::kernel::x86::residue::avx2::single::u32::mul_add_avx2", "tier": "v3"},
+            {"entry": "fgf::kernel::x86::residue::avx2::single::u64::mul_add_avx2", "tier": "v3"},
+            {"entry": "fgf::kernel::x86::gf8::gfni::single::mul_add_gfni", "tier": "v3_gfni_crypto"},
+            {"entry": "fgf::kernel::x86::gf16::avx2::mul_into_avx2", "tier": "v3"},
+            {"entry": "fgf::kernel::x86::fan_paar::gf16::avx2::mul_into_avx2", "tier": "v3"},
+        ]
+        source = (
+            "use super::x86;\n"
+            "fn dispatch() {\n"
+            "    x86::residue::avx2::single::u8::mul_add_avx2();\n"
+            "    x86::residue::avx2::single::mul_add_avx2();\n"
+            "    x86::gf8::mul_add_gfni();\n"
+            "    x86::gf16::mul_into_avx2();\n"
+            "    x86::fan_paar::gf16::mul_into_avx2();\n"
+            "}\n"
+        )
+        models = {"src/kernel/residue.rs": source_model(source)}
+        sites = coverage_map.discover_call_sites(entries, models)
+        self.assertEqual(
+            sites.get("fgf::kernel::x86::residue::avx2::single::u8::mul_add_avx2"),
+            (("src/kernel/residue.rs", 3, 5),),
+        )
+        self.assertNotIn("fgf::kernel::x86::residue::avx2::single::u32::mul_add_avx2", sites)
+        self.assertNotIn("fgf::kernel::x86::residue::avx2::single::u64::mul_add_avx2", sites)
+        self.assertEqual(
+            sites.get("fgf::kernel::x86::gf8::gfni::single::mul_add_gfni"),
+            (("src/kernel/residue.rs", 5, 5),),
+        )
+        self.assertEqual(
+            sites.get("fgf::kernel::x86::gf16::avx2::mul_into_avx2"),
+            (("src/kernel/residue.rs", 6, 5),),
+        )
+        self.assertEqual(
+            sites.get("fgf::kernel::x86::fan_paar::gf16::avx2::mul_into_avx2"),
+            (("src/kernel/residue.rs", 7, 5),),
+        )
+
+    def test_bare_shadowed_and_unimported_parent_calls_are_not_credited(self) -> None:
+        entries = [
+            {"entry": "fgf::kernel::x86::gf8::gfni::single::mul_add_gfni", "tier": "v3_gfni_crypto"},
+        ]
+        models = {
+            "src/kernel/x86/gf8.rs": source_model(
+                "fn local_closure() {\n"
+                "    let mul_add_gfni = || {};\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn unimported_bare() {\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+            ),
+            "src/kernel/x86/gf8/gfni/single.rs": source_model(
+                "fn shadowed_local() {\n"
+                "    let mul_add_gfni = || {};\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn shadowed_param(mul_add_gfni: fn()) {\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn shadowed_param_rpit(mul_add_gfni: fn()) -> impl Copy {\n"
+                "    mul_add_gfni();\n"
+                "    0\n"
+                "}\n"
+                "fn shadowed_param_generic<T: Fn() -> u8>(mul_add_gfni: fn()) -> impl Copy {\n"
+                "    mul_add_gfni();\n"
+                "    0\n"
+                "}\n"
+                "fn shadowed_param_nested_generic<T: Into<u8>>(mul_add_gfni: fn()) {\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn shadowed_param_const_block<T: Into<Marker<{ 1 }>>>(mul_add_gfni: fn()) {\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn shadowed_closure_block() {\n"
+                "    let run = |mul_add_gfni: fn()| {\n"
+                "        mul_add_gfni();\n"
+                "    };\n"
+                "    run(|| {});\n"
+                "}\n"
+                "fn shadowed_closure_expr() {\n"
+                "    let run = |mul_add_gfni: fn()| mul_add_gfni();\n"
+                "    run(|| {});\n"
+                "}\n"
+                "fn shadowed_match_arm(x: Option<fn()>) {\n"
+                "    match x {\n"
+                "        Some(mul_add_gfni) => mul_add_gfni(),\n"
+                "        None => {}\n"
+                "    }\n"
+                "}\n"
+                "fn shadowed_param_shorthand(Pattern::Value { mul_add_gfni }: Pattern) {\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn real_call_with_generic_fn_type(_x: Result<u8, fn(mul_add_gfni: u8)>) {\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn real_call_with_field_label(Pattern::Value { mul_add_gfni: _ }: Pattern) {\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn real_call_with_let_field_label(p: Pattern) {\n"
+                "    let Pattern::Value { mul_add_gfni: _ } = p;\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn unproven_mixed_sibling_closure() {\n"
+                "    let _ = (|mul_add_gfni: fn()| mul_add_gfni, mul_add_gfni());\n"
+                "}\n"
+                "fn shadowed_by_later_fn() {\n"
+                "    mul_add_gfni();\n"
+                "    fn mul_add_gfni() {}\n"
+                "}\n"
+                "fn shadowed_in_outer_fn() {\n"
+                "    fn inner() {\n"
+                "        mul_add_gfni();\n"
+                "    }\n"
+                "    fn mul_add_gfni() {}\n"
+                "}\n"
+                "fn shadowed_across_local_impl() {\n"
+                "    struct S;\n"
+                "    impl S {\n"
+                "        fn m() { mul_add_gfni(); }\n"
+                "    }\n"
+                "    fn mul_add_gfni() {}\n"
+                "}\n"
+                "fn real_same_module_call() {\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+            ),
+            "src/kernel/x86/gf8/gfni/scatter.rs": source_model(
+                "use super::single::mul_add_gfni;\n"
+                "fn shadowed_after_import() {\n"
+                "    let mul_add_gfni = || {};\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn real_imported_call() {\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+            ),
+        }
+        sites = coverage_map.discover_call_sites(entries, models)
+        self.assertEqual(
+            sites.get("fgf::kernel::x86::gf8::gfni::single::mul_add_gfni"),
+            (
+                ("src/kernel/x86/gf8/gfni/scatter.rs", 7, 5),
+                ("src/kernel/x86/gf8/gfni/single.rs", 42, 5),
+                ("src/kernel/x86/gf8/gfni/single.rs", 45, 5),
+                ("src/kernel/x86/gf8/gfni/single.rs", 49, 5),
+                ("src/kernel/x86/gf8/gfni/single.rs", 72, 5),
+            ),
+        )
+
+    def test_block_local_imports_do_not_leak_across_functions(self) -> None:
+        entries = [
+            {"entry": "fgf::kernel::x86::gf8::gfni::single::mul_add_gfni", "tier": "v3_gfni_crypto"},
+            {"entry": "fgf::kernel::x86::gf16::gfni::single::mul_add_gfni", "tier": "v3_gfni_crypto"},
+        ]
+        models = {
+            "src/kernel/dispatch.rs": source_model(
+                "use crate::kernel::x86::gf8::gfni::single::mul_add_gfni;\n"
+                "fn uses_module_import_before() {\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn uses_block_local_import() {\n"
+                "    use crate::kernel::x86::gf16::gfni::single::mul_add_gfni;\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn uses_block_local_alias() {\n"
+                "    use crate::kernel::x86::gf16::gfni::single::other as mul_add_gfni;\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn uses_block_local_glob() {\n"
+                "    use crate::kernel::x86::gf16::gfni::single::*;\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn uses_module_import_after() {\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+            ),
+        }
+        sites = coverage_map.discover_call_sites(entries, models)
+        self.assertEqual(
+            sites.get("fgf::kernel::x86::gf8::gfni::single::mul_add_gfni"),
+            (
+                ("src/kernel/dispatch.rs", 3, 5),
+                ("src/kernel/dispatch.rs", 18, 5),
+            ),
+        )
+        self.assertEqual(
+            sites.get("fgf::kernel::x86::gf16::gfni::single::mul_add_gfni"),
+            (
+                ("src/kernel/dispatch.rs", 7, 5),
+            ),
+        )
+
+    def test_real_lexer_nested_generics_const_block_and_closures(self) -> None:
+        import threshold_scan
+
+        entries = [
+            {"entry": "fgf::kernel::x86::gf8::gfni::single::mul_add_gfni", "tier": "v3_gfni_crypto"},
+        ]
+        src = (
+            "fn shadowed_nested<T: Into<u8>>(mul_add_gfni: fn()) {\n"
+            "    mul_add_gfni();\n"
+            "}\n"
+            "fn shadowed_const_block<T: Into<Marker<{ 1 }>>>(mul_add_gfni: fn()) {\n"
+            "    mul_add_gfni();\n"
+            "}\n"
+            "fn shadowed_closure() {\n"
+            "    let run = |mul_add_gfni: fn()| { mul_add_gfni(); };\n"
+            "    run(|| {});\n"
+            "}\n"
+            "fn shadowed_closure_else() {\n"
+            "    let run = |mul_add_gfni: fn() -> bool| if true { mul_add_gfni() } else { mul_add_gfni() };\n"
+            "    run(|| true);\n"
+            "}\n"
+            "fn shadowed_match_guard(x: Option<fn() -> bool>) {\n"
+            "    match x {\n"
+            "        Some(mul_add_gfni) if mul_add_gfni() => (),\n"
+            "        Some(mul_add_gfni) if { mul_add_gfni() } => (),\n"
+            "        Some(mul_add_gfni) if { mul_add_gfni() } && true => (),\n"
+            "        _ => (),\n"
+            "    }\n"
+            "}\n"
+            "fn shadowed_for_nested_if_else(flag: bool, cb: fn()) {\n"
+            "    for mul_add_gfni in if if flag { true } else { false } { [cb] } else { [cb] } {\n"
+            "        mul_add_gfni();\n"
+            "    }\n"
+            "}\n"
+            "fn unproven_for_block_if_iterator(cb: fn()) {\n"
+            "    for mul_add_gfni in if { true } { [mul_add_gfni()] } else { [cb] } {\n"
+            "        mul_add_gfni();\n"
+            "    }\n"
+            "}\n"
+            "fn real_after_generic_type(_x: Result<u8, fn(mul_add_gfni: u8)>) {\n"
+            "    mul_add_gfni();\n"
+            "}\n"
+            "fn real_with_nested_fn_shadow() {\n"
+            "    fn inner() {\n"
+            "        let mul_add_gfni = || {};\n"
+            "        mul_add_gfni();\n"
+            "    }\n"
+            "    mul_add_gfni();\n"
+            "}\n"
+            "fn real_qualified_call_despite_local_binding() {\n"
+            "    let mul_add_gfni = || {};\n"
+            "    mul_add_gfni();\n"
+            "    self::mul_add_gfni();\n"
+            "}\n"
+        )
+        models = {
+            "src/kernel/x86/gf8/gfni/single.rs": threshold_scan.SourceModel(
+                "src/kernel/x86/gf8/gfni/single.rs", src
+            ),
+        }
+        sites = coverage_map.discover_call_sites(entries, models)
+        self.assertEqual(
+            sites.get("fgf::kernel::x86::gf8::gfni::single::mul_add_gfni"),
+            (
+                ("src/kernel/x86/gf8/gfni/single.rs", 34, 5),
+                ("src/kernel/x86/gf8/gfni/single.rs", 41, 5),
+                ("src/kernel/x86/gf8/gfni/single.rs", 46, 5),
+            ),
+        )
+    def test_real_lexer_items_macros_and_concrete_imports_fail_closed(self) -> None:
+        import threshold_scan
+
+        def model(path, src):
+            return threshold_scan.SourceModel(path, src)
+
+        entries = [
+            {"entry": "fgf::kernel::x86::gf8::gfni::single::mul_add_gfni", "tier": "v3_gfni_crypto"},
+            {"entry": "fgf::kernel::x86::gf16::gfni::single::mul_add_gfni", "tier": "v3_gfni_crypto"},
+        ]
+        single = (
+            "pub fn mul_add_gfni() {}\n"
+            "macro_rules! invoke { ($f:ident) => { $f() }; }"
+            " macro_rules! invoke_real { ($f:ident) => { $f() }; }\n"
+            "fn shadowed_tuple_struct() -> u8 {\n"
+            "    struct mul_add_gfni(u8);\n"
+            "    mul_add_gfni(7).0\n"
+            "}\n"
+            "fn shadowed_static_mut_outer() -> u8 {\n"
+            "    static mut mul_add_gfni: fn() -> u8 = || 4;\n"
+            "    fn inner() -> u8 { unsafe { mul_add_gfni() } }\n"
+            "    inner()\n"
+            "}\n"
+            "fn shadowed_macro_argument() -> u8 {\n"
+            "    let mul_add_gfni = || 2;\n"
+            "    invoke!(mul_add_gfni)\n"
+            "}\n"
+            "fn real_macro_argument() {\n"
+            "    invoke_real!(mul_add_gfni);\n"
+            "}\n"
+            "fn real_direct() {\n"
+            "    mul_add_gfni();\n"
+            "}\n"
+        )
+        models = {
+            "src/kernel/x86/gf8/gfni/single.rs": model("src/kernel/x86/gf8/gfni/single.rs", single),
+            # A concrete non-registry function in the parent module, not a re-export.
+            "src/kernel/x86/gf8/gfni.rs": model(
+                "src/kernel/x86/gf8/gfni.rs", "pub fn mul_add_gfni() {}\n"
+            ),
+            "src/kernel/x86/gf16/gfni/single.rs": model(
+                "src/kernel/x86/gf16/gfni/single.rs", "pub fn mul_add_gfni() {}\n"
+            ),
+            # A facade re-export (no definition) still resolves to the child entry.
+            "src/kernel/x86/gf16/gfni.rs": model(
+                "src/kernel/x86/gf16/gfni.rs", "pub use single::mul_add_gfni;\n"
+            ),
+            "src/kernel/dispatch.rs": model(
+                "src/kernel/dispatch.rs",
+                "fn concrete_import() {\n"
+                "    use crate::kernel::x86::gf8::gfni::mul_add_gfni;\n"
+                "    mul_add_gfni();\n"
+                "}\n"
+                "fn facade_import() {\n"
+                "    use crate::kernel::x86::gf16::gfni::mul_add_gfni;\n"
+                "    mul_add_gfni();\n"
+                "}\n",
+            ),
+        }
+        sites = coverage_map.discover_call_sites(entries, models)
+        gf8 = sites.get("fgf::kernel::x86::gf8::gfni::single::mul_add_gfni", ())
+        direct = sorted(site for site in gf8 if not isinstance(site, coverage_map.MacroCallSite))
+        macro = sorted(
+            (site.invocation_line, site.invocation_column)
+            for site in gf8
+            if isinstance(site, coverage_map.MacroCallSite)
+        )
+        self.assertEqual(direct, [("src/kernel/x86/gf8/gfni/single.rs", 20, 5)])
+        self.assertEqual(macro, [(17, 5)])
+        self.assertEqual(
+            sites.get("fgf::kernel::x86::gf16::gfni::single::mul_add_gfni"),
+            (("src/kernel/dispatch.rs", 7, 5),),
+        )
+
+    def test_real_lexer_initializers_foreign_items_and_macro_bodies_fail_closed(self) -> None:
+        import threshold_scan
+
+        entry = "fgf::kernel::x86::gf8::gfni::single::mul_add_gfni"
+        lines = [
+            "pub fn mul_add_gfni() -> u32 { 0 }",
+            # Closure parameters in module-level initializers, with and without braces.
+            "const C: fn(fn() -> u32) -> u32 = |mul_add_gfni| mul_add_gfni();",
+            "static D: fn(fn() -> u32) -> u32 = |mul_add_gfni| { mul_add_gfni() };",
+            # A foreign item in the enclosing block shadows the nested function's call.
+            "fn f() -> u32 {",
+            '    unsafe extern "C" { fn mul_add_gfni() -> u32; }',
+            "    fn inner() -> u32 { unsafe { mul_add_gfni() } }",
+            "    inner()",
+            "}",
+            # A closure after a block expression: the parameter is not a field label.
+            "fn g() -> u32 {",
+            "    let f = { {} |_s: u8, mul_add_gfni: fn() -> u32| mul_add_gfni() };",
+            "    f(0, || 1)",
+            "}",
+            # A block-local item defined by a macro expansion.
+            "macro_rules! def { () => { fn mul_add_gfni() -> u32 { 9 } } }",
+            "fn n() -> u32 {",
+            "    def!();",
+            "    mul_add_gfni()",
+            "}",
+            # A `let` in the macro body shares the call's hygiene context.
+            "macro_rules! k { ($x:expr) => {{ let mul_add_gfni = |v: u32| v + 100; mul_add_gfni($x) }}; }",
+            "fn kk() -> u32 { k!(1) }",
+            "fn real_direct() -> u32 {",
+            "    mul_add_gfni()",
+            "}",
+        ]
+        path = "src/kernel/x86/gf8/gfni/single.rs"
+        models = {path: threshold_scan.SourceModel(path, "\n".join(lines) + "\n")}
+        sites = coverage_map.discover_call_sites(
+            [{"entry": entry, "tier": "v3_gfni_crypto"}], models
+        )
+        self.assertEqual(sites.get(entry), ((path, len(lines) - 1, 5),))
+
+
+class CallSiteTableTests(unittest.TestCase):
+    def test_call_site_table_ignores_line_moves_and_rejects_any_difference(self) -> None:
+        import threshold_scan
+
+        entry = "fgf::kernel::x86::gf8::gfni::single::mul_add_gfni"
+        registry = [{"entry": entry, "tier": "v3_gfni_crypto"}]
+        path = "src/kernel/x86/gf8/gfni/single.rs"
+        base = "pub fn mul_add_gfni() {}\nfn caller() {\n    mul_add_gfni();\n}\n"
+
+        def identities(source: str) -> list[dict]:
+            models = {path: threshold_scan.SourceModel(path, source)}
+            return coverage_map.call_site_identities(
+                coverage_map.discover_call_sites(registry, models), models
+            )
+
+        added = base + "fn other() {\n    mul_add_gfni();\n}\n"
+        with tempfile.TemporaryDirectory() as directory:
+            table = Path(directory) / "call_sites.json"
+            table.write_text(coverage_map.serialize_call_sites(identities(added)))
+            # Removing a reviewed row fails: stale rows cannot be refilled unreviewed.
+            with self.assertRaises(coverage_map.CoverageMapError):
+                coverage_map.check_call_sites(identities(base), table)
+            # A count spelled with another JSON type is not the canonical table.
+            table.write_text(
+                coverage_map.serialize_call_sites(identities(base)).replace('"count": 1', '"count": true')
+            )
+            with self.assertRaises(coverage_map.CoverageMapError):
+                coverage_map.check_call_sites(identities(base), table)
+            table.write_text(coverage_map.serialize_call_sites(identities(base)))
+            coverage_map.check_call_sites(identities("\n\n// moved\n" + base), table)
+            with self.assertRaises(coverage_map.CoverageMapError):
+                coverage_map.check_call_sites(identities(added), table)
+            repeated = base.replace("    mul_add_gfni();\n", "    mul_add_gfni();\n" * 2)
+            with self.assertRaises(coverage_map.CoverageMapError):
+                coverage_map.check_call_sites(identities(repeated), table)
 
 
 if __name__ == "__main__":

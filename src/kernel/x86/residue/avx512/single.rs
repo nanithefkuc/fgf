@@ -13,16 +13,9 @@ use crate::field::FieldBuffer;
 use crate::field::finite_field::{FiniteField, Residue};
 use crate::kernel::residue::PreparedResidue;
 
-mod u32;
-mod u64;
-mod u8;
-
-pub use u8::{mul_add_u8_avx512, mul_assign_u8_avx512, mul_into_u8_avx512};
-pub use u32::{
-    mul_add_u32_avx512, mul_assign_u32_avx512, mul_elementwise_assign_u32_avx512,
-    mul_elementwise_u32_avx512, mul_into_u32_avx512,
-};
-pub use u64::{mul_add_u64_avx512, mul_assign_u64_avx512, mul_into_u64_avx512};
+pub mod u32;
+pub mod u64;
+pub mod u8;
 
 /// Apply a prepared coefficient through this field's AVX-512 overwrite entry.
 ///
@@ -33,8 +26,8 @@ pub use u64::{mul_add_u64_avx512, mul_assign_u64_avx512, mul_into_u64_avx512};
 pub(crate) fn mul_into_with<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: &[u8]) {
     let token = crate::kernel::x86_v4_token();
     match <FiniteField<P, 1, Residue> as FieldBuffer>::BYTES {
-        1 => mul_into_u8_avx512(token, dst, src, coeff.word as u8, P as u8),
-        4 => mul_into_u32_avx512(
+        1 => u8::mul_into_avx512(token, dst, src, coeff.word as u8, P as u8),
+        4 => u32::mul_into_avx512(
             token,
             dst,
             src,
@@ -42,7 +35,7 @@ pub(crate) fn mul_into_with<const P: u64>(dst: &mut [u8], coeff: PreparedResidue
             (coeff.word >> 32) as u32,
             P as u32,
         ),
-        8 => mul_into_u64_avx512(token, dst, src, coeff.word, P),
+        8 => u64::mul_into_avx512(token, dst, src, coeff.word, P),
         _ => unreachable!("selected residue lane width"),
     }
 }
@@ -56,8 +49,8 @@ pub(crate) fn mul_into_with<const P: u64>(dst: &mut [u8], coeff: PreparedResidue
 pub(crate) fn mul_add_with<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: &[u8]) {
     let token = crate::kernel::x86_v4_token();
     match <FiniteField<P, 1, Residue> as FieldBuffer>::BYTES {
-        1 => mul_add_u8_avx512(token, dst, src, coeff.word as u8, P as u8),
-        4 => mul_add_u32_avx512(
+        1 => u8::mul_add_avx512(token, dst, src, coeff.word as u8, P as u8),
+        4 => u32::mul_add_avx512(
             token,
             dst,
             src,
@@ -65,7 +58,7 @@ pub(crate) fn mul_add_with<const P: u64>(dst: &mut [u8], coeff: PreparedResidue,
             (coeff.word >> 32) as u32,
             P as u32,
         ),
-        8 => mul_add_u64_avx512(token, dst, src, coeff.word, P),
+        8 => u64::mul_add_avx512(token, dst, src, coeff.word, P),
         _ => unreachable!("selected residue lane width"),
     }
 }
@@ -79,15 +72,15 @@ pub(crate) fn mul_add_with<const P: u64>(dst: &mut [u8], coeff: PreparedResidue,
 pub(crate) fn mul_assign_with<const P: u64>(dst: &mut [u8], coeff: PreparedResidue) {
     let token = crate::kernel::x86_v4_token();
     match <FiniteField<P, 1, Residue> as FieldBuffer>::BYTES {
-        1 => mul_assign_u8_avx512(token, dst, coeff.word as u8, P as u8),
-        4 => mul_assign_u32_avx512(
+        1 => u8::mul_assign_avx512(token, dst, coeff.word as u8, P as u8),
+        4 => u32::mul_assign_avx512(
             token,
             dst,
             coeff.word as u32,
             (coeff.word >> 32) as u32,
             P as u32,
         ),
-        8 => mul_assign_u64_avx512(token, dst, coeff.word, P),
+        8 => u64::mul_assign_avx512(token, dst, coeff.word, P),
         _ => unreachable!("selected residue lane width"),
     }
 }
@@ -95,7 +88,7 @@ pub(crate) fn mul_assign_with<const P: u64>(dst: &mut [u8], coeff: PreparedResid
 /// Multiply four-byte lanes after routing selects this field's `V4x` entry.
 #[inline]
 pub(crate) fn mul_elementwise<const P: u64>(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    mul_elementwise_u32_avx512(
+    u32::mul_elementwise_avx512(
         crate::kernel::x86_v4_token(),
         dst,
         a,
@@ -107,7 +100,7 @@ pub(crate) fn mul_elementwise<const P: u64>(dst: &mut [u8], a: &[u8], b: &[u8]) 
 /// Multiply four-byte lanes in place after routing selects this field's `V4x` entry.
 #[inline]
 pub(crate) fn mul_elementwise_assign<const P: u64>(dst: &mut [u8], src: &[u8]) {
-    mul_elementwise_assign_u32_avx512(
+    u32::mul_elementwise_assign_avx512(
         crate::kernel::x86_v4_token(),
         dst,
         src,

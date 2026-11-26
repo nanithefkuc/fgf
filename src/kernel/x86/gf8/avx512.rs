@@ -67,7 +67,7 @@ pub(super) fn brem_avx512(dst: &mut [u8], coeff: Prepared, src: &[u8]) {
 /// bodies and the nibble tail.
 #[inline]
 #[archmage::rite(v4x, import_intrinsics)]
-pub(super) fn brem_half_avx512(dst: &mut [u8], coeff: Prepared, src: &[u8]) {
+pub(super) fn brem_avx512_half(dst: &mut [u8], coeff: Prepared, src: &[u8]) {
     super::gfni::mul_add_gfni_impl::<false, PeelBody>(dst, coeff, src);
 }
 

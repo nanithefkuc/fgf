@@ -192,7 +192,7 @@ fn check_gfni_columns<const POLY: u128, const NATIVE: bool>(
 
 /// Column-block matrix forms over the AES presentation.
 #[test]
-fn gfni_matrix_column_blocks_match_reference() {
+fn matrix_kernels_gfni_column_blocks_match_reference() {
     check_gfni_columns::<AES, true>(
         0,
         false,
@@ -208,7 +208,7 @@ fn gfni_matrix_column_blocks_match_reference() {
 
 /// Column-block matrix forms over the Reed–Solomon presentation.
 #[test]
-fn gfni_rs_matrix_column_blocks_match_reference() {
+fn rs_matrix_kernels_gfni_column_blocks_match_reference() {
     check_gfni_columns::<RS, false>(
         16,
         true,
@@ -230,7 +230,7 @@ fn gfni_rs_matrix_column_blocks_match_reference() {
 /// ever substituted.
 #[allow(clippy::too_many_lines)]
 #[test]
-fn gf8_rs_gfni_kernels_match_reference() {
+fn rs_kernels_gfni_match_reference() {
     // The non-temporal `mul_into` body sits far above the shared lengths;
     // destination offsets 0 and 1 cover both sides of the alignment peel.
     const NT_LEN: usize = (2 << 20) + 130;
@@ -335,7 +335,7 @@ fn gf8_rs_gfni_kernels_match_reference() {
 /// The `GF2P8MULB` byte kernels across the half-lane peel floor, against
 /// the scalar reference for all three single-row forms.
 #[test]
-fn gf8_gfni_peels_half_lane() {
+fn mul_add_gfni_peels_half_lane() {
     let floor = crate::kernel::routing::HALF_LANE_PEEL_MIN;
     tier_gate::run_entry(x86::gf8::mul_add_gfni::<true>, |token, entry| {
         for len in [floor - 2, floor - 1, floor, floor + 1, floor + 130, 1152] {
@@ -403,7 +403,7 @@ fn gf8_gfni_peels_half_lane() {
 /// The `VGF2P8AFFINEQB` byte kernels across the half-lane peel floor,
 /// against the scalar reference for all three single-row forms.
 #[test]
-fn gf8_rs_gfni_peels_half_lane() {
+fn rs_mul_add_gfni_peels_half_lane() {
     let floor = crate::kernel::routing::HALF_LANE_PEEL_MIN;
     tier_gate::run_entry(x86::gf8::mul_add_gfni::<false>, |token, entry| {
         for len in [floor - 2, floor - 1, floor, floor + 1, floor + 130, 1152] {
@@ -472,7 +472,7 @@ fn gf8_rs_gfni_peels_half_lane() {
 }
 
 #[test]
-fn scatter_gfni_rejects_short_rows_buffer() {
+fn mul_add_scatter_gfni_rejects_short_rows_buffer() {
     // `#[should_panic]` cannot express "skip on hosts that cannot select the
     // tier", so the panic is caught explicitly after the capability guard.
     let Some(token) = tier_gate::summon::<X64V3GfniCryptoToken>() else {
@@ -499,7 +499,7 @@ fn scatter_gfni_rejects_short_rows_buffer() {
 }
 
 #[test]
-fn scatter_gfni_rs_rejects_short_rows_buffer() {
+fn rs_mul_add_scatter_gfni_rejects_short_rows_buffer() {
     let Some(token) = tier_gate::summon::<X64V3GfniCryptoToken>() else {
         eprintln!("skipping: no AVX2+GFNI+VAES on this host");
         return;

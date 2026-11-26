@@ -81,21 +81,6 @@ pub mod kernel {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     pub mod x86 {
         pub use crate::kernel::x86::*;
-
-        /// Direct residue kernels and reduction parameters.
-        pub mod residue {
-            #[cfg(feature = "simd512")]
-            pub use crate::kernel::x86::residue::avx512::{
-                matrix::{mul_add_matrix_u32_avx512_with, mul_into_matrix_u32_avx512_with},
-                single::{
-                    mul_add_u8_avx512, mul_add_u32_avx512, mul_add_u64_avx512,
-                    mul_assign_u8_avx512, mul_assign_u32_avx512, mul_assign_u64_avx512,
-                    mul_elementwise_assign_u32_avx512, mul_elementwise_u32_avx512,
-                    mul_into_u8_avx512, mul_into_u32_avx512, mul_into_u64_avx512,
-                },
-            };
-            pub use crate::kernel::x86::residue::*;
-        }
     }
 
     #[cfg(feature = "simd")]

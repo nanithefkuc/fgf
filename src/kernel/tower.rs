@@ -70,13 +70,13 @@ macro_rules! wide_tower_dispatch {
                             $crate::kernel::WideTowerStrategy::Avx512 => {
                                 return Prepared::Compact {
                                     coeff: raw,
-                                    tiles: x86::$xg::$tiles(Elem::<$rijndael_field> { raw }),
+                                    tiles: crate::kernel::tables::$tiles(Elem::<$rijndael_field> { raw }),
                                 };
                             }
                             $crate::kernel::WideTowerStrategy::Gfni => {
                                 return Prepared::Compact {
                                     coeff: raw,
-                                    tiles: x86::$xg::$tiles(Elem::<$rijndael_field> { raw }),
+                                    tiles: crate::kernel::tables::$tiles(Elem::<$rijndael_field> { raw }),
                                 };
                             }
                             _ => {}
@@ -152,7 +152,7 @@ macro_rules! wide_tower_dispatch {
                     }
                     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Prepared::Fp(coeff) => {
-                            x86::fan_paar::$mul_add_fp(
+                            x86::fan_paar::$xg::$mul_add_fp(
                             $crate::kernel::x86_v3_token(),
                             dst,
                             Elem::<$fanpaar_field> { raw: *coeff },
@@ -180,7 +180,7 @@ macro_rules! wide_tower_dispatch {
                     }
                     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Prepared::Fp(coeff) => {
-                            x86::fan_paar::$mul_assign_fp(
+                            x86::fan_paar::$xg::$mul_assign_fp(
                             $crate::kernel::x86_v3_token(),
                             dst,
                             Elem::<$fanpaar_field> { raw: *coeff },
@@ -209,7 +209,7 @@ macro_rules! wide_tower_dispatch {
                     }
                     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Prepared::Fp(coeff) => {
-                            x86::fan_paar::$mul_into_fp(
+                            x86::fan_paar::$xg::$mul_into_fp(
                             $crate::kernel::x86_v3_token(),
                             dst,
                             Elem::<$fanpaar_field> { raw: *coeff },
@@ -909,14 +909,14 @@ pub mod gf16 {
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Fp(tables) => match tower16_strategy() {
                     Tower16Strategy::Ssse3 => {
-                        x86::fan_paar::mul_add_ssse3_fp16(
+                        x86::fan_paar::gf16::mul_add_ssse3(
                             crate::kernel::x86_v2_token(),
                             dst,
                             tables,
                             src,
                         );
                     }
-                    _ => x86::fan_paar::mul_add_avx2_fp16(
+                    _ => x86::fan_paar::gf16::mul_add_avx2(
                         crate::kernel::x86_v3_token(),
                         dst,
                         tables,
@@ -961,14 +961,14 @@ pub mod gf16 {
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Fp(tables) => match tower16_strategy() {
                     Tower16Strategy::Ssse3 => {
-                        x86::fan_paar::mul_assign_ssse3_fp16(
+                        x86::fan_paar::gf16::mul_assign_ssse3(
                             crate::kernel::x86_v2_token(),
                             dst,
                             tables,
                         );
                     }
                     _ => {
-                        x86::fan_paar::mul_assign_avx2_fp16(
+                        x86::fan_paar::gf16::mul_assign_avx2(
                             crate::kernel::x86_v3_token(),
                             dst,
                             tables,
@@ -1022,14 +1022,14 @@ pub mod gf16 {
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Fp(tables) => match tower16_strategy() {
                     Tower16Strategy::Ssse3 => {
-                        x86::fan_paar::mul_into_ssse3_fp16(
+                        x86::fan_paar::gf16::mul_into_ssse3(
                             crate::kernel::x86_v2_token(),
                             dst,
                             tables,
                             src,
                         );
                     }
-                    _ => x86::fan_paar::mul_into_avx2_fp16(
+                    _ => x86::fan_paar::gf16::mul_into_avx2(
                         crate::kernel::x86_v3_token(),
                         dst,
                         tables,
@@ -1549,7 +1549,7 @@ pub mod gf32 {
         Compact {
             /// The GF(2^32) coefficient's raw word, for the portable tail.
             coeff: u32,
-            /// The tiles from [`x86::gf32::gf32_tiles`].
+            /// The tiles from [`crate::kernel::tables::gf32_tiles`].
             tiles: [u32; 4],
         },
         /// AVX2 Fan-Paar lane scales: the raw word.
@@ -1578,9 +1578,9 @@ pub mod gf32 {
         FanPaar32Field,
         gf32,
         gf32_tiles,
-        mul_add_avx2_fp32,
-        mul_assign_avx2_fp32,
-        mul_into_avx2_fp32,
+        mul_add_avx2,
+        mul_assign_avx2,
+        mul_into_avx2,
     );
 }
 
@@ -1642,7 +1642,7 @@ pub mod gf64 {
         Compact {
             /// The GF(2^64) coefficient's raw word, for the portable tail.
             coeff: u64,
-            /// The tiles from [`x86::gf64::gf64_tiles`].
+            /// The tiles from [`crate::kernel::tables::gf64_tiles`].
             tiles: [u64; 8],
         },
         /// AVX2 Fan-Paar lane scales: the raw word.
@@ -1671,8 +1671,8 @@ pub mod gf64 {
         FanPaar64Field,
         gf64,
         gf64_tiles,
-        mul_add_avx2_fp64,
-        mul_assign_avx2_fp64,
-        mul_into_avx2_fp64,
+        mul_add_avx2,
+        mul_assign_avx2,
+        mul_into_avx2,
     );
 }

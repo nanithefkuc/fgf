@@ -1551,25 +1551,25 @@ OVERRIDES: dict[str, dict] = {
     "src/kernel/x86/gf8.rs::MATRIX_COLUMN_BLOCK": _override(
         TUNING, "bytes", "column block", "whole-row <-> column-blocked matrix walk"
     ),
-    "src/kernel/x86/gf8/gfni/rows.rs::FEW_TERMS": _override(
+    "src/kernel/x86/gf8/rows.rs::FEW_TERMS": _override(
         TUNING, "terms", "term count", "four-row <-> six-row row group"
     ),
-    "src/kernel/x86/gf8/gfni/rows.rs::MAX_GROUP_ROWS": _override(
+    "src/kernel/x86/gf8/rows.rs::MAX_GROUP_ROWS": _override(
         TUNING, "rows", "row group width", "row group width"
     ),
-    "src/kernel/x86/gf8/gfni/rows.rs::THREE_LANE_MIN_TERMS": _override(
+    "src/kernel/x86/gf8/rows.rs::THREE_LANE_MIN_TERMS": _override(
         TUNING, "terms", "term count", "two-lane <-> three-lane row group"
     ),
-    "src/kernel/x86/gf8/gfni/rows.rs::THREE_LANE_MIN_ROW": _override(
+    "src/kernel/x86/gf8/rows.rs::THREE_LANE_MIN_ROW": _override(
         TUNING, "bytes", "row length", "two-lane <-> three-lane row group"
     ),
-    "src/kernel/x86/gf8/gfni/rows.rs::THREE_LANE_MAX_ROW": _override(
+    "src/kernel/x86/gf8/rows.rs::THREE_LANE_MAX_ROW": _override(
         TUNING, "bytes", "row length", "three-lane <-> two-lane row group"
     ),
-    "src/kernel/x86/gf8/gfni/rows.rs::MATRIX_PREFETCH_DISTANCE": _override(
+    "src/kernel/x86/gf8/rows.rs::MATRIX_PREFETCH_DISTANCE": _override(
         TUNING, "bytes", "prefetch distance", "prefetch distance"
     ),
-    "src/kernel/x86/gf8/gfni/rows.rs::MATRIX_PREFETCH_MIN": _override(
+    "src/kernel/x86/gf8/rows.rs::MATRIX_PREFETCH_MIN": _override(
         TUNING, "bytes", "row length", "prefetch branch"
     ),
     "src/kernel/x86/mersenne31/avx512.rs::SCREEN_LANES": _override(

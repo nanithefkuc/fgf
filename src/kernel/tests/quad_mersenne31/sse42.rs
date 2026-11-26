@@ -90,7 +90,7 @@ fn model_scalar_bytes(
 }
 
 #[test]
-fn sse42_row_ops_match_model_and_reference() {
+fn row_ops_sse42_match_model_and_reference() {
     tier_gate::run_entry(x86::quad_mersenne31::add_assign_sse42, |token, entry| {
         drive_prime_len::<QuadMersenne31>(
             LENS,
@@ -140,7 +140,7 @@ fn sse42_row_ops_match_model_and_reference() {
 }
 
 #[test]
-fn sse42_scalar_ops_match_model_and_reference() {
+fn scalar_ops_sse42_match_model_and_reference() {
     tier_gate::run_entry(
         x86::quad_mersenne31::add_assign_scalar_sse42,
         |token, entry| {
@@ -202,7 +202,7 @@ fn sse42_scalar_ops_match_model_and_reference() {
 }
 
 #[test]
-fn sse42_unaligned_slices() {
+fn kernels_sse42_unaligned_slices() {
     let Some(token) = tier_gate::summon::<X64V2Token>() else {
         eprintln!("skipping: no SSE4.2 on this host");
         return;
@@ -288,7 +288,7 @@ fn expect_geometry_panic(
 }
 
 #[test]
-fn sse42_geometry_validation_precedes_writes() {
+fn kernels_sse42_geometry_validation_precedes_writes() {
     let Some(token) = tier_gate::summon::<X64V2Token>() else {
         eprintln!("skipping: no SSE4.2 on this host");
         return;

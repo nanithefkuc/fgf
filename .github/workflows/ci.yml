@@ -53,11 +53,12 @@ jobs:
 
   # Derive the kernel-entry registry from the pinned nightly's all-features
   # x86_64 rustdoc documents and run its static checks: unmapped, generic, or
-  # tokenless first parameters (outside the audited tokenless list), a token
+  # tokenless first parameters, a token
   # family with no entries, and token-first functions unreachable through
   # `internals` (outside the audited private-helper allowlist) all fail here.
   # The registry binds to the source-tree hash, so the `isa-accept` job can
-  # verify the artifact is fresh for the tree it tests.
+  # verify the artifact is fresh for the tree it tests. The coverage map's
+  # discovered call sites must then equal the reviewed `benches/call_sites.json`.
   kernel-registry:
     name: kernel entry registry
     runs-on: ubuntu-latest

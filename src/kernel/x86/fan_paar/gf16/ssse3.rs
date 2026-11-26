@@ -10,7 +10,7 @@ use crate::kernel::x86::gf16::{nibble_ssse3, scale_ssse3};
 /// Panics if the slices differ in length or hold a partial element.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_ssse3_fp16(
+pub fn mul_add_ssse3(
     _token: archmage::X64V2Token,
     dst: &mut [u8],
     tables: &FpTowerTables,
@@ -19,13 +19,13 @@ pub fn mul_add_ssse3_fp16(
     assert_eq!(
         dst.len(),
         src.len(),
-        "fan_paar::mul_add_ssse3_fp16: dst is {} bytes but src is {} bytes",
+        "fan_paar::gf16::mul_add_ssse3: dst is {} bytes but src is {} bytes",
         dst.len(),
         src.len(),
     );
     assert!(
         dst.len().is_multiple_of(2),
-        "fan_paar::mul_add_ssse3_fp16: buffer of {} bytes is not a whole number of 2-byte elements",
+        "fan_paar::gf16::mul_add_ssse3: buffer of {} bytes is not a whole number of 2-byte elements",
         dst.len(),
     );
     let vectors = nibble_ssse3(tables);
@@ -46,10 +46,10 @@ pub fn mul_add_ssse3_fp16(
 /// Panics on a partial trailing element.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_ssse3_fp16(_token: archmage::X64V2Token, dst: &mut [u8], tables: &FpTowerTables) {
+pub fn mul_assign_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], tables: &FpTowerTables) {
     assert!(
         dst.len().is_multiple_of(2),
-        "fan_paar::mul_assign_ssse3_fp16: buffer of {} bytes is not a whole number of 2-byte elements",
+        "fan_paar::gf16::mul_assign_ssse3: buffer of {} bytes is not a whole number of 2-byte elements",
         dst.len(),
     );
     let vectors = nibble_ssse3(tables);
@@ -67,7 +67,7 @@ pub fn mul_assign_ssse3_fp16(_token: archmage::X64V2Token, dst: &mut [u8], table
 /// Panics if the slices differ in length or hold a partial element.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_ssse3_fp16(
+pub fn mul_into_ssse3(
     _token: archmage::X64V2Token,
     dst: &mut [u8],
     tables: &FpTowerTables,
@@ -76,13 +76,13 @@ pub fn mul_into_ssse3_fp16(
     assert_eq!(
         dst.len(),
         src.len(),
-        "fan_paar::mul_into_ssse3_fp16: dst is {} bytes but src is {} bytes",
+        "fan_paar::gf16::mul_into_ssse3: dst is {} bytes but src is {} bytes",
         dst.len(),
         src.len(),
     );
     assert!(
         dst.len().is_multiple_of(2),
-        "fan_paar::mul_into_ssse3_fp16: buffer of {} bytes is not a whole number of 2-byte elements",
+        "fan_paar::gf16::mul_into_ssse3: buffer of {} bytes is not a whole number of 2-byte elements",
         dst.len(),
     );
     let vectors = nibble_ssse3(tables);
