@@ -2,7 +2,8 @@
 //!
 //! Submodules split on instruction set; the larger two split again on fan
 //! shape. The private family-level `rows` module holds row-group execution
-//! shared by scatter and matrix; each body retains its concrete GFNI context.
+//! shared by the GFNI contiguous and scattered matrix walks; each body retains
+//! its concrete GFNI context.
 //! `ssse3` and `avx2` hold the nibble-shuffle kernels, `gfni` the
 //! `GF2P8MULB`/`VGF2P8AFFINEQB` kernels at 32-byte lanes, and `avx512` the
 //! same multiplies at 64-byte lanes under `simd512`. The caller's resolved

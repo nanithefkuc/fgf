@@ -16,8 +16,7 @@ Subcommands:
 - `generate --public-doc P --private-doc Q --format F --channel C
   --target T [--features S] --out R`: derives `R`. Static checks, all
   fail-closed: the rustdoc format matches `F`; every public `kernel::x86`
-  function has a mapped token first, or is one of the audited tokenless
-  functions by name; every mapped token family (`v2`, `v3`,
+  function has a mapped token first; every mapped token family (`v2`, `v3`,
   `v3_gfni_crypto`, `v4x`; `X64V1Token`/`X64V2Token` share `v2`,
   `X64V4Token`/`X64V4xToken` share `v4x`) has at least one entry; and the
   private pass rejects every token-first function under `kernel::x86`
@@ -83,13 +82,6 @@ TIER_RANK = {
     "v3_gfni_crypto": 3,
     "v4x": 4,
 }
-
-# Public `kernel::x86` functions audited as non-entries: no first-parameter
-# token, no marker obligation. Keyed by name; generation requires each name
-# to match exactly one tokenless function and fails when the name no longer
-# matches one, so disposing of an audited function removes its entry from
-# this list in the same change.
-TOKENLESS_ALLOWLIST: frozenset[str] = frozenset()
 
 # Definition paths of token-first helpers deliberately not reachable through
 # internals. Each exception names the entry bodies that exercise it.
@@ -275,32 +267,6 @@ def internals_reachable_paths(doc: dict) -> set[str]:
     return reachable
 
 
-def tokenless_allowlist_matches(
-    candidates: dict[str, list[str]], allowlist: frozenset[str] = TOKENLESS_ALLOWLIST
-) -> tuple[list[str], list[str]]:
-    """(canonical paths of the audited tokenless functions, errors): one
-    path per allowlisted name, an error for a name that matches none (the
-    function gained a token or disappeared) or matches more than one."""
-    matched = []
-    errors = []
-    for name in sorted(allowlist):
-        paths = candidates.get(name)
-        if not paths:
-            errors.append(
-                f"audited tokenless function {name} matches no tokenless "
-                "public kernel::x86 function; drop it from TOKENLESS_ALLOWLIST "
-                "or restore the audited form"
-            )
-        elif len(paths) > 1:
-            errors.append(
-                f"audited tokenless function {name} is ambiguous across "
-                f"{', '.join(sorted(paths))}"
-            )
-        else:
-            matched.append(paths[0])
-    return matched, errors
-
-
 def generate(
     public_doc: dict,
     private_doc: dict,
@@ -308,7 +274,6 @@ def generate(
     fmt: str,
     target: str,
     features: str,
-    tokenless_allowlist: frozenset[str] = TOKENLESS_ALLOWLIST,
     private_allowlist: frozenset[str] = PRIVATE_ALLOWLIST,
     root: Path | None = None,
 ) -> dict:
@@ -319,7 +284,6 @@ def generate(
 
     errors: list[str] = []
     entries: list[dict] = []
-    tokenless_candidates: dict[str, list[str]] = {}
 
     for path, entry in public_fns:
         classification, value = first_parameter(entry, public_doc)
@@ -328,13 +292,9 @@ def generate(
             if token is not None:
                 entries.append({"entry": path, "tier": TOKEN_TIERS[token], "token": token})
                 continue
-            if entry.get("name") in tokenless_allowlist:
-                tokenless_candidates.setdefault(entry["name"], []).append(path)
-                continue
             errors.append(
                 f"unmapped first parameter `{value}` on public kernel::x86 function {path}; "
-                "take a mapped capability token first or audit the function in "
-                "TOKENLESS_ALLOWLIST"
+                "kernels take a mapped capability token first"
             )
         elif classification == "generic":
             errors.append(
@@ -342,13 +302,10 @@ def generate(
                 "kernels take a concrete capability token first"
             )
         elif classification == "missing":
-            if entry.get("name") in tokenless_allowlist:
-                tokenless_candidates.setdefault(entry["name"], []).append(path)
-            else:
-                errors.append(
-                    f"parameterless public kernel::x86 function {path}; "
-                    "kernels take a capability token first"
-                )
+            errors.append(
+                f"parameterless public kernel::x86 function {path}; "
+                "kernels take a capability token first"
+            )
         else:
             errors.append(
                 f"unmapped {classification} first parameter on public kernel::x86 "
@@ -363,10 +320,6 @@ def generate(
     for token in TOKEN_TIERS:
         if token not in present_tokens:
             errors.append(f"no registry entry for token type {token}")
-
-    matched, allowlist_errors = tokenless_allowlist_matches(tokenless_candidates, tokenless_allowlist)
-    errors.extend(allowlist_errors)
-    audited = matched
 
     reachable = internals_reachable_paths(public_doc)
     for path, entry in private_fns:
@@ -404,7 +357,6 @@ def generate(
     return {
         "identity": compute_identity(channel, fmt, target, features, root=root),
         "entries": sorted(entries, key=lambda entry: entry["entry"]),
-        "audited_tokenless": sorted(audited),
         "private_allowlist": sorted(private_allowlist),
     }
 
@@ -462,7 +414,7 @@ def load_registry(path: Path) -> dict:
         registry = json.loads(path.read_text())
     except json.JSONDecodeError as err:
         raise RegistryError(f"{path}: not valid JSON ({err})") from err
-    for key in ("identity", "entries", "audited_tokenless", "private_allowlist"):
+    for key in ("identity", "entries", "private_allowlist"):
         if key not in registry:
             raise RegistryError(f"{path}: registry is missing `{key}`")
     return registry
@@ -489,7 +441,6 @@ def audit(registry: dict, floor: str, actual: str, log_text: str) -> list[str]:
     if actual not in TIER_RANK:
         raise RegistryError(f"unknown resolved actual tier {actual}")
     tiers = entry_tiers(registry)
-    non_entries = set(registry["audited_tokenless"])
 
     ceiling = min(TIER_RANK[floor], TIER_RANK[actual])
     errors: list[str] = []
@@ -501,9 +452,6 @@ def audit(registry: dict, floor: str, actual: str, log_text: str) -> list[str]:
         tier, path = marker.group(1), marker.group(2)
         if tier not in TIER_RANK:
             errors.append(f"marker names unknown tier {tier}: {line.strip()}")
-            continue
-        if path in non_entries:
-            errors.append(f"marker names audited non-entry {path}")
             continue
         expected = tiers.get(path)
         if expected is None:
@@ -552,7 +500,6 @@ def cmd_generate(args: argparse.Namespace) -> int:
     print(
         f"kernel-registry: {len(registry['entries'])} entries "
         f"({', '.join(f'{tier}={counts[tier]}' for tier in sorted(counts))}), "
-        f"{len(registry['audited_tokenless'])} audited tokenless, "
         f"{len(registry['private_allowlist'])} private allowlist entries"
     )
     return 0

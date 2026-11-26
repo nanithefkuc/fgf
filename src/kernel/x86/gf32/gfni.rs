@@ -22,7 +22,7 @@ fn set1_tile(tile: u32) -> __m256i {
 /// under `cross_b`. The shuffles are the caller's job so the body stays a
 /// straight line of independent multiplies.
 #[archmage::rite(v3_gfni_crypto)]
-fn scale32(x: __m256i, lane: &Lane32) -> __m256i {
+fn scale(x: __m256i, lane: &Lane) -> __m256i {
     _mm256_xor_si256(
         _mm256_xor_si256(
             _mm256_gf2p8mul_epi8(x, lane.same_a),
@@ -36,7 +36,7 @@ fn scale32(x: __m256i, lane: &Lane32) -> __m256i {
 }
 
 /// Broadcast tiles and shuffle masks, materialized once per kernel call.
-struct Lane32 {
+struct Lane {
     same_a: __m256i,
     cross_a: __m256i,
     same_b: __m256i,
@@ -47,8 +47,8 @@ struct Lane32 {
 }
 
 #[archmage::rite(v3_gfni_crypto)]
-fn lane32(tiles: [u32; 4]) -> Lane32 {
-    Lane32 {
+fn lane(tiles: [u32; 4]) -> Lane {
+    Lane {
         same_a: set1_tile(tiles[0]),
         cross_a: set1_tile(tiles[1]),
         same_b: set1_tile(tiles[2]),
@@ -84,12 +84,12 @@ pub fn mul_add_gfni(
         "gf32::mul_add_gfni: buffer of {} bytes is not a whole number of 4-byte elements",
         dst.len(),
     );
-    let l = lane32(tiles);
+    let l = lane(tiles);
     let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in lanes.iter_mut().zip(src_lanes) {
         let x = _mm256_loadu_si256(src_lane);
-        let r = scale32(x, &l);
+        let r = scale(x, &l);
         let d = _mm256_loadu_si256(&*dst_lane);
         _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, r));
     }
@@ -115,11 +115,11 @@ pub fn mul_assign_gfni(
         "gf32::mul_assign_gfni: buffer of {} bytes is not a whole number of 4-byte elements",
         dst.len(),
     );
-    let l = lane32(tiles);
+    let l = lane(tiles);
     let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
     for dst_lane in lanes.iter_mut() {
         let x = _mm256_loadu_si256(&*dst_lane);
-        let r = scale32(x, &l);
+        let r = scale(x, &l);
         _mm256_storeu_si256(dst_lane, r);
     }
     scalar::mul_assign::<Rijndael32Field>(dst_tail, coeff);
@@ -153,12 +153,12 @@ pub fn mul_into_gfni(
         "gf32::mul_into_gfni: buffer of {} bytes is not a whole number of 4-byte elements",
         dst.len(),
     );
-    let l = lane32(tiles);
+    let l = lane(tiles);
     let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in lanes.iter_mut().zip(src_lanes) {
         let x = _mm256_loadu_si256(src_lane);
-        let r = scale32(x, &l);
+        let r = scale(x, &l);
         _mm256_storeu_si256(dst_lane, r);
     }
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its

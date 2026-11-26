@@ -30,7 +30,7 @@ just validate              # shared correctness and coverage gate
 just release-accept        # crate-specific release checks, including native fixtures
 just test-gather-validation-32 # i686 release regression, overflow checks disabled
 just isa-accept TIER [REGISTRY] # fail-closed native execution evidence and tier sweep
-just kernel-registry-check # compiler-derived x86 entries and behavioral checker tests
+just kernel-registry-check # compiler-derived x86 entries, checker tests, call-site table
 just benchmark-check       # portable fixtures and compiler-derived API coverage
 just benchmark-check-native # native GF16 fixtures on capable hosts
 just bench-baseline *ARGS  # standalone descriptive breadth or bulk measurement
@@ -391,11 +391,11 @@ directory holds one file per ISA its kernels compile for (`ssse3`/`sse2`/
 `sse42`, `avx2`, `gfni`, `avx512`), and a file splits again into a directory
 by fan shape only when it outgrows one file (`gf8/gfni/`, `gf8/avx512/`,
 `gf16/gfni/`). Fan–Paar splits by field width (`gf16`, `gf32`, `gf64`)
-before instruction set. Shared shapes live in private operation-named files
-(`single`, `scatter`, `gather`, `matrix`, `elementwise`) beside the ISA
-subtrees; `rows` holds row-group bodies shared by scatter and matrix.
-Parent module docs name both axes. `gf8/rows.rs` retains concrete GFNI
-feature boundaries. Entry names carry the same ISA suffix as their file, in the
+before instruction set. Per-shape files (`single`, `scatter`, `gather`,
+`matrix`, `elementwise`) live inside the ISA subtrees; family-level
+`gf8/rows.rs` holds row-group bodies shared by the GFNI contiguous and
+scattered matrix walks and retains concrete GFNI feature boundaries.
+Parent module docs name both axes. Entry names carry the same ISA suffix as their file, in the
 order operation, ISA, `_with` (`mul_add_matrix_at_gfni`,
 `mul_add_matrix_avx512_with`). Byte-field entries are generic over the
 polynomial or its typed prepared coefficient, without field-specific suffixes.
@@ -522,7 +522,7 @@ hosted runner cannot guarantee GFNI or AVX-512.
 
 | Group | Files relative to `src/kernel/` | Why hosted runners cannot cover it |
 |---|---|---|
-| GFNI | `x86/gf8/gfni.rs`, `x86/gf8/gfni/{elementwise,gather,matrix,scatter,single}.rs`; `x86/gf16/gfni.rs`, `x86/gf16/gfni/{elementwise,gather,matrix,scatter,single}.rs`; `x86/gf32/gfni.rs`, `x86/gf64/gfni.rs` | GFNI with the selected crypto tier |
+| GFNI | `x86/gf8/gfni.rs`, `x86/gf8/gfni/{elementwise,gather,matrix,scatter,single}.rs`, `x86/gf8/rows.rs`; `x86/gf16/gfni.rs`, `x86/gf16/gfni/{elementwise,gather,matrix,scatter,single}.rs`; `x86/gf32/gfni.rs`, `x86/gf64/gfni.rs` | GFNI with the selected crypto tier |
 | AVX-512 | `x86/bytes/avx512.rs`; `x86/gf8/avx512.rs`, `x86/gf8/avx512/{elementwise,gather,matrix,scatter,single}.rs`; `x86/gf16/avx512.rs`; `x86/{goldilocks,mersenne31,quad_mersenne31}/avx512.rs`; `x86/residue/avx512.rs`, `x86/residue/avx512/{matrix,single}.rs`, `x86/residue/avx512/single/{u8,u32,u64}.rs` | AVX-512; the byte-field entries also require GFNI |
 | Dispatch | `gf8.rs`, `tower.rs` | Generic dispatch arms are selected per field type and per tier, so no single monomorphized instance executes every arm; `llvm-cov` line totals score each function by its best instance, and hosted runners additionally miss the GFNI and `V4x` arms |
 
@@ -537,7 +537,6 @@ instance. Kernel-body execution evidence comes from the registry receipts,
 not from coverage. Adding an exclusion requires a per-file capability
 justification here.
 
-Shared-shape sources, including `x86/gf8/rows.rs`, stay in hosted coverage.
 Native execution evidence classifies each shared region by its concrete
 entry instantiation and token; execution through one ISA never credits another.
 
@@ -859,7 +858,8 @@ recipe generates the threshold inventory into
 `target/threshold-inventory/inventory.json` using the versioned in-tree
 `benches/threshold_scan.py` (an explicit `FGF_THRESHOLD_INVENTORY` overrides
 the path and honors an adjacent `scan.py` when present), and regenerates the
-kernel registry when its identity does not match the tree.
+kernel registry and private rustdoc document from the tree on every run; the
+script reads them, and the call-site table, only from its own checkout.
 Ambiguous attribution is never excused.
 Exception declarations may key `straddling_cells` by tier; the keys must
 then match the entry's `tiers` scope exactly, so a witness set cannot be
@@ -872,7 +872,14 @@ fingerprint drift, entries that are not direct source callers, and
 incomplete scopes.
 The pinned compiler emits little or no mapping for `#[archmage::arcane]` kernel
 bodies. Entry evidence uses a wrapper counter or an attributed call-site
-counter, not an unrelated nearby region. Scalar public operations also supply
+counter, not an unrelated nearby region. Call-site attribution is lexical and
+cannot be sound against arbitrary Rust, so the discovered sites must equal the
+reviewed `benches/call_sites.json` table byte for byte (checked by
+`kernel-registry-check` and before every coverage map, against the tree's own
+registry). Reports record the table's SHA-256 and `--aggregate` rejects any
+report gated by another table. After a source change alters them,
+`just bench-call-sites-update` rewrites the table; review every added row
+against rustc's resolution. Scalar public operations also supply
 exact compiler function counters. An inventory-only run records startup
 counts; operation and helper counters must exceed that footprint and have a
 uniquely resolved public operation matching the cell's operation and

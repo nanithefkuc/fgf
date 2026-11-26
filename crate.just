@@ -40,10 +40,8 @@ MIRI := ''
 # exclusion must be added here with a T4 justification in the crate's
 # `AGENTS.md`, never silently. The acceptance-host recipe `cover-native`
 # excludes nothing and reports each list separately.
-# Shared-shape files, including gf8/rows.rs, remain in hosted coverage;
-# native shared-region evidence belongs to each concrete ISA entry.
 # GFNI-only bodies: GF2P8MULB lanes and their coefficient-map helpers.
-COV_IGNORE_GFNI := 'kernel/x86/gf8/gfni\.rs$|kernel/x86/gf8/gfni/elementwise\.rs$|kernel/x86/gf8/gfni/gather\.rs$|kernel/x86/gf8/gfni/matrix\.rs$|kernel/x86/gf8/gfni/scatter\.rs$|kernel/x86/gf8/gfni/single\.rs$|kernel/x86/gf16/gfni\.rs$|kernel/x86/gf16/gfni/elementwise\.rs$|kernel/x86/gf16/gfni/gather\.rs$|kernel/x86/gf16/gfni/matrix\.rs$|kernel/x86/gf16/gfni/scatter\.rs$|kernel/x86/gf16/gfni/single\.rs$|kernel/x86/gf32/gfni\.rs$|kernel/x86/gf64/gfni\.rs$'
+COV_IGNORE_GFNI := 'kernel/x86/gf8/gfni\.rs$|kernel/x86/gf8/gfni/elementwise\.rs$|kernel/x86/gf8/gfni/gather\.rs$|kernel/x86/gf8/gfni/matrix\.rs$|kernel/x86/gf8/gfni/scatter\.rs$|kernel/x86/gf8/gfni/single\.rs$|kernel/x86/gf8/rows\.rs$|kernel/x86/gf16/gfni\.rs$|kernel/x86/gf16/gfni/elementwise\.rs$|kernel/x86/gf16/gfni/gather\.rs$|kernel/x86/gf16/gfni/matrix\.rs$|kernel/x86/gf16/gfni/scatter\.rs$|kernel/x86/gf16/gfni/single\.rs$|kernel/x86/gf32/gfni\.rs$|kernel/x86/gf64/gfni\.rs$'
 # AVX-512 bodies: 64-byte lanes, masked and streaming stores, V4x kernels.
 COV_IGNORE_AVX512 := 'kernel/x86/bytes/avx512\.rs$|kernel/x86/gf8/avx512\.rs$|kernel/x86/gf8/avx512/elementwise\.rs$|kernel/x86/gf8/avx512/gather\.rs$|kernel/x86/gf8/avx512/matrix\.rs$|kernel/x86/gf8/avx512/scatter\.rs$|kernel/x86/gf8/avx512/single\.rs$|kernel/x86/gf16/avx512\.rs$|kernel/x86/goldilocks/avx512\.rs$|kernel/x86/mersenne31/avx512\.rs$|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512\.rs$|kernel/x86/residue/avx512/matrix\.rs$|kernel/x86/residue/avx512/single\.rs$|kernel/x86/residue/avx512/single/u8\.rs$|kernel/x86/residue/avx512/single/u32\.rs$|kernel/x86/residue/avx512/single/u64\.rs$'
 # Dispatch modules whose generic arms are selected per field type and tier.
@@ -208,11 +206,21 @@ KR_DIR := 'target/kernel-registry'
 
 # Behavioral Python tests, then generation from the pinned nightly's
 # all-features x86_64 rustdoc documents (one with --document-hidden-items,
-# one with --document-private-items). Needs the pinned API_NIGHTLY.
+# one with --document-private-items), then the check that the coverage
+# map's discovered call sites equal the reviewed `benches/call_sites.json`.
+# Needs the pinned API_NIGHTLY.
 [group('gate')]
 kernel-registry-check:
     API_NIGHTLY="{{API_NIGHTLY}}" API_FORMAT="{{API_FORMAT}}" python3 -m unittest -q api/test_kernel_registry.py
     just _kernel-registry-generate
+    python3 benches/coverage_map.py --call-sites-only check
+
+# Rewrite the reviewed call-site table from the current sources. Review the
+# diff: every added row must resolve to its entry under rustc.
+[group('bench')]
+bench-call-sites-update:
+    just _kernel-registry-generate
+    python3 benches/coverage_map.py --call-sites-only update
 
 [private]
 _kernel-registry-generate:
@@ -648,6 +656,9 @@ bench-route-probe TIER *ARGS:
 # By default, the threshold inventory is generated with the versioned in-tree
 # `benches/threshold_scan.py` into `target/threshold-inventory/inventory.json`;
 # setting `FGF_THRESHOLD_INVENTORY` selects an explicit pre-generated inventory.
+# The kernel registry and private rustdoc document are regenerated from this
+# tree in the same run, then the call sites are checked against the reviewed
+# `benches/call_sites.json`.
 [group('bench')]
 bench-coverage-map TIER *ARGS:
     #!/usr/bin/env bash
@@ -667,13 +678,7 @@ bench-coverage-map TIER *ARGS:
         python3 "${scanner}" --root . --out "${inventory}" \
             --positions "$(dirname "${inventory}")/positions.json"
     fi
-    registry=target/kernel-registry/registry.json
-    private=target/kernel-registry/private.json
-    if [[ ! -f "${registry}" || ! -f "${private}" ]] || \
-       ! API_NIGHTLY="{{API_NIGHTLY}}" API_FORMAT="{{API_FORMAT}}" \
-         python3 api/kernel_registry.py check-identity "${registry}" --target {{KR_TARGET}}; then
-        just kernel-registry-check
-    fi
+    just kernel-registry-check
     exec python3 benches/coverage_map.py \
         --tier {{TIER}} \
         --inventory "${inventory}" \

@@ -1,4 +1,4 @@
-//! Register-blocked row-group bodies shared by scatter and matrix shapes.
+//! Register-blocked row-group bodies shared by GFNI contiguous and scattered matrix walks.
 //!
 //! A group of one to [`MAX_GROUP_ROWS`] rows resolves its coefficients into
 //! one stack array, runs the tile loops over that chunk, and finishes the

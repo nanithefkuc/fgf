@@ -11,7 +11,7 @@ use crate::kernel::x86::gf64::SWAP4;
 use core::arch::x86_64::*;
 
 /// The three fp32 sub-scales of one fp64 scale.
-struct Fp64Lanes {
+struct Lanes {
     /// `[c0, c0 ^ mul_alpha(c1), c1]` as fp32 sub-scales — `a` even fp32
     /// lanes, `b` odd, `c` (uniform) the half-swapped source.
     a: FanPaar32LanesAvx2,
@@ -24,12 +24,12 @@ struct Fp64Lanes {
 }
 
 #[archmage::rite(v3)]
-fn fp64_lanes(coeff: Elem<FanPaar64Field>) -> Fp64Lanes {
+fn lanes(coeff: Elem<FanPaar64Field>) -> Lanes {
     let [c0, c1] = coeff.to_components();
     let a_coeff = c0;
     let b_coeff = c0.add(c1.mul_alpha());
     let c_coeff = c1;
-    Fp64Lanes {
+    Lanes {
         a: fan_paar32_lanes_avx2(a_coeff),
         b: fan_paar32_lanes_avx2(b_coeff),
         c: fan_paar32_lanes_avx2(c_coeff),
@@ -40,7 +40,7 @@ fn fp64_lanes(coeff: Elem<FanPaar64Field>) -> Fp64Lanes {
 
 /// `coeff * src` for one 32-byte lane, given the precomputed fp32 sub-scales.
 #[archmage::rite(v3)]
-fn scale_fp64(x: __m256i, lanes: &Fp64Lanes) -> __m256i {
+fn scale(x: __m256i, lanes: &Lanes) -> __m256i {
     // even fp32 lanes ← a·x, odd fp32 lanes ← b·x.
     let xa = scale_fan_paar32_avx2(x, &lanes.a);
     let xb = scale_fan_paar32_avx2(x, &lanes.b);
@@ -77,13 +77,13 @@ pub fn mul_add_avx2(
         "fan_paar::gf64::mul_add_avx2: buffer of {} bytes is not a whole number of 8-byte elements",
         dst.len(),
     );
-    let l = fp64_lanes(coeff);
+    let l = lanes(coeff);
     let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in lanes.iter_mut().zip(src_lanes) {
         let x = _mm256_loadu_si256(src_lane);
         let d = _mm256_loadu_si256(&*dst_lane);
-        let r = scale_fp64(x, &l);
+        let r = scale(x, &l);
         _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, r));
     }
     // Every 32-byte lane is a whole number of 8-byte elements, so the tail
@@ -103,11 +103,11 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem
         "fan_paar::gf64::mul_assign_avx2: buffer of {} bytes is not a whole number of 8-byte elements",
         dst.len(),
     );
-    let l = fp64_lanes(coeff);
+    let l = lanes(coeff);
     let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
     for dst_lane in lanes.iter_mut() {
         let x = _mm256_loadu_si256(&*dst_lane);
-        _mm256_storeu_si256(dst_lane, scale_fp64(x, &l));
+        _mm256_storeu_si256(dst_lane, scale(x, &l));
     }
     scalar::mul_assign::<FanPaar64Field>(dst_tail, coeff);
 }
@@ -136,12 +136,12 @@ pub fn mul_into_avx2(
         "fan_paar::gf64::mul_into_avx2: buffer of {} bytes is not a whole number of 8-byte elements",
         dst.len(),
     );
-    let l = fp64_lanes(coeff);
+    let l = lanes(coeff);
     let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in lanes.iter_mut().zip(src_lanes) {
         let x = _mm256_loadu_si256(src_lane);
-        _mm256_storeu_si256(dst_lane, scale_fp64(x, &l));
+        _mm256_storeu_si256(dst_lane, scale(x, &l));
     }
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.

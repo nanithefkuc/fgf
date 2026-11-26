@@ -501,7 +501,6 @@ class Identity(unittest.TestCase):
                         CHANNEL, FORMAT, TARGET, FEATURES, root=root
                     ),
                     "entries": [],
-                    "audited_tokenless": [],
                     "private_allowlist": [],
                 }
                 artifact = root / "registry.json"
@@ -685,6 +684,24 @@ class CommandLine(unittest.TestCase):
         public_path.write_text(json.dumps(public))
         private_path.write_text(json.dumps(private))
         return public_path, private_path
+
+    def test_generate_writes_the_registry(self) -> None:
+        public_path, private_path = self.write_docs(*base_fixture())
+        out_path = self.out / "registry.json"
+        result = self.run_cli(
+            "generate",
+            "--public-doc", str(public_path),
+            "--private-doc", str(private_path),
+            "--format", FORMAT,
+            "--channel", CHANNEL,
+            "--target", TARGET,
+            "--out", str(out_path),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(out_path.is_file())
+        registry = json.loads(out_path.read_text())
+        self.assertEqual(len(registry["entries"]), 6)
+        self.assertEqual(registry["identity"]["channel"], CHANNEL)
 
     def test_generate_fails_with_violation_list(self) -> None:
         fixture = Fixture()

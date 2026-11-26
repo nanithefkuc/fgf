@@ -81,6 +81,12 @@ COVERAGE_RUSTFLAGS = (
 )
 DEFAULT_EXCEPTIONS = "benches/coverage_exceptions.json"
 ANALYSIS_FORMAT = "fgf-coverage-evidence/3"
+DEFAULT_CALL_SITES = "benches/call_sites.json"
+CALL_SITES_FORMAT = "fgf-call-sites/1"
+DEFAULT_REGISTRY = "target/kernel-registry/registry.json"
+# The checkout holding this script: the recipe derives the registry and private
+# document from it in the same run, so neither the tree nor its inputs are selectable.
+CRATE_ROOT = Path(__file__).resolve().parent.parent
 
 
 class CoverageMapError(Exception):
@@ -961,31 +967,774 @@ def _macro_calls(models: dict[str, object]) -> tuple[dict, dict]:
     return calls, ranges
 
 
+def _entry_matches_prefix(entry_parts: list[str], prefix: list[str]) -> bool:
+    """True when `entry_parts[:-1]` starts with `prefix` (facade re-exports
+    omit only trailing private ISA/shape children, never intermediate families)."""
+    if not prefix:
+        return False
+    module_parts = entry_parts[:-1]
+    return len(module_parts) >= len(prefix) and module_parts[: len(prefix)] == prefix
+
+
+def _pattern_ident_is_binding(
+    tokens: list, index: int, stop: int, delims: list[str]
+) -> bool:
+    """True when `tokens[index]` inside a Rust pattern binds a local variable
+    rather than naming a path segment, constructor, or struct field label."""
+    prev = tokens[index - 1].text if index > 0 else ""
+    nxt = tokens[index + 1].text if index + 1 < stop else ""
+    if prev == "::" or nxt in ("::", "(", "{"):
+        return False
+    if delims and delims[-1] == "{" and nxt == ":":
+        return False
+    return True
+
+
+def _param_list_binds_name(
+    tokens: list,
+    open_idx: int,
+    close_idx: int,
+    name: str,
+    attribute_tokens: set[int] | frozenset[int],
+) -> bool:
+    """True when a `fn (...)` or closure `|...|` parameter list binds `name`."""
+    delims: list[str] = []
+    in_type = False
+    type_angle = 0
+    q = open_idx + 1
+    while q < close_idx:
+        qt = tokens[q].text
+        if qt in ("(", "[", "{"):
+            delims.append(qt)
+        elif qt in (")", "]", "}"):
+            if delims:
+                delims.pop()
+        elif in_type:
+            if not delims:
+                if qt == "->" or (
+                    qt == "-" and q + 1 < close_idx and tokens[q + 1].text == ">"
+                ):
+                    q += 2 if qt == "-" else 1
+                    continue
+                if qt == "<":
+                    type_angle += 1
+                elif qt == ">":
+                    type_angle = max(0, type_angle - 1)
+                elif qt == ">>":
+                    type_angle = max(0, type_angle - 2)
+                elif qt == "," and type_angle == 0:
+                    in_type = False
+        elif not delims and qt == ":":
+            in_type = True
+            type_angle = 0
+        elif not delims and qt == ",":
+            in_type = False
+        elif (
+            q not in attribute_tokens
+            and tokens[q].kind == "ident"
+            and qt == name
+            and _pattern_ident_is_binding(tokens, q, close_idx, delims)
+        ):
+            return True
+        q += 1
+    return False
+
+
+_CLOSURE_PREFIX_IDENTS = frozenset({
+    "move", "async", "static", "return", "break", "yield",
+    "in", "match", "if", "while", "else",
+})
+
+
+def _can_start_closure(tokens: list, bar_idx: int, floor: int) -> bool:
+    """True when `|` at `bar_idx` can open a closure rather than bitwise OR."""
+    if bar_idx <= floor:
+        return True
+    prev = tokens[bar_idx - 1]
+    if prev.kind == "number":
+        return False
+    if prev.text in (")", "]", "}"):
+        return False
+    if prev.kind == "ident" and prev.text not in _CLOSURE_PREFIX_IDENTS:
+        return False
+    return True
+
+
+class _FnScope:
+    """Structural boundaries of a `fn` item with a body `{ ... }`."""
+
+    __slots__ = (
+        "name", "const_generics", "params_open", "params_close", "body_open", "body_close",
+        "module_level",
+    )
+
+    def __init__(
+        self,
+        name: str,
+        const_generics: frozenset[str],
+        params_open: int,
+        params_close: int,
+        body_open: int,
+        body_close: int,
+        module_level: bool = False,
+    ) -> None:
+        self.name = name
+        self.const_generics = const_generics
+        self.params_open = params_open
+        self.params_close = params_close
+        self.body_open = body_open
+        self.body_close = body_close
+        self.module_level = module_level
+
+
+class _ScopeIndex:
+    """Forward-scanned lexical `fn`, `mod`, `impl`, and `trait` boundaries for one file."""
+
+    __slots__ = ("fns", "fn_by_open", "skip_items_by_open", "mod_spans", "block_items")
+
+    def __init__(
+        self,
+        fns: list[_FnScope],
+        fn_by_open: dict[int, _FnScope],
+        skip_items_by_open: dict[int, int],
+        mod_spans: list[tuple[int, int]],
+        block_items: dict[int, frozenset[str]],
+    ) -> None:
+        self.fns = fns
+        self.fn_by_open = fn_by_open
+        self.skip_items_by_open = skip_items_by_open
+        self.mod_spans = mod_spans
+        self.block_items = block_items
+
+
+def _skip_fn_generics(tokens: list, start: int) -> tuple[int, frozenset[str]]:
+    """Advance past a balanced `<...>` generic parameter list (handling `>>`, `->`, and
+    nested const blocks), returning `(next_index, const_generic_names)`."""
+    n = len(tokens)
+    if start >= n or tokens[start].text != "<":
+        return start, frozenset()
+    const_names: set[str] = set()
+    angle = 0
+    p = start
+    while p < n:
+        tt = tokens[p].text
+        if tt in ("(", "[", "{"):
+            try:
+                p = _delimiter_end(tokens, p) + 1
+                continue
+            except CoverageMapError:
+                return start, frozenset()
+        if tt == "->" or (tt == "-" and p + 1 < n and tokens[p + 1].text == ">"):
+            p += 2 if tt == "-" else 1
+            continue
+        if tt == "<":
+            angle += 1
+        elif tt == ">":
+            angle -= 1
+            if angle <= 0:
+                return p + 1, frozenset(const_names)
+        elif tt == ">>":
+            angle -= 2
+            if angle <= 0:
+                return p + 1, frozenset(const_names)
+        elif (
+            angle == 1
+            and tokens[p].kind == "ident"
+            and tt == "const"
+            and p + 1 < n
+            and tokens[p + 1].kind == "ident"
+        ):
+            const_names.add(tokens[p + 1].text)
+        p += 1
+    return start, frozenset()
+
+
+def _build_scope_index(model) -> _ScopeIndex:
+    """Forward-scan `model.tokens` once to record all `fn` bodies, `mod`/`impl`/`trait`
+    spans, and block-level `fn`/`const`/`static` item names."""
+    tokens = model.tokens
+    n = len(tokens)
+    fns: list[_FnScope] = []
+    fn_by_open: dict[int, _FnScope] = {}
+    skip_items_by_open: dict[int, int] = {}
+    mod_spans: list[tuple[int, int]] = []
+    block_item_sets: dict[int, set[str]] = {}
+
+    # Track enclosing `{` blocks to record block-level `fn`/`const`/`static` item names.
+    # Items inside an `extern` block belong to the block enclosing it. Macro invocations
+    # are recorded as `name!` so callers can fail closed on item-defining macros.
+    brace_stack: list[int] = [-1]
+    item_kind_by_open: dict[int, str] = {-1: "mod"}
+
+    def item_owner() -> int:
+        for open_idx in reversed(brace_stack):
+            if item_kind_by_open.get(open_idx) != "extern":
+                return open_idx
+        return -1
+
+    i = 0
+    while i < n:
+        tok = tokens[i]
+        if i in model.attribute_tokens or any(
+            scope.startswith("macro_rules!") for scope in model.scopes[i]
+        ):
+            i += 1
+            continue
+        if tok.text == "{":
+            brace_stack.append(i)
+            i += 1
+            continue
+        if tok.text == "}":
+            if len(brace_stack) > 1:
+                brace_stack.pop()
+            i += 1
+            continue
+        if tok.kind == "ident" and i not in model.generic_tokens:
+            if (
+                tok.text != "macro_rules"
+                and i + 2 < n
+                and tokens[i + 1].text == "!"
+                and tokens[i + 2].text in ("(", "[", "{")
+            ):
+                block_item_sets.setdefault(item_owner(), set()).add(tok.text + "!")
+            if tok.text == "extern":
+                q = i + 1
+                if q < n and tokens[q].kind not in ("ident",) and tokens[q].text.startswith('"'):
+                    q += 1
+                if q < n and tokens[q].text == "{":
+                    item_kind_by_open[q] = "extern"
+            if tok.text == "mod" and i + 2 < n and tokens[i + 1].kind == "ident" and tokens[i + 2].text == "{":
+                try:
+                    close = _delimiter_end(tokens, i + 2)
+                except CoverageMapError:
+                    close = -1
+                if close > i + 2:
+                    mod_spans.append((i + 2, close))
+                    skip_items_by_open[i + 2] = close
+                    item_kind_by_open[i + 2] = "mod"
+            elif tok.text in ("impl", "trait"):
+                # Only treat item-level `impl`/`trait` (not return-position `impl Trait`).
+                prev = tokens[i - 1].text if i > 0 else ""
+                is_item = (
+                    tok.text == "trait"
+                    and i + 1 < n
+                    and tokens[i + 1].kind == "ident"
+                ) or (
+                    tok.text == "impl"
+                    and prev not in (":", "->", ">", "+", "(", ",", "&", "=")
+                )
+                if is_item:
+                    q = i + 1
+                    angle = 0
+                    while q < n:
+                        qt = tokens[q].text
+                        if qt in ("(", "["):
+                            try:
+                                q = _delimiter_end(tokens, q) + 1
+                                continue
+                            except CoverageMapError:
+                                break
+                        if qt == "{":
+                            if angle > 0:
+                                try:
+                                    q = _delimiter_end(tokens, q) + 1
+                                    continue
+                                except CoverageMapError:
+                                    break
+                            try:
+                                close = _delimiter_end(tokens, q)
+                            except CoverageMapError:
+                                close = -1
+                            if close > q:
+                                skip_items_by_open[q] = close
+                                item_kind_by_open[q] = tok.text
+                            break
+                        if qt == ";":
+                            break
+                        if qt == "->" or (qt == "-" and q + 1 < n and tokens[q + 1].text == ">"):
+                            q += 2 if qt == "-" else 1
+                            continue
+                        if qt == "<":
+                            angle += 1
+                        elif qt == ">":
+                            angle = max(0, angle - 1)
+                        elif qt == ">>":
+                            angle = max(0, angle - 2)
+                        q += 1
+            elif tok.text in ("const", "static", "struct", "enum", "union"):
+                # Block-local value-namespace items (`const`/`static [mut]` and tuple/unit
+                # `struct`; `enum`/`union` recorded fail-closed) shadow bare calls.
+                j = i + 1
+                if tok.text == "static" and j < n and tokens[j].text == "mut":
+                    j += 1
+                if j < n and tokens[j].kind == "ident" and (
+                    tok.text in ("struct", "enum", "union")
+                    or (j + 1 < n and tokens[j + 1].text == ":")
+                ):
+                    owner = item_owner()
+                    if item_kind_by_open.get(owner) not in ("impl", "trait"):
+                        block_item_sets.setdefault(owner, set()).add(tokens[j].text)
+            elif tok.text == "fn" and i + 1 < n and tokens[i + 1].kind == "ident":
+                fn_name = tokens[i + 1].text
+                owner = item_owner()
+                if item_kind_by_open.get(owner) not in ("impl", "trait"):
+                    block_item_sets.setdefault(owner, set()).add(fn_name)
+                p, const_generics = _skip_fn_generics(tokens, i + 2)
+                if p < n and tokens[p].text == "(":
+                    try:
+                        close_paren = _delimiter_end(tokens, p)
+                    except CoverageMapError:
+                        close_paren = -1
+                    if close_paren > p:
+                        q = close_paren + 1
+                        angle = 0
+                        while q < n:
+                            qt = tokens[q].text
+                            if qt in ("(", "["):
+                                try:
+                                    q = _delimiter_end(tokens, q) + 1
+                                    continue
+                                except CoverageMapError:
+                                    break
+                            if qt == "{":
+                                if angle > 0:
+                                    try:
+                                        q = _delimiter_end(tokens, q) + 1
+                                        continue
+                                    except CoverageMapError:
+                                        break
+                                try:
+                                    body_close = _delimiter_end(tokens, q)
+                                except CoverageMapError:
+                                    body_close = -1
+                                if body_close > q:
+                                    scope = _FnScope(
+                                        fn_name, const_generics, p, close_paren, q, body_close,
+                                        module_level=item_kind_by_open.get(owner) == "mod",
+                                    )
+                                    fns.append(scope)
+                                    fn_by_open[q] = scope
+                                    item_kind_by_open[q] = "fn"
+                                break
+                            if qt == ";":
+                                break
+                            if qt == "->" or (qt == "-" and q + 1 < n and tokens[q + 1].text == ">"):
+                                q += 2 if qt == "-" else 1
+                                continue
+                            if qt == "<":
+                                angle += 1
+                            elif qt == ">":
+                                angle = max(0, angle - 1)
+                            elif qt == ">>":
+                                angle = max(0, angle - 2)
+                            q += 1
+        i += 1
+    return _ScopeIndex(
+        fns=fns,
+        fn_by_open=fn_by_open,
+        skip_items_by_open=skip_items_by_open,
+        mod_spans=mod_spans,
+        block_items={k: frozenset(v) for k, v in block_item_sets.items()},
+    )
+
+
+def _bar_in_current_brace(tokens: list, index: int, floor: int) -> bool:
+    """True when a `|` precedes `index` inside the innermost enclosing `{` (above `floor`)."""
+    depth = 0
+    for q in range(index - 1, floor, -1):
+        t = tokens[q].text
+        if t in (")", "]", "}"):
+            depth += 1
+        elif t in ("(", "["):
+            if depth == 0:
+                continue
+            depth -= 1
+        elif t == "{":
+            if depth == 0:
+                return False
+            depth -= 1
+        elif t in ("|", "||") and depth == 0:
+            return True
+    return False
+
+
+def _body_may_bind_name(
+    tokens: list,
+    body_open: int,
+    body_close: int,
+    name: str,
+    scope_index: _ScopeIndex,
+    attribute_tokens: set[int] | frozenset[int],
+    generic_tokens: set[int] | frozenset[int],
+    exclude: tuple[int, int] | None = None,
+    defining_macros: frozenset[str] = frozenset(),
+) -> bool:
+    """Sound fail-closed check: True if `name` appears anywhere inside `tokens[body_open+1:body_close]`
+    (excluding nested `fn`/`mod`/`impl`/`trait` bodies) in a position that could be a local
+    binding (`let`, `for`, `if/while let`, `match` arm, closure param, or local item).
+
+    Leaves bare calls in functions that locally bind `name` unattributed rather than attempting
+    full Rust expression-scope parsing and risking false kernel credit."""
+    in_closure_bars = False
+    bar_delim_depth = 0
+    delims: list[str] = []
+    q = body_open + 1
+    while q < body_close:
+        if exclude is not None and exclude[0] <= q <= exclude[1]:
+            # The macro invocation under test supplies the call itself.
+            q = exclude[1] + 1
+            continue
+        tok = tokens[q]
+        qt = tok.text
+        if qt == "{":
+            nested_fn = scope_index.fn_by_open.get(q)
+            if nested_fn is not None:
+                if nested_fn.name == name:
+                    return True
+                q = nested_fn.body_close + 1
+                continue
+            nested_skip = scope_index.skip_items_by_open.get(q)
+            if nested_skip is not None:
+                q = nested_skip + 1
+                continue
+            delims.append("{")
+            q += 1
+            continue
+        if qt in ("(", "["):
+            delims.append(qt)
+            q += 1
+            continue
+        if qt in (")", "]", "}"):
+            if delims:
+                delims.pop()
+            if in_closure_bars and len(delims) < bar_delim_depth:
+                in_closure_bars = False
+            q += 1
+            continue
+        if qt == "|":
+            if not in_closure_bars and _can_start_closure(tokens, q, body_open + 1):
+                in_closure_bars = True
+                bar_delim_depth = len(delims)
+            elif in_closure_bars and len(delims) == bar_delim_depth:
+                in_closure_bars = False
+            q += 1
+            continue
+        if qt == ";" and in_closure_bars and len(delims) == bar_delim_depth:
+            in_closure_bars = False
+            q += 1
+            continue
+        if (
+            tok.kind == "ident"
+            and qt in defining_macros
+            and q + 1 < body_close
+            and tokens[q + 1].text == "!"
+        ):
+            # A macro whose body names `name` may define a block-local item.
+            return True
+        if (
+            tok.kind == "ident"
+            and qt == name
+            and q not in attribute_tokens
+            and q not in generic_tokens
+            and not _in_use_item(tokens, q)
+        ):
+            prev = tokens[q - 1].text if q > body_open else ""
+            nxt = tokens[q + 1].text if q + 1 < body_close else ""
+            # Block-local `fn`/`const`/`static` item shadows `name` across the block.
+            if prev in ("fn", "const", "static", "struct", "enum", "union") or (
+                prev == "mut" and q >= 2 and tokens[q - 2].text == "static"
+            ):
+                return True
+            # Path segments and member accesses never bind a local variable.
+            if prev in ("::", ".") or nxt == "::":
+                q += 1
+                continue
+            # Ordinary calls and tuple-struct constructors (`name(...)`) are not bindings.
+            if _call_path(tokens, q) is not None or nxt == "(":
+                q += 1
+                continue
+            # Struct literal / pattern field labels (`{ name: ... }` / `, name: ...`)
+            # outside closure parameter lists are not bindings. Any `|` earlier inside the
+            # same `{` may open a closure parameter list the scanner missed.
+            if (
+                not in_closure_bars
+                and delims
+                and delims[-1] == "{"
+                and prev in ("{", ",")
+                and nxt == ":"
+                and not _bar_in_current_brace(tokens, q, body_open)
+            ):
+                q += 1
+                continue
+            # Any other occurrence of `name` inside the function body may be a local
+            # binding (`let`, `for`, `if/while let`, `match`, closure param, etc.).
+            return True
+        q += 1
+    return False
+
+
+def _is_locally_shadowed(
+    tokens: list,
+    call_index: int,
+    name: str,
+    attribute_tokens: set[int] | frozenset[int] = frozenset(),
+    generic_tokens: set[int] | frozenset[int] = frozenset(),
+    scope_index: _ScopeIndex | None = None,
+    exclude: tuple[int, int] | None = None,
+    defining_macros: frozenset[str] = frozenset(),
+) -> bool:
+    """True when a bare call `name(...)` at `call_index` is shadowed or cannot be proven
+    unshadowed without full Rust expression-scope parsing.
+
+    Checks:
+    1. Innermost enclosing `fn` const generics, parameters, and body (fail-closed if `name`
+       appears in any potential binding position in the same `fn`).
+    2. Block-local items, and invocations of `defining_macros` (in-crate macros whose body
+       names `name`), in any enclosing outer block up to the innermost enclosing `mod`.
+    3. Calls outside every `fn` body are refused, except a module-level item-position
+       macro invocation checked through `exclude`."""
+    if scope_index is None:
+        return True
+    # Find the innermost enclosing `mod` boundary (or file root `-1..len(tokens)`).
+    mod_open, mod_close = -1, len(tokens)
+    for m_open, m_close in scope_index.mod_spans:
+        if m_open < call_index < m_close and (m_close - m_open) < (mod_close - mod_open):
+            mod_open, mod_close = m_open, m_close
+
+    # Find the innermost enclosing `fn` within that `mod`.
+    inner_fn: _FnScope | None = None
+    for fn in scope_index.fns:
+        if mod_open < fn.body_open < call_index < fn.body_close < mod_close:
+            if inner_fn is None or (fn.body_close - fn.body_open) < (
+                inner_fn.body_close - inner_fn.body_open
+            ):
+                inner_fn = fn
+
+    if inner_fn is not None:
+        if name in inner_fn.const_generics:
+            return True
+        if _param_list_binds_name(
+            tokens, inner_fn.params_open, inner_fn.params_close, name, attribute_tokens
+        ):
+            return True
+        if _body_may_bind_name(
+            tokens,
+            inner_fn.body_open,
+            inner_fn.body_close,
+            name,
+            scope_index,
+            attribute_tokens,
+            generic_tokens,
+            exclude,
+            defining_macros,
+        ):
+            return True
+
+    if inner_fn is None:
+        # Outside every `fn` body (const/static initializers, closures there) bindings are
+        # not scanned; only an item-position macro invocation at module level is accepted.
+        prev = tokens[call_index - 1].text if call_index > mod_open + 1 else ";"
+        if exclude is None or prev not in (";", "}", "]", "{"):
+            return True
+        depth = 0
+        for i in range(call_index - 1, mod_open, -1):
+            t = tokens[i].text
+            if t == "}":
+                depth += 1
+            elif t == "{":
+                if depth == 0:
+                    return True
+                depth -= 1
+        return False
+
+    # Check block-local items and item-defining macro invocations in every enclosing
+    # block strictly inside the enclosing `mod` (ignoring `impl`/`trait` methods).
+    depth = 0
+    for i in range(call_index - 1, mod_open, -1):
+        t = tokens[i].text
+        if t == "}":
+            depth += 1
+        elif t == "{":
+            if depth == 0:
+                items = scope_index.block_items.get(i, frozenset())
+                if name in items or any(m + "!" in items for m in defining_macros):
+                    return True
+            else:
+                depth -= 1
+    return False
+
+
+def _module_at(relative: str, tokens: list, scope_index: _ScopeIndex, index: int) -> str:
+    """Lexical module path at `index`, using precomputed inline `mod` spans."""
+    base = invocation_module(relative, tokens, 0)
+    if not base:
+        return ""
+    inner = [
+        tokens[open_idx - 1].text
+        for open_idx, close_idx in sorted(scope_index.mod_spans)
+        if open_idx < index < close_idx
+    ]
+    return "::".join([base, *inner])
+
+
+def _token_index_at(
+    model, line: int, column: int, cache: dict[str, list[int]]
+) -> int | None:
+    """Token index starting exactly at 1-based `line`/`column` in `model.source`."""
+    key = getattr(model, "file", None) or id(model)
+    starts = cache.get(key)
+    if starts is None:
+        starts = [token.start for token in model.tokens]
+        cache[key] = starts
+    offsets = _line_offsets(model.source)
+    if not 1 <= line < len(offsets):
+        return None
+    offset = offsets[line - 1] + column - 1
+    position = bisect.bisect_left(starts, offset)
+    if position < len(starts) and starts[position] == offset:
+        return position
+    return None
+
+
+def _resolve_entry_call(
+    entries_for_name: list[tuple[str, list[str]]],
+    caller_module: str,
+    segments: list[str],
+    imports: dict[str, str | None],
+    *,
+    shadowed: bool = False,
+    defined: set[tuple[str, str]] | frozenset[tuple[str, str]] = frozenset(),
+) -> str | None:
+    """Resolve a call path to exactly one registry entry, or None if ambiguous."""
+    if not segments or any(segment.startswith("$") for segment in segments):
+        return None
+    name = segments[-1]
+    if len(segments) == 1:
+        if shadowed:
+            return None
+        if name in imports:
+            imported = imports[name]
+            if imported is None:
+                return None
+            prefix = imported.split("::")
+            exact = [path for path, parts in entries_for_name if parts[:-1] == prefix]
+            if len(exact) == 1:
+                return exact[0]
+            if len(exact) > 1:
+                return None
+            matched = [
+                path for path, parts in entries_for_name
+                if _entry_matches_prefix(parts, prefix)
+            ]
+            if ("::".join(prefix), name) in defined:
+                # The import names a concrete non-registry function, not a facade re-export.
+                return None
+            return matched[0] if len(matched) == 1 else None
+        if "*" in imports:
+            return None
+        if not caller_module:
+            return None
+        # Without an explicit `use`, a bare call can only target an entry in
+        # the exact defining module, never a child module through a parent prefix.
+        exact = [
+            path for path, parts in entries_for_name
+            if parts[:-1] == caller_module.split("::")
+        ]
+        return exact[0] if len(exact) == 1 else None
+
+    candidate_prefixes: list[list[str]] = []
+    lead = segments[0]
+    if lead in {"crate", "super", "self", "fgf"}:
+        absolute = _absolute_module(caller_module, segments)
+        if absolute is not None:
+            candidate_prefixes.append(absolute.split("::")[:-1])
+    else:
+        if lead in imports:
+            imported_lead = imports[lead]
+            if imported_lead is None:
+                return None
+            candidate_prefixes.append([*imported_lead.split("::"), *segments[:-1]])
+        elif "*" in imports:
+            return None
+        mod_parts = caller_module.split("::") if caller_module else []
+        for keep in range(len(mod_parts), 0, -1):
+            candidate_prefixes.append([*mod_parts[:keep], *segments[:-1]])
+        if "x86" in segments[:-1]:
+            idx = segments.index("x86")
+            candidate_prefixes.append(["fgf", "kernel", *segments[idx:-1]])
+
+    for prefix in candidate_prefixes:
+        # Prefer exact module match first (e.g. `residue::avx2::single::u8`),
+        # then unique facade re-export match (e.g. `gf8::mul_add_gfni` -> `gf8::gfni::single::mul_add_gfni`).
+        exact = [path for path, parts in entries_for_name if parts[:-1] == prefix]
+        if len(exact) == 1:
+            return exact[0]
+        if len(exact) > 1:
+            return None
+        if ("::".join(prefix), name) in defined:
+            # The path names a concrete non-registry function, not a facade re-export.
+            return None
+        matched = [
+            path for path, parts in entries_for_name
+            if _entry_matches_prefix(parts, prefix)
+        ]
+        if len(matched) == 1:
+            return matched[0]
+        if len(matched) > 1:
+            return None
+    return None
+
+
 def discover_call_sites(
     entries: list[dict], models: dict[str, object]
 ) -> dict[str, tuple[tuple[str, int, int] | MacroCallSite, ...]]:
     """Candidate call sites, binding macro paths to concrete invocations."""
 
-    name_counts = Counter(entry["entry"].rsplit("::", 1)[-1] for entry in entries)
+    entries_by_name: dict[str, list[tuple[str, list[str]]]] = defaultdict(list)
+    for entry in entries:
+        path = entry["entry"]
+        parts = path.split("::")
+        entries_by_name[parts[-1]].append((path, parts))
     macro_calls, macro_ranges = _macro_calls(models)
+    imports_by_file = {
+        relative: _build_lexical_imports(relative, model)
+        for relative, model in models.items()
+    }
+    scopes_by_file = {
+        relative: _build_scope_index(model)
+        for relative, model in models.items()
+    }
+    # Module-level `fn` definitions, so prefix (facade) fallbacks never credit a registry
+    # entry for a path that actually names a concrete non-registry function.
+    defined: set[tuple[str, str]] = set()
+    for relative, model in models.items():
+        scope_index = scopes_by_file[relative]
+        for fn in scope_index.fns:
+            if fn.module_level:
+                module = _module_at(relative, model.tokens, scope_index, fn.params_open)
+                if module:
+                    defined.add((module, fn.name))
+    token_starts: dict[str, list[int]] = {}
     occurrences: dict[str, list[tuple[str, int]]] = defaultdict(list)
     for relative, model in models.items():
         for index, token in enumerate(model.tokens):
             if token.kind == "ident":
                 occurrences[token.text].append((relative, index))
+    # Identifiers named inside each in-crate `macro_rules!` definition: an invocation of a
+    # macro naming the callee may define a block-local item that shadows a bare call.
+    macro_idents: dict[str, set[str]] = defaultdict(set)
+    for relative, model in models.items():
+        for start, end in macro_ranges[relative]:
+            macro_idents[model.tokens[start + 2].text].update(
+                token.text for token in model.tokens[start:end] if token.kind == "ident"
+            )
     sites = defaultdict(list)
-    for entry in entries:
-        path = entry["entry"]
-        parts = path.split("::")
-        name = parts[-1]
-        family = parts[3:] if len(parts) > 3 else parts
-        family = [part for part in family if part != name]
-        model_cache: dict[str, object] = {}
+    for name, candidates in entries_by_name.items():
+        defining_macros = frozenset(
+            macro for macro, idents in macro_idents.items() if name in idents
+        )
         for relative, index in occurrences.get(name, ()):
-            model = model_cache.get(relative)
-            if model is None:
-                model = models[relative]
-                model_cache[relative] = model
+            model = models[relative]
             tokens = model.tokens
             if any(start <= index <= end for start, end in macro_ranges[relative]):
                 continue
@@ -994,29 +1743,110 @@ def discover_call_sites(
             call = _call_path(tokens, index)
             if call is None:
                 continue
+            if index > 0 and tokens[index - 1].text in (
+                "fn", "struct", "enum", "union", "const", "static", "mut", "let", "type",
+            ):
+                continue
             if _in_use_item(tokens, index):
                 continue
             segments, start = call
-            if name_counts[name] > 1:
-                if len(segments) > 1:
-                    if not any(segment in family for segment in segments[:-1]):
-                        continue
-                elif not any(part in relative for part in family[:2]):
-                    continue
+            caller_module = invocation_module(relative, tokens, index)
+            scoped_imports = imports_by_file[relative].at(index)
+            shadowed = len(segments) == 1 and _is_locally_shadowed(
+                tokens,
+                index,
+                name,
+                model.attribute_tokens,
+                model.generic_tokens,
+                scopes_by_file[relative],
+                defining_macros=defining_macros,
+            )
+            resolved = _resolve_entry_call(
+                candidates, caller_module, segments, scoped_imports,
+                shadowed=shadowed, defined=defined,
+            )
+            if resolved is None:
+                continue
             line, column = scan_line_column(model.source, start)
-            sites[path].append((relative, line, column))
+            sites[resolved].append((relative, line, column))
         for relative, segments, site in macro_calls.get(name, ()):
-            suffix = segments[segments.index("x86") :] if "x86" in segments else segments
-            if len(segments) == 1:
-                # A bare name needs lexical correspondence, not registry uniqueness.
+            if "x86" in segments:
+                macro_prefix = ["fgf", "kernel", *segments[segments.index("x86") : -1]]
+                matched = [
+                    path for path, parts in candidates
+                    if _entry_matches_prefix(parts, macro_prefix)
+                ]
+            elif len(segments) == 1:
+                # A bare macro-body name resolves at the invocation site: it must pass the
+                # same import, exact-module, and local-shadowing checks there, and the macro
+                # body itself must not bind it (a `let` there shares the call's hygiene).
                 if not site.invocation_module:
                     continue
-                suffix = [*site.invocation_module.split("::"), *segments]
-            # Family facades can omit private ISA modules from the call path.
-            definition_parts = iter(parts)
-            if not all(segment in definition_parts for segment in suffix):
-                continue
-            sites[path].append(site)
+                def_model = models.get(site.file)
+                def_index = None if def_model is None else _token_index_at(
+                    def_model, site.line, site.column, token_starts
+                )
+                if def_index is None:
+                    continue
+                def_range = next(
+                    (
+                        (start, end) for start, end in macro_ranges[site.file]
+                        if start <= def_index <= end
+                    ),
+                    None,
+                )
+                if def_range is None or _body_may_bind_name(
+                    def_model.tokens,
+                    def_range[0],
+                    def_range[1],
+                    name,
+                    scopes_by_file[site.file],
+                    def_model.attribute_tokens,
+                    def_model.generic_tokens,
+                ):
+                    continue
+                inv_model = models.get(site.invocation_file)
+                if inv_model is None:
+                    continue
+                inv_index = _token_index_at(
+                    inv_model, site.invocation_line, site.invocation_column, token_starts
+                )
+                if inv_index is None:
+                    continue
+                try:
+                    inv_end = _delimiter_end(inv_model.tokens, inv_index + 2)
+                except (CoverageMapError, IndexError):
+                    continue
+                inv_shadowed = _is_locally_shadowed(
+                    inv_model.tokens,
+                    inv_index,
+                    name,
+                    inv_model.attribute_tokens,
+                    inv_model.generic_tokens,
+                    scopes_by_file[site.invocation_file],
+                    exclude=(inv_index, inv_end),
+                    defining_macros=defining_macros,
+                )
+                resolved = _resolve_entry_call(
+                    candidates,
+                    site.invocation_module,
+                    segments,
+                    imports_by_file[site.invocation_file].at(inv_index),
+                    shadowed=inv_shadowed,
+                    defined=defined,
+                )
+                matched = [resolved] if resolved is not None else []
+            else:
+                rel = segments[:-1]
+                matched = [
+                    path for path, parts in candidates
+                    if any(
+                        parts[i : i + len(rel)] == rel
+                        for i in range(len(parts) - len(rel))
+                    )
+                ]
+            if len(matched) == 1:
+                sites[matched[0]].append(site)
     result = {}
     for path, values in sites.items():
         unique = sorted(set(values), key=lambda site: (
@@ -1025,6 +1855,124 @@ def discover_call_sites(
         ) if isinstance(site, MacroCallSite) else (*site, "", 0, 0))
         result[path] = tuple(unique)
     return result
+
+
+def _enclosing_callers(scope_index: _ScopeIndex, index: int) -> str:
+    """`::`-joined names of the `fn` bodies enclosing `index`, outermost first."""
+    return "::".join(
+        fn.name for fn in scope_index.fns if fn.body_open < index < fn.body_close
+    )
+
+
+def _call_text(tokens: list, start: int) -> str:
+    """Source spelling of the call path beginning at `tokens[start]`, up to its `(`."""
+    end = start
+    while end < len(tokens) and tokens[end].text != "(":
+        end += 1
+    return "".join(token.text for token in tokens[start:end])
+
+
+def _enclosing_macro(tokens: list, index: int) -> str:
+    """Name of the `macro_rules!` definition containing `index`, or an empty string."""
+    for start in range(len(tokens) - 3):
+        if tokens[start].text != "macro_rules" or tokens[start + 1].text != "!":
+            continue
+        if start <= index <= _delimiter_end(tokens, start + 3):
+            return tokens[start + 2].text
+    return ""
+
+
+def call_site_identities(
+    call_sites: dict[str, tuple[tuple[str, int, int] | MacroCallSite, ...]],
+    models: dict[str, object],
+) -> list[dict]:
+    """Line-independent identities of the discovered call sites, with multiplicities.
+
+    A direct site is its entry, file, caller module, enclosing `fn` chain and call
+    spelling; a macro site is its entry, defining file, enclosing `fn` chain there,
+    defining macro and call spelling, plus the invocation's file, enclosing `fn` chain
+    and module. Unrelated edits that only move lines leave the identities unchanged."""
+    scopes: dict[str, _ScopeIndex] = {}
+    starts: dict[str, list[int]] = {}
+
+    def locate(file: str, line: int, column: int) -> tuple[object, int]:
+        model = models[file]
+        index = _token_index_at(model, line, column, starts)
+        if index is None:
+            raise CoverageMapError(f"{file}:{line}:{column}: no token starts at the call site")
+        if file not in scopes:
+            scopes[file] = _build_scope_index(model)
+        return model, index
+
+    counts: Counter = Counter()
+    for entry, sites in call_sites.items():
+        for site in sites:
+            if isinstance(site, MacroCallSite):
+                model, index = locate(site.file, site.line, site.column)
+                _, invocation = locate(
+                    site.invocation_file, site.invocation_line, site.invocation_column
+                )
+                key = (
+                    ("entry", entry),
+                    ("file", site.file),
+                    ("caller", _enclosing_callers(scopes[site.file], index)),
+                    ("macro", _enclosing_macro(model.tokens, index)),
+                    ("call", _call_text(model.tokens, index)),
+                    ("invocation_file", site.invocation_file),
+                    ("invocation_caller", _enclosing_callers(scopes[site.invocation_file], invocation)),
+                    ("invocation_module", site.invocation_module),
+                )
+            else:
+                file, line, column = site
+                model, index = locate(file, line, column)
+                key = (
+                    ("entry", entry),
+                    ("file", file),
+                    ("module", invocation_module(file, model.tokens, index)),
+                    ("caller", _enclosing_callers(scopes[file], index)),
+                    ("call", _call_text(model.tokens, index)),
+                )
+            counts[key] += 1
+    identities = [dict(key, count=count) for key, count in counts.items()]
+    return sorted(identities, key=lambda item: json.dumps(item, sort_keys=True))
+
+
+def serialize_call_sites(identities: list[dict]) -> str:
+    """Canonical bytes of the pinned call-site table."""
+    document = {"format": CALL_SITES_FORMAT, "sites": identities}
+    return json.dumps(document, indent=2, sort_keys=True) + "\n"
+
+
+def check_call_sites(identities: list[dict], path: Path) -> str:
+    """Fail unless the discovered call sites equal the reviewed table at `path`, byte for
+    byte in canonical form; return the table's SHA-256.
+
+    The scanner's name resolution is lexical and cannot be proven sound against
+    arbitrary Rust, so it never credits a site by itself: every credited site is a
+    reviewed row of the pinned table, and any difference fails closed."""
+    try:
+        recorded_bytes = path.read_bytes()
+    except FileNotFoundError:
+        raise CoverageMapError(f"{path}: file not found")
+    if recorded_bytes == serialize_call_sites(identities).encode("utf-8"):
+        return hashlib.sha256(recorded_bytes).hexdigest()
+    recorded = load_json(path)
+    if not isinstance(recorded, dict) or recorded.get("format") != CALL_SITES_FORMAT:
+        raise CoverageMapError(f"{path}: expected format {CALL_SITES_FORMAT}")
+    sites = recorded.get("sites")
+    if not isinstance(sites, list):
+        raise CoverageMapError(f"{path}: call-site table has no sites array")
+    recorded_set = {json.dumps(item, sort_keys=True) for item in sites}
+    discovered_set = {json.dumps(item, sort_keys=True) for item in identities}
+    lines = [f"+ {item}" for item in sorted(discovered_set - recorded_set)]
+    lines += [f"- {item}" for item in sorted(recorded_set - discovered_set)]
+    if not lines:
+        lines = ["  (same rows, non-canonical bytes, order, types or duplicates)"]
+    raise CoverageMapError(
+        f"discovered call sites differ from the reviewed table {path}; verify each "
+        "added row resolves to its entry under rustc, then run "
+        "`just bench-call-sites-update`:\n" + "\n".join(lines[:40])
+    )
 
 
 def scan_line_column(source: str, offset: int) -> tuple[int, int]:
@@ -2222,14 +3170,16 @@ def _absolute_module(module: str, segments: list[str]) -> str | None:
 
 def _use_leaves(
     module: str, tokens: list, start: int, end: int
-) -> dict[str, str]:
-    """Imported local names of one `use` item, or an empty mapping.
+) -> dict[str, str | None]:
+    """Expand a `use` tree into imported names mapped to their parent module
+    (`None` when aliased, globbed, or conflicting within the same `use` item)."""
+    result: dict[str, str | None] = {}
 
-    Aliases (`as`), globs (`*`), extern-crate paths, and absolute `::`
-    paths are unsupported and contribute nothing, so names reachable only
-    through them stay unresolved.
-    """
-    result: dict[str, str] = {}
+    def record(leaf: str, target: str | None) -> None:
+        if leaf in result and result[leaf] != target:
+            result[leaf] = None
+        else:
+            result[leaf] = target
 
     def walk(position: int, base: list[str], stop: int) -> tuple[int, bool]:
         segments: list[str] = []
@@ -2257,43 +3207,152 @@ def _use_leaves(
             if text == "::":
                 position += 1
                 continue
+            if text == "*":
+                record("*", None)
+                return position + 1, True
             if tokens[position].kind != "ident":
                 return position, False
             if position + 1 < stop and tokens[position + 1].text == "as":
+                if position + 2 < stop and tokens[position + 2].kind == "ident":
+                    alias = tokens[position + 2].text
+                    if alias != "_":
+                        record(alias, None)
+                    return position + 3, True
                 return position, False
             segments.append(text)
             position += 1
         if segments:
-            absolute = _absolute_module(module, base + segments[:-1])
-            if absolute is not None:
-                result.setdefault(segments[-1], absolute)
+            if segments == ["self"] and base:
+                absolute = _absolute_module(module, base[:-1])
+                if absolute is not None:
+                    record(base[-1], absolute)
+            else:
+                absolute = _absolute_module(module, base + segments[:-1])
+                if absolute is not None:
+                    record(segments[-1], absolute)
         return position, True
 
     walk(start, [], end)
     return result
 
 
-def _source_imports(file: str, model) -> dict[tuple[str, str], dict[str, str]]:
-    """Imported names per (file, lexical module)."""
+class _LexicalImports:
+    """Lexically scoped `use` imports for a single source file."""
+
+    __slots__ = ("enclosing_brace", "parent", "is_mod", "scope_imports")
+
+    def __init__(
+        self,
+        enclosing_brace: list[int],
+        parent: dict[int, int],
+        is_mod: dict[int, bool],
+        scope_imports: dict[int, dict[str, str | None]],
+    ) -> None:
+        self.enclosing_brace = enclosing_brace
+        self.parent = parent
+        self.is_mod = is_mod
+        self.scope_imports = scope_imports
+
+    def at(self, index: int) -> dict[str, str | None]:
+        resolved: dict[str, str | None] = {}
+        brace = (
+            self.enclosing_brace[index]
+            if 0 <= index < len(self.enclosing_brace)
+            else -1
+        )
+        while True:
+            bucket = self.scope_imports.get(brace, {})
+            for name, target in bucket.items():
+                if name not in resolved:
+                    resolved[name] = target
+            if self.is_mod.get(brace, True):
+                break
+            if "*" in bucket:
+                # A block-local glob can shadow outer module/block imports.
+                break
+            brace = self.parent.get(brace, -1)
+        return resolved
+
+
+def _build_lexical_imports(file: str, model) -> _LexicalImports:
+    """Collect `use` imports keyed by their immediately enclosing `{` block
+    (or `-1` for file root), stopping inheritance at inline `mod` boundaries."""
     tokens = model.tokens
+    n = len(tokens)
+    enclosing_brace = [-1] * n
+    parent: dict[int, int] = {}
+    is_mod: dict[int, bool] = {-1: True}
+    scope_imports: dict[int, dict[str, str | None]] = {}
+    stack: list[tuple[int, bool]] = [(-1, True)]
+    index = 0
+    while index < n:
+        token = tokens[index]
+        current_brace, current_is_mod = stack[-1]
+        if (
+            token.text == "use"
+            and token.kind == "ident"
+            and index not in model.attribute_tokens
+            and index not in model.generic_tokens
+            and not any(
+                scope.startswith("macro_rules!") for scope in model.scopes[index]
+            )
+        ):
+            end = index + 1
+            while end < n and tokens[end].text != ";":
+                end += 1
+            module = invocation_module(file, tokens, index)
+            leaves = _use_leaves(module, tokens, index + 1, end)
+            if leaves:
+                bucket = scope_imports.setdefault(current_brace, {})
+                for leaf, target in leaves.items():
+                    if leaf == "*" and current_is_mod:
+                        # Module-level globs never shadow explicit module items/imports.
+                        continue
+                    if leaf in bucket and bucket[leaf] != target:
+                        bucket[leaf] = None
+                    else:
+                        bucket[leaf] = target
+            stop = min(end + 1, n)
+            for k in range(index, stop):
+                enclosing_brace[k] = current_brace
+            index = stop
+            continue
+        if token.text == "{" and index not in model.attribute_tokens:
+            enclosing_brace[index] = current_brace
+            opens_mod = (
+                index >= 2
+                and tokens[index - 2].text == "mod"
+                and tokens[index - 1].kind == "ident"
+            )
+            parent[index] = current_brace
+            is_mod[index] = opens_mod
+            stack.append((index, opens_mod))
+        elif token.text == "}" and index not in model.attribute_tokens:
+            if len(stack) > 1:
+                stack.pop()
+            enclosing_brace[index] = stack[-1][0]
+        else:
+            enclosing_brace[index] = current_brace
+        index += 1
+    return _LexicalImports(enclosing_brace, parent, is_mod, scope_imports)
+
+
+def _source_imports(file: str, model) -> dict[tuple[str, str], dict[str, str]]:
+    """Module-level imported names per (file, lexical module)."""
+    lex = _build_lexical_imports(file, model)
     imports: dict[tuple[str, str], dict[str, str]] = {}
-    for index, token in enumerate(tokens):
-        if token.text != "use" or token.kind != "ident":
+    for brace, bucket in lex.scope_imports.items():
+        if not lex.is_mod.get(brace, False):
             continue
-        if index in model.attribute_tokens or index in model.generic_tokens:
-            continue
-        if any(scope.startswith("macro_rules!") for scope in model.scopes[index]):
-            continue
-        end = index + 1
-        while end < len(tokens) and tokens[end].text != ";":
-            end += 1
-        body = tokens[index + 1 : end]
-        if any(part.text in {"as", "*"} for part in body):
-            continue
-        module = invocation_module(file, tokens, index)
-        leaves = _use_leaves(module, tokens, index + 1, end)
-        if leaves:
-            imports.setdefault((file, module), {}).update(leaves)
+        probe = 0 if brace < 0 else brace + 1
+        module = invocation_module(file, model.tokens, probe)
+        clean = {
+            name: target
+            for name, target in bucket.items()
+            if name != "*" and target is not None
+        }
+        if clean:
+            imports.setdefault((file, module), {}).update(clean)
     return imports
 
 
@@ -3486,12 +4545,25 @@ def aggregate_reports(
     exceptions_path: Path,
     out_json: Path,
     out_markdown: Path,
+    call_sites_path: Path,
 ) -> int:
-    """Merge per-tier reports and decide the cross-host acceptance rule."""
+    """Merge per-tier reports and decide the cross-host acceptance rule.
+
+    Every report must carry the SHA-256 of the reviewed call-site table at
+    `call_sites_path`; a report gated by any other table is rejected."""
 
     reports = [load_json(path) for path in inputs]
     if not all(isinstance(report, dict) for report in reports):
         raise CoverageMapError("aggregate inputs are not coverage-map reports")
+    try:
+        table_digest = hashlib.sha256(call_sites_path.read_bytes()).hexdigest()
+    except FileNotFoundError:
+        raise CoverageMapError(f"{call_sites_path}: file not found")
+    for report, path in zip(reports, inputs):
+        if report.get("call_sites_sha256") != table_digest:
+            raise CoverageMapError(
+                f"{path}: report was not gated by the reviewed call-site table {call_sites_path}"
+            )
     sessions = [
         {"host": report.get("host"), "tier": report.get("tier"), "path": str(path)}
         for report, path in zip(reports, inputs)
@@ -3613,6 +4685,25 @@ def aggregate_reports(
     return 1 if gaps else 0
 
 
+def run_call_sites(arguments: argparse.Namespace) -> int:
+    """Check or rewrite the reviewed call-site table without building or running."""
+    root = CRATE_ROOT
+    scan = Path(arguments.scan or Path(__file__).resolve().with_name("threshold_scan.py"))
+    configure_sources()
+    registry = load_registry(root / DEFAULT_REGISTRY)
+    models = scan_sources(root, load_scan_module(scan))
+    configure_caller_tiers(models)
+    identities = call_site_identities(discover_call_sites(registry, models), models)
+    path = root / DEFAULT_CALL_SITES
+    if arguments.call_sites_only == "update":
+        path.write_text(serialize_call_sites(identities), encoding="utf-8")
+        print(f"coverage-map: wrote {len(identities)} call-site rows to {path}")
+        return 0
+    check_call_sites(identities, path)
+    print(f"coverage-map: {len(identities)} call-site rows match {path}")
+    return 0
+
+
 def run(arguments: argparse.Namespace) -> int:
     started = time.monotonic()
     if (
@@ -3622,7 +4713,7 @@ def run(arguments: argparse.Namespace) -> int:
         or arguments.toolchain is None
     ):
         raise CoverageMapError("--tier, --inventory, --scan, and --toolchain are required")
-    root = Path(arguments.root).resolve()
+    root = CRATE_ROOT
     target_dir = Path(arguments.target_dir)
     scratch = target_dir / f"{arguments.tier}-scratch"
     if scratch.exists():
@@ -3653,15 +4744,21 @@ def run(arguments: argparse.Namespace) -> int:
     out_markdown.parent.mkdir(parents=True, exist_ok=True)
 
     configure_sources()
-    registry = load_registry(Path(arguments.registry))
-    private_doc = Path(arguments.registry).with_name(arguments.private_doc)
+    # The recipe regenerates this registry and its private document from the tree in the
+    # same run; neither is overridable.
+    registry_path = root / DEFAULT_REGISTRY
+    registry = load_registry(registry_path)
+    private_doc = registry_path.with_name("private.json")
     spans = load_private_spans(private_doc)
     private_allowlist = set(
-        load_json(Path(arguments.registry)).get("private_allowlist", [])  # type: ignore[union-attr]
+        load_json(registry_path).get("private_allowlist", [])  # type: ignore[union-attr]
     )
     models = scan_sources(root, scan_module)
     configure_caller_tiers(models)
     call_sites = discover_call_sites(registry, models)
+    call_sites_digest = check_call_sites(
+        call_site_identities(call_sites, models), root / DEFAULT_CALL_SITES
+    )
     entries = build_entry_targets(registry, spans, call_sites, private_allowlist)
     sites, threshold_items = build_site_targets(inventory_items, positions)
     exceptions = load_exceptions(Path(arguments.exceptions))
@@ -3786,6 +4883,7 @@ def run(arguments: argparse.Namespace) -> int:
         "toolchain": arguments.toolchain,
         "bench": arguments.bench,
         "binary": str(binary),
+        "call_sites_sha256": call_sites_digest,
         "llvm_cov": str(llvm_cov),
         "llvm_profdata": str(profdata),
         "rustflags": list(COVERAGE_RUSTFLAGS),
@@ -3844,19 +4942,18 @@ def run(arguments: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=".", help="crate root (default: cwd)")
     parser.add_argument("--tier", default=None, choices=TIER_ORDER)
-    parser.add_argument("--registry", default="target/kernel-registry/registry.json")
-    parser.add_argument(
-        "--private-doc",
-        default="private.json",
-        help="private rustdoc document beside the registry",
-    )
     parser.add_argument("--inventory", default=None, help="threshold inventory.json")
     parser.add_argument("--scan", default=None, help="threshold scan.py")
     parser.add_argument("--aggregate", action="store_true", help="merge per-tier reports")
     parser.add_argument("--inputs", nargs="+", default=[], help="per-tier report JSONs")
     parser.add_argument("--exceptions", default=DEFAULT_EXCEPTIONS)
+    parser.add_argument(
+        "--call-sites-only",
+        choices=("check", "update"),
+        default=None,
+        help="compare the discovered call sites with the table, or rewrite it, then exit",
+    )
     parser.add_argument(
         "--out",
         default=None,
@@ -3898,7 +4995,10 @@ def main(argv: list[str] | None = None) -> int:
                 Path(arguments.exceptions),
                 out_json,
                 out_markdown,
+                CRATE_ROOT / DEFAULT_CALL_SITES,
             )
+        if arguments.call_sites_only is not None:
+            return run_call_sites(arguments)
         return run(arguments)
     except CoverageMapError as error:
         print(f"coverage-map: {error}", file=sys.stderr)

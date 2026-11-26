@@ -1,0 +1,2347 @@
+{
+  "format": "fgf-call-sites/1",
+  "sites": [
+    {
+      "call": "$crate::kernel::x86::$kernels::add_assign_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx2::add_assign_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::add_assign_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx2::add_assign_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::add_assign_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx512::add_assign_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::add_assign_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx512::add_assign_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::add_assign_scalar_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx2::add_assign_scalar_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::add_assign_scalar_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx2::add_assign_scalar_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::add_assign_scalar_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx512::add_assign_scalar_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::add_assign_scalar_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx512::add_assign_scalar_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::add_assign_scalar_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::sse42::add_assign_scalar_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::add_assign_scalar_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::sse42::add_assign_scalar_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::add_assign_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::sse42::add_assign_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::add_assign_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::sse42::add_assign_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_add_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx2::mul_add_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_add_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx2::mul_add_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_add_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx512::mul_add_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_add_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx512::mul_add_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_add_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::sse42::mul_add_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_add_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::sse42::mul_add_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_assign_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx2::mul_assign_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_assign_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx2::mul_assign_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_assign_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx512::mul_assign_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_assign_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx512::mul_assign_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_assign_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::sse42::mul_assign_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_assign_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::sse42::mul_assign_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_elementwise_assign_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx2::mul_elementwise_assign_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_elementwise_assign_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx2::mul_elementwise_assign_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_elementwise_assign_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx512::mul_elementwise_assign_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_elementwise_assign_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx512::mul_elementwise_assign_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_elementwise_assign_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::sse42::mul_elementwise_assign_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_elementwise_assign_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::sse42::mul_elementwise_assign_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_elementwise_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx2::mul_elementwise_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_elementwise_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx2::mul_elementwise_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_elementwise_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx512::mul_elementwise_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_elementwise_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx512::mul_elementwise_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_elementwise_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::sse42::mul_elementwise_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_elementwise_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::sse42::mul_elementwise_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_into_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx2::mul_into_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_into_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx2::mul_into_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_into_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx512::mul_into_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_into_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx512::mul_into_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_into_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::sse42::mul_into_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::mul_into_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::sse42::mul_into_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::sub_assign_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx2::sub_assign_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::sub_assign_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx2::sub_assign_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::sub_assign_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx512::sub_assign_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::sub_assign_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx512::sub_assign_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::sub_assign_scalar_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx2::sub_assign_scalar_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::sub_assign_scalar_avx2",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx2::sub_assign_scalar_avx2",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::sub_assign_scalar_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::avx512::sub_assign_scalar_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::sub_assign_scalar_avx512",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::avx512::sub_assign_scalar_avx512",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::sub_assign_scalar_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::sse42::sub_assign_scalar_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::sub_assign_scalar_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::sse42::sub_assign_scalar_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::sub_assign_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::goldilocks::sse42::sub_assign_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/goldilocks.rs",
+      "invocation_module": "fgf::kernel::goldilocks",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "$crate::kernel::x86::$kernels::sub_assign_sse42",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::mersenne31::sse42::sub_assign_sse42",
+      "file": "src/kernel.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/mersenne31.rs",
+      "invocation_module": "fgf::kernel::mersenne31",
+      "macro": "prime_dispatch"
+    },
+    {
+      "call": "add_assign_avx2",
+      "caller": "mul_add_avx2",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::add_assign_avx2",
+      "file": "src/kernel/x86/quad_mersenne31/avx2.rs",
+      "module": "fgf::kernel::x86::quad_mersenne31::avx2"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::add_assign_avx2",
+      "caller": "add_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::add_assign_avx2",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::add_assign_scalar_avx2",
+      "caller": "add_assign_scalar",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::add_assign_scalar_avx2",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::add_assign_scalar_sse42",
+      "caller": "add_assign_scalar",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::sse42::add_assign_scalar_sse42",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::add_assign_scalar_sse42",
+      "caller": "add_assign_scalar_short",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::sse42::add_assign_scalar_sse42",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::add_assign_sse42",
+      "caller": "add_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::sse42::add_assign_sse42",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::add_assign_sse42",
+      "caller": "add_assign_short",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::sse42::add_assign_sse42",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::mul_add_avx2",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::mul_add_avx2",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::mul_add_avx512",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx512::mul_add_avx512",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::mul_assign_avx2",
+      "caller": "mul_assign",
+      "count": 2,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::mul_assign_avx2",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::mul_elementwise_assign_avx2",
+      "caller": "mul_elementwise_assign",
+      "count": 2,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::mul_elementwise_assign_avx2",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::mul_elementwise_avx2",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::mul_elementwise_avx2",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::mul_elementwise_avx512",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx512::mul_elementwise_avx512",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::mul_into_avx2",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::mul_into_avx2",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::mul_into_avx512",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx512::mul_into_avx512",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::sub_assign_avx2",
+      "caller": "sub_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::sub_assign_avx2",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::sub_assign_scalar_avx2",
+      "caller": "sub_assign_scalar",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::sub_assign_scalar_avx2",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::sub_assign_scalar_sse42",
+      "caller": "sub_assign_scalar",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::sse42::sub_assign_scalar_sse42",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::sub_assign_scalar_sse42",
+      "caller": "sub_assign_scalar_short",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::sse42::sub_assign_scalar_sse42",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::sub_assign_sse42",
+      "caller": "sub_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::sse42::sub_assign_sse42",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::quad_mersenne31::sub_assign_sse42",
+      "caller": "sub_assign_short",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::sse42::sub_assign_sse42",
+      "file": "src/kernel/quad_mersenne31.rs",
+      "module": "fgf::kernel::quad_mersenne31"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::matrix::mul_add_matrix_avx2_with",
+      "caller": "mul_add_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::matrix::mul_add_matrix_avx2_with",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::matrix::mul_into_matrix_avx2_with",
+      "caller": "mul_into_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::matrix::mul_into_matrix_avx2_with",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::single::u32::mul_add_avx2",
+      "caller": "mul_add_prepared",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::single::u32::mul_add_avx2",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::single::u32::mul_assign_avx2",
+      "caller": "mul_assign_prepared",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::single::u32::mul_assign_avx2",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::single::u32::mul_elementwise_assign_avx2",
+      "caller": "mul_elementwise_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::single::u32::mul_elementwise_assign_avx2",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::single::u32::mul_elementwise_avx2",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::single::u32::mul_elementwise_avx2",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::single::u32::mul_into_avx2",
+      "caller": "mul_into_prepared",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::single::u32::mul_into_avx2",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::single::u64::mul_add_avx2",
+      "caller": "mul_add_prepared",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::single::u64::mul_add_avx2",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::single::u64::mul_assign_avx2",
+      "caller": "mul_assign_prepared",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::single::u64::mul_assign_avx2",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::single::u64::mul_into_avx2",
+      "caller": "mul_into_prepared",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::single::u64::mul_into_avx2",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::single::u8::mul_add_avx2",
+      "caller": "mul_add_prepared",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::single::u8::mul_add_avx2",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::single::u8::mul_assign_avx2",
+      "caller": "mul_assign_prepared",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::single::u8::mul_assign_avx2",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "crate::kernel::x86::residue::avx2::single::u8::mul_into_avx2",
+      "caller": "mul_into_prepared",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx2::single::u8::mul_into_avx2",
+      "file": "src/kernel/residue.rs",
+      "module": "fgf::kernel::residue"
+    },
+    {
+      "call": "gfni::mul_add_gfni",
+      "caller": "matrix_group",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::single::mul_add_gfni",
+      "file": "src/kernel/x86/gf16/avx512.rs",
+      "module": "fgf::kernel::x86::gf16::avx512"
+    },
+    {
+      "call": "gfni::mul_add_gfni",
+      "caller": "mul_add_avx512",
+      "count": 3,
+      "entry": "fgf::kernel::x86::gf16::gfni::single::mul_add_gfni",
+      "file": "src/kernel/x86/gf16/avx512.rs",
+      "module": "fgf::kernel::x86::gf16::avx512"
+    },
+    {
+      "call": "gfni::mul_add_matrix_gfni_with",
+      "caller": "mul_add_matrix_avx512_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::matrix::mul_add_matrix_gfni_with",
+      "file": "src/kernel/x86/gf16/avx512.rs",
+      "module": "fgf::kernel::x86::gf16::avx512"
+    },
+    {
+      "call": "gfni::mul_assign_gfni",
+      "caller": "mul_assign_avx512",
+      "count": 2,
+      "entry": "fgf::kernel::x86::gf16::gfni::single::mul_assign_gfni",
+      "file": "src/kernel/x86/gf16/avx512.rs",
+      "module": "fgf::kernel::x86::gf16::avx512"
+    },
+    {
+      "call": "gfni::mul_elementwise_assign_gfni",
+      "caller": "mul_elementwise_assign_avx512",
+      "count": 2,
+      "entry": "fgf::kernel::x86::gf16::gfni::elementwise::mul_elementwise_assign_gfni",
+      "file": "src/kernel/x86/gf16/avx512.rs",
+      "module": "fgf::kernel::x86::gf16::avx512"
+    },
+    {
+      "call": "gfni::mul_elementwise_gfni",
+      "caller": "mul_elementwise_avx512",
+      "count": 2,
+      "entry": "fgf::kernel::x86::gf16::gfni::elementwise::mul_elementwise_gfni",
+      "file": "src/kernel/x86/gf16/avx512.rs",
+      "module": "fgf::kernel::x86::gf16::avx512"
+    },
+    {
+      "call": "gfni::mul_into_gfni",
+      "caller": "mul_into_avx512",
+      "count": 3,
+      "entry": "fgf::kernel::x86::gf16::gfni::single::mul_into_gfni",
+      "file": "src/kernel/x86/gf16/avx512.rs",
+      "module": "fgf::kernel::x86::gf16::avx512"
+    },
+    {
+      "call": "mul_add_avx2",
+      "caller": "mul_add_gather_avx2",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_add_avx2",
+      "file": "src/kernel/x86/gf8/avx2.rs",
+      "module": "fgf::kernel::x86::gf8::avx2"
+    },
+    {
+      "call": "mul_add_avx2",
+      "caller": "scatter_rows",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx2::mul_add_avx2",
+      "file": "src/kernel/x86/gf16/avx2.rs",
+      "module": "fgf::kernel::x86::gf16::avx2"
+    },
+    {
+      "call": "mul_add_gfni",
+      "caller": "gather_group",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::single::mul_add_gfni",
+      "file": "src/kernel/x86/gf16/gfni/gather.rs",
+      "module": "fgf::kernel::x86::gf16::gfni::gather"
+    },
+    {
+      "call": "mul_add_gfni",
+      "caller": "matrix_group",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::single::mul_add_gfni",
+      "file": "src/kernel/x86/gf16/gfni/matrix.rs",
+      "module": "fgf::kernel::x86::gf16::gfni::matrix"
+    },
+    {
+      "call": "mul_add_gfni",
+      "caller": "mul_add_gather_gfni",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::single::mul_add_gfni",
+      "file": "src/kernel/x86/gf16/gfni/gather.rs",
+      "module": "fgf::kernel::x86::gf16::gfni::gather"
+    },
+    {
+      "call": "mul_add_gfni",
+      "caller": "mul_add_scatter_gfni",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::single::mul_add_gfni",
+      "file": "src/kernel/x86/gf16/gfni/scatter.rs",
+      "module": "fgf::kernel::x86::gf16::gfni::scatter"
+    },
+    {
+      "call": "mul_add_gfni",
+      "caller": "scatter_group",
+      "count": 2,
+      "entry": "fgf::kernel::x86::gf16::gfni::single::mul_add_gfni",
+      "file": "src/kernel/x86/gf16/gfni/scatter.rs",
+      "module": "fgf::kernel::x86::gf16::gfni::scatter"
+    },
+    {
+      "call": "mul_add_matrix_avx512_with",
+      "caller": "mul_add_matrix_avx512",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx512::mul_add_matrix_avx512_with",
+      "file": "src/kernel/x86/gf16/avx512.rs",
+      "module": "fgf::kernel::x86::gf16::avx512"
+    },
+    {
+      "call": "mul_add_matrix_avx512_with",
+      "caller": "mul_add_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::matrix::mul_add_matrix_avx512_with",
+      "file": "src/kernel/x86/residue/avx512/matrix.rs",
+      "module": "fgf::kernel::x86::residue::avx512::matrix"
+    },
+    {
+      "call": "mul_add_matrix_gfni_with",
+      "caller": "mul_add_matrix_gfni",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::matrix::mul_add_matrix_gfni_with",
+      "file": "src/kernel/x86/gf16/gfni/matrix.rs",
+      "module": "fgf::kernel::x86::gf16::gfni::matrix"
+    },
+    {
+      "call": "mul_add_matrix_ssse3_with",
+      "caller": "mul_add_matrix_ssse3",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_add_matrix_ssse3_with",
+      "file": "src/kernel/x86/gf16/ssse3.rs",
+      "module": "fgf::kernel::x86::gf16::ssse3"
+    },
+    {
+      "call": "mul_add_ssse3",
+      "caller": "mul_add_avx2",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_add_ssse3",
+      "file": "src/kernel/x86/gf8/avx2.rs",
+      "module": "fgf::kernel::x86::gf8::avx2"
+    },
+    {
+      "call": "mul_add_ssse3",
+      "caller": "mul_add_gather_ssse3",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_add_ssse3",
+      "file": "src/kernel/x86/gf8/ssse3.rs",
+      "module": "fgf::kernel::x86::gf8::ssse3"
+    },
+    {
+      "call": "mul_add_ssse3",
+      "caller": "mul_add_matrix_avx2_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_add_ssse3",
+      "file": "src/kernel/x86/gf8/avx2.rs",
+      "module": "fgf::kernel::x86::gf8::avx2"
+    },
+    {
+      "call": "mul_add_ssse3",
+      "caller": "mul_add_scatter_avx2",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_add_ssse3",
+      "file": "src/kernel/x86/gf8/avx2.rs",
+      "module": "fgf::kernel::x86::gf8::avx2"
+    },
+    {
+      "call": "mul_assign_ssse3",
+      "caller": "mul_assign_avx2",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_assign_ssse3",
+      "file": "src/kernel/x86/gf8/avx2.rs",
+      "module": "fgf::kernel::x86::gf8::avx2"
+    },
+    {
+      "call": "mul_elementwise_assign_gfni::<NATIVE>",
+      "caller": "mul_elementwise_assign_avx512",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::elementwise::mul_elementwise_assign_gfni",
+      "file": "src/kernel/x86/gf8/avx512/elementwise.rs",
+      "module": "fgf::kernel::x86::gf8::avx512::elementwise"
+    },
+    {
+      "call": "mul_elementwise_assign_ssse3",
+      "caller": "mul_elementwise_assign_avx2",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_elementwise_assign_ssse3",
+      "file": "src/kernel/x86/gf16/avx2.rs",
+      "module": "fgf::kernel::x86::gf16::avx2"
+    },
+    {
+      "call": "mul_elementwise_assign_ssse3",
+      "caller": "mul_elementwise_assign_avx2",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_elementwise_assign_ssse3",
+      "file": "src/kernel/x86/gf8/avx2.rs",
+      "module": "fgf::kernel::x86::gf8::avx2"
+    },
+    {
+      "call": "mul_elementwise_assign_ssse3",
+      "caller": "mul_elementwise_assign_gfni",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_elementwise_assign_ssse3",
+      "file": "src/kernel/x86/gf8/gfni/elementwise.rs",
+      "module": "fgf::kernel::x86::gf8::gfni::elementwise"
+    },
+    {
+      "call": "mul_elementwise_gfni::<NATIVE>",
+      "caller": "mul_elementwise_avx512",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::elementwise::mul_elementwise_gfni",
+      "file": "src/kernel/x86/gf8/avx512/elementwise.rs",
+      "module": "fgf::kernel::x86::gf8::avx512::elementwise"
+    },
+    {
+      "call": "mul_elementwise_ssse3",
+      "caller": "mul_elementwise_avx2",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_elementwise_ssse3",
+      "file": "src/kernel/x86/gf16/avx2.rs",
+      "module": "fgf::kernel::x86::gf16::avx2"
+    },
+    {
+      "call": "mul_elementwise_ssse3",
+      "caller": "mul_elementwise_avx2",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_elementwise_ssse3",
+      "file": "src/kernel/x86/gf8/avx2.rs",
+      "module": "fgf::kernel::x86::gf8::avx2"
+    },
+    {
+      "call": "mul_elementwise_ssse3",
+      "caller": "mul_elementwise_gfni",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_elementwise_ssse3",
+      "file": "src/kernel/x86/gf8/gfni/elementwise.rs",
+      "module": "fgf::kernel::x86::gf8::gfni::elementwise"
+    },
+    {
+      "call": "mul_into_matrix_avx512_with",
+      "caller": "mul_into_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::matrix::mul_into_matrix_avx512_with",
+      "file": "src/kernel/x86/residue/avx512/matrix.rs",
+      "module": "fgf::kernel::x86::residue::avx512::matrix"
+    },
+    {
+      "call": "super::add_assign_avx2",
+      "caller": "mul_add_avx512",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::add_assign_avx2",
+      "file": "src/kernel/x86/quad_mersenne31/avx512.rs",
+      "module": "fgf::kernel::x86::quad_mersenne31::avx512"
+    },
+    {
+      "call": "super::mul_add_avx2",
+      "caller": "mul_add_avx512",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::mul_add_avx2",
+      "file": "src/kernel/x86/quad_mersenne31/avx512.rs",
+      "module": "fgf::kernel::x86::quad_mersenne31::avx512"
+    },
+    {
+      "call": "super::mul_elementwise_avx2",
+      "caller": "mul_elementwise_avx512",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::mul_elementwise_avx2",
+      "file": "src/kernel/x86/quad_mersenne31/avx512.rs",
+      "module": "fgf::kernel::x86::quad_mersenne31::avx512"
+    },
+    {
+      "call": "super::mul_into_avx2",
+      "caller": "mul_into_avx512",
+      "count": 1,
+      "entry": "fgf::kernel::x86::quad_mersenne31::avx2::mul_into_avx2",
+      "file": "src/kernel/x86/quad_mersenne31/avx512.rs",
+      "module": "fgf::kernel::x86::quad_mersenne31::avx512"
+    },
+    {
+      "call": "super::x86::bytes::count_ones_avx512",
+      "caller": "whole_word_weight",
+      "count": 1,
+      "entry": "fgf::kernel::x86::bytes::avx512::count_ones_avx512",
+      "file": "src/kernel/gf1.rs",
+      "module": "fgf::kernel::gf1"
+    },
+    {
+      "call": "u32::mul_add_avx512",
+      "caller": "mul_add_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::single::u32::mul_add_avx512",
+      "file": "src/kernel/x86/residue/avx512/single.rs",
+      "module": "fgf::kernel::x86::residue::avx512::single"
+    },
+    {
+      "call": "u32::mul_assign_avx512",
+      "caller": "mul_assign_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::single::u32::mul_assign_avx512",
+      "file": "src/kernel/x86/residue/avx512/single.rs",
+      "module": "fgf::kernel::x86::residue::avx512::single"
+    },
+    {
+      "call": "u32::mul_elementwise_assign_avx512",
+      "caller": "mul_elementwise_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::single::u32::mul_elementwise_assign_avx512",
+      "file": "src/kernel/x86/residue/avx512/single.rs",
+      "module": "fgf::kernel::x86::residue::avx512::single"
+    },
+    {
+      "call": "u32::mul_elementwise_avx512",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::single::u32::mul_elementwise_avx512",
+      "file": "src/kernel/x86/residue/avx512/single.rs",
+      "module": "fgf::kernel::x86::residue::avx512::single"
+    },
+    {
+      "call": "u32::mul_into_avx512",
+      "caller": "mul_into_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::single::u32::mul_into_avx512",
+      "file": "src/kernel/x86/residue/avx512/single.rs",
+      "module": "fgf::kernel::x86::residue::avx512::single"
+    },
+    {
+      "call": "u64::mul_add_avx512",
+      "caller": "mul_add_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::single::u64::mul_add_avx512",
+      "file": "src/kernel/x86/residue/avx512/single.rs",
+      "module": "fgf::kernel::x86::residue::avx512::single"
+    },
+    {
+      "call": "u64::mul_assign_avx512",
+      "caller": "mul_assign_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::single::u64::mul_assign_avx512",
+      "file": "src/kernel/x86/residue/avx512/single.rs",
+      "module": "fgf::kernel::x86::residue::avx512::single"
+    },
+    {
+      "call": "u64::mul_into_avx512",
+      "caller": "mul_into_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::single::u64::mul_into_avx512",
+      "file": "src/kernel/x86/residue/avx512/single.rs",
+      "module": "fgf::kernel::x86::residue::avx512::single"
+    },
+    {
+      "call": "u8::mul_add_avx512",
+      "caller": "mul_add_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::single::u8::mul_add_avx512",
+      "file": "src/kernel/x86/residue/avx512/single.rs",
+      "module": "fgf::kernel::x86::residue::avx512::single"
+    },
+    {
+      "call": "u8::mul_assign_avx512",
+      "caller": "mul_assign_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::single::u8::mul_assign_avx512",
+      "file": "src/kernel/x86/residue/avx512/single.rs",
+      "module": "fgf::kernel::x86::residue::avx512::single"
+    },
+    {
+      "call": "u8::mul_into_avx512",
+      "caller": "mul_into_with",
+      "count": 1,
+      "entry": "fgf::kernel::x86::residue::avx512::single::u8::mul_into_avx512",
+      "file": "src/kernel/x86/residue/avx512/single.rs",
+      "module": "fgf::kernel::x86::residue::avx512::single"
+    },
+    {
+      "call": "x86::$xg::mul_add_gfni",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf32::gfni::mul_add_gfni",
+      "file": "src/kernel/tower.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/tower.rs",
+      "invocation_module": "fgf::kernel::tower::gf32",
+      "macro": "wide_tower_dispatch"
+    },
+    {
+      "call": "x86::$xg::mul_add_gfni",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf64::gfni::mul_add_gfni",
+      "file": "src/kernel/tower.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/tower.rs",
+      "invocation_module": "fgf::kernel::tower::gf64",
+      "macro": "wide_tower_dispatch"
+    },
+    {
+      "call": "x86::$xg::mul_assign_gfni",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf32::gfni::mul_assign_gfni",
+      "file": "src/kernel/tower.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/tower.rs",
+      "invocation_module": "fgf::kernel::tower::gf32",
+      "macro": "wide_tower_dispatch"
+    },
+    {
+      "call": "x86::$xg::mul_assign_gfni",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf64::gfni::mul_assign_gfni",
+      "file": "src/kernel/tower.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/tower.rs",
+      "invocation_module": "fgf::kernel::tower::gf64",
+      "macro": "wide_tower_dispatch"
+    },
+    {
+      "call": "x86::$xg::mul_into_gfni",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf32::gfni::mul_into_gfni",
+      "file": "src/kernel/tower.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/tower.rs",
+      "invocation_module": "fgf::kernel::tower::gf32",
+      "macro": "wide_tower_dispatch"
+    },
+    {
+      "call": "x86::$xg::mul_into_gfni",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf64::gfni::mul_into_gfni",
+      "file": "src/kernel/tower.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/tower.rs",
+      "invocation_module": "fgf::kernel::tower::gf64",
+      "macro": "wide_tower_dispatch"
+    },
+    {
+      "call": "x86::bytes::xor_avx512",
+      "caller": "xor",
+      "count": 1,
+      "entry": "fgf::kernel::x86::bytes::avx512::xor_avx512",
+      "file": "src/kernel/bytes.rs",
+      "module": "fgf::kernel::bytes"
+    },
+    {
+      "call": "x86::bytes::xor_broadcast_avx2",
+      "caller": "xor_broadcast",
+      "count": 3,
+      "entry": "fgf::kernel::x86::bytes::avx2::xor_broadcast_avx2",
+      "file": "src/kernel/bytes.rs",
+      "module": "fgf::kernel::bytes"
+    },
+    {
+      "call": "x86::bytes::xor_broadcast_sse2",
+      "caller": "xor_broadcast",
+      "count": 1,
+      "entry": "fgf::kernel::x86::bytes::sse2::xor_broadcast_sse2",
+      "file": "src/kernel/bytes.rs",
+      "module": "fgf::kernel::bytes"
+    },
+    {
+      "call": "x86::fan_paar::$xg::$mul_add_fp",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::fan_paar::gf32::avx2::mul_add_avx2",
+      "file": "src/kernel/tower.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/tower.rs",
+      "invocation_module": "fgf::kernel::tower::gf32",
+      "macro": "wide_tower_dispatch"
+    },
+    {
+      "call": "x86::fan_paar::$xg::$mul_add_fp",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::fan_paar::gf64::avx2::mul_add_avx2",
+      "file": "src/kernel/tower.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/tower.rs",
+      "invocation_module": "fgf::kernel::tower::gf64",
+      "macro": "wide_tower_dispatch"
+    },
+    {
+      "call": "x86::fan_paar::$xg::$mul_assign_fp",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::fan_paar::gf32::avx2::mul_assign_avx2",
+      "file": "src/kernel/tower.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/tower.rs",
+      "invocation_module": "fgf::kernel::tower::gf32",
+      "macro": "wide_tower_dispatch"
+    },
+    {
+      "call": "x86::fan_paar::$xg::$mul_assign_fp",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::fan_paar::gf64::avx2::mul_assign_avx2",
+      "file": "src/kernel/tower.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/tower.rs",
+      "invocation_module": "fgf::kernel::tower::gf64",
+      "macro": "wide_tower_dispatch"
+    },
+    {
+      "call": "x86::fan_paar::$xg::$mul_into_fp",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::fan_paar::gf32::avx2::mul_into_avx2",
+      "file": "src/kernel/tower.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/tower.rs",
+      "invocation_module": "fgf::kernel::tower::gf32",
+      "macro": "wide_tower_dispatch"
+    },
+    {
+      "call": "x86::fan_paar::$xg::$mul_into_fp",
+      "caller": "",
+      "count": 1,
+      "entry": "fgf::kernel::x86::fan_paar::gf64::avx2::mul_into_avx2",
+      "file": "src/kernel/tower.rs",
+      "invocation_caller": "",
+      "invocation_file": "src/kernel/tower.rs",
+      "invocation_module": "fgf::kernel::tower::gf64",
+      "macro": "wide_tower_dispatch"
+    },
+    {
+      "call": "x86::fan_paar::gf16::mul_add_avx2",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::fan_paar::gf16::avx2::mul_add_avx2",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::fan_paar::gf16::mul_add_ssse3",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::fan_paar::gf16::ssse3::mul_add_ssse3",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::fan_paar::gf16::mul_assign_avx2",
+      "caller": "mul_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::fan_paar::gf16::avx2::mul_assign_avx2",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::fan_paar::gf16::mul_assign_ssse3",
+      "caller": "mul_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::fan_paar::gf16::ssse3::mul_assign_ssse3",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::fan_paar::gf16::mul_into_avx2",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::fan_paar::gf16::avx2::mul_into_avx2",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::fan_paar::gf16::mul_into_ssse3",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::fan_paar::gf16::ssse3::mul_into_ssse3",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_avx2",
+      "caller": "gather_axpy_avx2",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx2::mul_add_avx2",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_avx2",
+      "caller": "matrix_axpy_avx2",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx2::mul_add_avx2",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_avx2",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx2::mul_add_avx2",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_avx512",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx512::mul_add_avx512",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_gather_gfni",
+      "caller": "mul_add_gather",
+      "count": 2,
+      "entry": "fgf::kernel::x86::gf16::gfni::gather::mul_add_gather_gfni",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_gather_ssse3",
+      "caller": "mul_add_gather",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_add_gather_ssse3",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_gather_ssse3",
+      "caller": "mul_add_gather_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_add_gather_ssse3",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_gfni",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::single::mul_add_gfni",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_matrix_avx512",
+      "caller": "mul_add_matrix",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx512::mul_add_matrix_avx512",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_matrix_avx512_with",
+      "caller": "mul_add_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx512::mul_add_matrix_avx512_with",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_matrix_gfni",
+      "caller": "mul_add_matrix",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::matrix::mul_add_matrix_gfni",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_matrix_gfni_with",
+      "caller": "mul_add_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::matrix::mul_add_matrix_gfni_with",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_matrix_ssse3",
+      "caller": "mul_add_matrix",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_add_matrix_ssse3",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_matrix_ssse3_with",
+      "caller": "mul_add_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_add_matrix_ssse3_with",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_scatter_avx2",
+      "caller": "mul_add_scatter",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx2::mul_add_scatter_avx2",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_scatter_gfni",
+      "caller": "mul_add_scatter",
+      "count": 2,
+      "entry": "fgf::kernel::x86::gf16::gfni::scatter::mul_add_scatter_gfni",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_scatter_ssse3",
+      "caller": "mul_add_scatter",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_add_scatter_ssse3",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_add_ssse3",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_add_ssse3",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_assign_avx2",
+      "caller": "mul_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx2::mul_assign_avx2",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_assign_avx512",
+      "caller": "mul_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx512::mul_assign_avx512",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_assign_gfni",
+      "caller": "mul_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::single::mul_assign_gfni",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_assign_ssse3",
+      "caller": "mul_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_assign_ssse3",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_elementwise_assign_avx2",
+      "caller": "mul_elementwise_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx2::mul_elementwise_assign_avx2",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_elementwise_assign_avx512",
+      "caller": "mul_elementwise_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx512::mul_elementwise_assign_avx512",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_elementwise_assign_gfni",
+      "caller": "mul_elementwise_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::elementwise::mul_elementwise_assign_gfni",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_elementwise_assign_ssse3",
+      "caller": "mul_elementwise_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_elementwise_assign_ssse3",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_elementwise_avx2",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx2::mul_elementwise_avx2",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_elementwise_avx512",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx512::mul_elementwise_avx512",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_elementwise_gfni",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::elementwise::mul_elementwise_gfni",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_elementwise_ssse3",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_elementwise_ssse3",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_into_avx2",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx2::mul_into_avx2",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_into_avx512",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::avx512::mul_into_avx512",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_into_gfni",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::gfni::single::mul_into_gfni",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf16::mul_into_ssse3",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf16::ssse3::mul_into_ssse3",
+      "file": "src/kernel/tower.rs",
+      "module": "fgf::kernel::tower::gf16"
+    },
+    {
+      "call": "x86::gf8::mul_add_avx2",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_add_avx2",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_avx512",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::single::mul_add_avx512",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_gather_avx2",
+      "caller": "mul_add_gather",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_add_gather_avx2",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_gather_avx512",
+      "caller": "mul_add_gather",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::gather::mul_add_gather_avx512",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_gather_avx512",
+      "caller": "mul_add_gather_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::gather::mul_add_gather_avx512",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_gather_gfni::<false>",
+      "caller": "mul_add_gather",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::gather::mul_add_gather_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_gather_gfni::<true>",
+      "caller": "mul_add_gather",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::gather::mul_add_gather_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_gather_ssse3",
+      "caller": "mul_add_gather",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_add_gather_ssse3",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_gfni::<false>",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::single::mul_add_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_gfni::<true>",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::single::mul_add_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_at_avx512_with",
+      "caller": "mul_add_matrix_at",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::matrix::mul_add_matrix_at_avx512_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_at_avx512_with",
+      "caller": "mul_add_matrix_at_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::matrix::mul_add_matrix_at_avx512_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_at_gfni_with::<false,_>",
+      "caller": "mul_add_matrix_at",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_add_matrix_at_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_at_gfni_with::<false,_>",
+      "caller": "mul_add_matrix_at_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_add_matrix_at_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_at_gfni_with::<true,_>",
+      "caller": "mul_add_matrix_at",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_add_matrix_at_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_at_gfni_with::<true,_>",
+      "caller": "mul_add_matrix_at_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_add_matrix_at_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_avx2_with",
+      "caller": "mul_add_matrix",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_add_matrix_avx2_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_avx2_with",
+      "caller": "mul_add_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_add_matrix_avx2_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_avx512_with",
+      "caller": "mul_add_matrix",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::matrix::mul_add_matrix_avx512_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_avx512_with",
+      "caller": "mul_add_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::matrix::mul_add_matrix_avx512_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_gfni_with::<false,_>",
+      "caller": "mul_add_matrix",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_add_matrix_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_gfni_with::<false,_>",
+      "caller": "mul_add_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_add_matrix_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_gfni_with::<true,_>",
+      "caller": "mul_add_matrix",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_add_matrix_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_gfni_with::<true,_>",
+      "caller": "mul_add_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_add_matrix_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_ssse3_with",
+      "caller": "mul_add_matrix",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_add_matrix_ssse3_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_matrix_ssse3_with",
+      "caller": "mul_add_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_add_matrix_ssse3_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_scatter_avx2",
+      "caller": "mul_add_scatter",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_add_scatter_avx2",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_scatter_avx512",
+      "caller": "mul_add_scatter",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::scatter::mul_add_scatter_avx512",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_scatter_avx512",
+      "caller": "mul_add_scatter_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::scatter::mul_add_scatter_avx512",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_scatter_gfni::<false>",
+      "caller": "mul_add_scatter",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::scatter::mul_add_scatter_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_scatter_gfni::<true>",
+      "caller": "mul_add_scatter",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::scatter::mul_add_scatter_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_scatter_ssse3",
+      "caller": "mul_add_scatter",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_add_scatter_ssse3",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_add_ssse3",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_add_ssse3",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_assign_avx2",
+      "caller": "mul_assign",
+      "count": 2,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_assign_avx2",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_assign_avx512",
+      "caller": "mul_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::single::mul_assign_avx512",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_assign_gfni::<false>",
+      "caller": "mul_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::single::mul_assign_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_assign_gfni::<true>",
+      "caller": "mul_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::single::mul_assign_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_assign_ssse3",
+      "caller": "mul_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_assign_ssse3",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_elementwise_assign_avx2",
+      "caller": "mul_elementwise_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_elementwise_assign_avx2",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_elementwise_assign_avx512::<false>",
+      "caller": "mul_elementwise_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::elementwise::mul_elementwise_assign_avx512",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_elementwise_assign_avx512::<true>",
+      "caller": "mul_elementwise_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::elementwise::mul_elementwise_assign_avx512",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_elementwise_assign_gfni::<false>",
+      "caller": "mul_elementwise_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::elementwise::mul_elementwise_assign_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_elementwise_assign_gfni::<true>",
+      "caller": "mul_elementwise_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::elementwise::mul_elementwise_assign_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_elementwise_assign_ssse3",
+      "caller": "mul_elementwise_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_elementwise_assign_ssse3",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_elementwise_avx2",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_elementwise_avx2",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_elementwise_avx512::<false>",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::elementwise::mul_elementwise_avx512",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_elementwise_avx512::<true>",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::elementwise::mul_elementwise_avx512",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_elementwise_gfni::<false>",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::elementwise::mul_elementwise_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_elementwise_gfni::<true>",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::elementwise::mul_elementwise_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_elementwise_ssse3",
+      "caller": "mul_elementwise",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_elementwise_ssse3",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_avx2",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_into_avx2",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_avx512",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::single::mul_into_avx512",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_gfni::<false>",
+      "caller": "mul_into",
+      "count": 2,
+      "entry": "fgf::kernel::x86::gf8::gfni::single::mul_into_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_gfni::<true>",
+      "caller": "mul_into",
+      "count": 2,
+      "entry": "fgf::kernel::x86::gf8::gfni::single::mul_into_gfni",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_at_avx512_with",
+      "caller": "mul_into_matrix_at",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::matrix::mul_into_matrix_at_avx512_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_at_avx512_with",
+      "caller": "mul_into_matrix_at_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::matrix::mul_into_matrix_at_avx512_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_at_gfni_with::<false,_>",
+      "caller": "mul_into_matrix_at",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_into_matrix_at_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_at_gfni_with::<false,_>",
+      "caller": "mul_into_matrix_at_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_into_matrix_at_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_at_gfni_with::<true,_>",
+      "caller": "mul_into_matrix_at",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_into_matrix_at_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_at_gfni_with::<true,_>",
+      "caller": "mul_into_matrix_at_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_into_matrix_at_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_avx512_with",
+      "caller": "mul_into_gather",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::matrix::mul_into_matrix_avx512_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_avx512_with",
+      "caller": "mul_into_gather_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::matrix::mul_into_matrix_avx512_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_avx512_with",
+      "caller": "mul_into_matrix",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::matrix::mul_into_matrix_avx512_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_avx512_with",
+      "caller": "mul_into_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx512::matrix::mul_into_matrix_avx512_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_gfni_with::<false,_>",
+      "caller": "mul_into_gather",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_into_matrix_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_gfni_with::<false,_>",
+      "caller": "mul_into_gather_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_into_matrix_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_gfni_with::<false,_>",
+      "caller": "mul_into_matrix",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_into_matrix_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_gfni_with::<false,_>",
+      "caller": "mul_into_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_into_matrix_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_gfni_with::<true,_>",
+      "caller": "mul_into_matrix",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_into_matrix_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_matrix_gfni_with::<true,_>",
+      "caller": "mul_into_matrix_plan",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_into_matrix_gfni_with",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_ssse3",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_into_ssse3",
+      "file": "src/kernel/gf8.rs",
+      "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::xor_avx2",
+      "caller": "xor",
+      "count": 3,
+      "entry": "fgf::kernel::x86::bytes::avx2::xor_avx2",
+      "file": "src/kernel/bytes.rs",
+      "module": "fgf::kernel::bytes"
+    },
+    {
+      "call": "x86::xor_gather_avx2",
+      "caller": "xor_gather",
+      "count": 3,
+      "entry": "fgf::kernel::x86::bytes::avx2::xor_gather_avx2",
+      "file": "src/kernel/bytes.rs",
+      "module": "fgf::kernel::bytes"
+    },
+    {
+      "call": "x86::xor_sse2",
+      "caller": "xor",
+      "count": 1,
+      "entry": "fgf::kernel::x86::bytes::sse2::xor_sse2",
+      "file": "src/kernel/bytes.rs",
+      "module": "fgf::kernel::bytes"
+    },
+    {
+      "call": "x86::xor_sse2",
+      "caller": "xor_gather",
+      "count": 1,
+      "entry": "fgf::kernel::x86::bytes::sse2::xor_sse2",
+      "file": "src/kernel/bytes.rs",
+      "module": "fgf::kernel::bytes"
+    },
+    {
+      "call": "xor_avx2",
+      "caller": "xor_avx512",
+      "count": 2,
+      "entry": "fgf::kernel::x86::bytes::avx2::xor_avx2",
+      "file": "src/kernel/x86/bytes/avx512.rs",
+      "module": "fgf::kernel::x86::bytes::avx512"
+    },
+    {
+      "call": "xor_avx2",
+      "caller": "xor_gather_avx2",
+      "count": 1,
+      "entry": "fgf::kernel::x86::bytes::avx2::xor_avx2",
+      "file": "src/kernel/x86/bytes/avx2.rs",
+      "module": "fgf::kernel::x86::bytes::avx2"
+    }
+  ]
+}
