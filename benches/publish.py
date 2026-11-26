@@ -916,6 +916,9 @@ def validate_session(session: dict, where: str) -> None:
         _require_keys(item, TIER_KEYS, f"{where}.tiers[{index}]")
         _require_string(item["requested"], f"{where}.tiers[{index}].requested")
         _require_string(item["reported"], f"{where}.tiers[{index}].reported")
+        if item["reported"] != item["requested"]:
+            fail(f"{where}.tiers[{index}] reported backend {item['reported']!r} "
+                 f"for requested {item['requested']!r}")
         _require_mapping(item["field_backends"], f"{where}.tiers[{index}].field_backends")
         if not _require_bool(item["ok"], f"{where}.tiers[{index}].ok"):
             fail(f"{where}.tiers[{index}] was rejected")

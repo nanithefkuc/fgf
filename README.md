@@ -33,7 +33,7 @@ explains supported degrees, relations, storage choices, and embeddings.
 
 ```toml
 [dependencies]
-fgf = "4.0.0"
+fgf = "4.0.1"
 ```
 
 Choose the field, then construct its elements. Shipped scalar arithmetic is
