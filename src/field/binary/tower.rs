@@ -1081,7 +1081,7 @@ mod tests {
         }
         for x in 0..=u8::MAX {
             for y in 0..=u8::MAX {
-                let want = fp_multiply_rec(u64::from(x), u64::from(y), 8);
+                let want = wiedemann_schoolbook(u64::from(x), u64::from(y), 8);
                 assert_eq!(u64::from(fanpaar8_mul(x, y)), want);
                 assert_eq!(u64::from(FanPaar8Field::mul_raw(x, y)), want);
             }
