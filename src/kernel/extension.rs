@@ -472,6 +472,11 @@ impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Pac
                 _ => {}
             }
             let table = fp_scale_table(Elem::<FanPaar8Field> { raw: *coeff });
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+            if dst.len() < 16 {
+                // A partial SSSE3 lane uses the scalar nibble loop directly.
+                return gf8::mul_add_nibble(dst, table, src);
+            }
             return match fan_paar_byte_backend() {
                 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Backend::V3 => x86::gf8::mul_add_avx2(x86_v3_token(), dst, table, src),

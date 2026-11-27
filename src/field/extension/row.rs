@@ -423,11 +423,11 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>>
         generic_canonical::<S, D>(raw)
     }
 
-    #[inline]
+    #[inline(always)]
     fn add_raw(left: RawOf<S, D>, right: RawOf<S, D>) -> RawOf<S, D> {
         let () = Validate::<Self>::OK;
         if let Some(instance) = const { instance_of::<Self>() } {
-            return from_word::<S, D>(instance.add(word::<S, D>(left), word::<S, D>(right)));
+            return <S::Storage as StorageRepr<S::Base, D>>::add_pinned(instance, left, right);
         }
         generic_add::<S, D>(left, right)
     }
@@ -450,11 +450,11 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>>
         generic_neg::<S, D>(value)
     }
 
-    #[inline]
+    #[inline(always)]
     fn mul_raw(left: RawOf<S, D>, right: RawOf<S, D>) -> RawOf<S, D> {
         let () = Validate::<Self>::OK;
         if let Some(instance) = const { instance_of::<Self>() } {
-            return from_word::<S, D>(instance.mul(word::<S, D>(left), word::<S, D>(right)));
+            return <S::Storage as StorageRepr<S::Base, D>>::mul_pinned(instance, left, right);
         }
         generic_mul::<S, D>(left, right)
     }

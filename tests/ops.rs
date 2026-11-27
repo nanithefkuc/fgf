@@ -1982,6 +1982,24 @@ fn empty_buffers_are_no_ops() {
     ops::mul_add_gather::<FiniteField<2, 8, Polynomial<AES>>>(&mut empty, &[], &[]);
 }
 
+#[test]
+fn fan_paar_mul_add_matches_oracle_at_lane_boundaries() {
+    fn check<F: FieldBuffer>(coeff: Elem<F>) {
+        for lanes in [1, 15, 16, 17, 31, 32, 33] {
+            let len = lanes * F::BYTES;
+            let src = noise(len, 0x3591);
+            let mut dst = noise(len, 0x5fa9);
+            let mut want = dst.clone();
+            oracle_mul_add::<F>(&mut want, coeff, &src);
+            ops::mul_add::<F>(&mut dst, coeff, &src);
+            assert_eq!(dst, want, "{}: {lanes} lanes", F::NAME);
+        }
+    }
+
+    check::<FanPaar8Field>(Elem::<FanPaar8Field>::from_raw(0xa5));
+    check::<FanPaar16Field>(Elem::<FanPaar16Field>::from_raw(0xa55a));
+}
+
 fn check_wide_field_ops<F: fgf::FieldBuffer>(coeffs: &[Elem<F>]) {
     let row_len = F::BYTES * 17;
     let src0 = noise(row_len, 0x3200 + u64::from(F::STORAGE_BITS));

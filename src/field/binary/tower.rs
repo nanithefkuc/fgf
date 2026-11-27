@@ -27,21 +27,14 @@ const fn fp_low_mask(bits: u32) -> u64 {
     }
 }
 
-/// Multiplies by the top-level indeterminate of a `bits`-wide level.
-///
-/// # Panics
-///
-/// Panics unless `bits` is a power of two no greater than 64.
-#[must_use]
-pub const fn fp_mul_alpha(value: u64, bits: u32) -> u64 {
+const fn fan_paar_alpha_rec(value: u64, bits: u32) -> u64 {
     if bits == 1 {
         return value & 1;
     }
     let half = bits / 2;
-    let mask = fp_low_mask(half);
-    let a0 = value & mask;
+    let a0 = value & fp_low_mask(half);
     let a1 = value >> half;
-    a1 | ((a0 ^ fp_mul_alpha(a1, half)) << half)
+    a1 | ((a0 ^ fan_paar_alpha_rec(a1, half)) << half)
 }
 
 /// Table-free recursive multiplication: the Karatsuba path for every
@@ -60,20 +53,45 @@ const fn fp_multiply_rec(lhs: u64, rhs: u64, bits: u32) -> u64 {
     let z0 = fp_multiply_rec(a0, b0, half);
     let z2 = fp_multiply_rec(a1, b1, half);
     let z1 = fp_multiply_rec(a0 ^ a1, b0 ^ b1, half) ^ z0 ^ z2;
-    (z0 ^ z2) | ((z1 ^ fp_mul_alpha(z2, half)) << half)
+    (z0 ^ z2) | ((z1 ^ fan_paar_alpha_rec(z2, half)) << half)
 }
 
-const fn fp_build_exp8() -> [u8; 255] {
-    let mut table = [0u8; 255];
+/// Multiplies by the top-level indeterminate of a Fan-Paar level.
+///
+/// # Panics
+/// Panics unless `bits` is a power of two no greater than 64.
+#[must_use]
+#[allow(dead_code)] // Exposed through `internals`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+pub const fn fp_mul_alpha(value: u64, bits: u32) -> u64 {
+    match bits {
+        1 | 2 | 4 => fan_paar_alpha_rec(value, bits),
+        8 => fanpaar8_alpha(value as u8) as u64,
+        16 => fanpaar16_alpha(value as u16) as u64,
+        32 => fanpaar32_alpha(value as u32) as u64,
+        64 => fanpaar64_alpha(value),
+        _ => panic!("invalid Fan-Paar degree"),
+    }
+}
+
+// Log sums for nonzero operands fit the repeated exponent period. The
+// sentinel for zero instead sends either operand's product to the zero tail.
+const FP_LOG_ZERO: u16 = 2 * 255;
+const FP_EXP_LEN: usize = 2 * FP_LOG_ZERO as usize + 1;
+
+#[allow(clippy::cast_possible_truncation)]
+const fn fp_build_exp8() -> [u8; FP_EXP_LEN] {
+    let mut table = [0u8; FP_EXP_LEN];
     let mut value = 1u8;
     let mut i = 0;
-    while i < table.len() {
+    while i < 255 {
+        // A repeated period lets a sum of logs index the table directly.
         table[i] = value;
+        table[i + 255] = value;
         // Widening a byte into the tower word is exact.
         #[allow(clippy::cast_lossless)]
         let next = fp_multiply_rec(value as u64, 0x2d, 8);
         // The byte tower closes over one byte.
-        #[allow(clippy::cast_possible_truncation)]
         let narrowed = next as u8;
         value = narrowed;
         i += 1;
@@ -81,95 +99,78 @@ const fn fp_build_exp8() -> [u8; 255] {
     table
 }
 
-const FP_EXP8: [u8; 255] = fp_build_exp8();
+// Static storage keeps byte lookups from materializing whole arrays in
+// unoptimized builds, including coverage runs.
+static FP_EXP8: [u8; FP_EXP_LEN] = fp_build_exp8();
 
 #[allow(clippy::cast_possible_truncation)]
-const fn fp_build_log8() -> [u8; 256] {
-    let mut table = [0u8; 256];
+const fn fp_build_log8() -> [u16; 256] {
+    let mut table = [FP_LOG_ZERO; 256];
     let mut i = 0;
-    while i < FP_EXP8.len() {
-        table[FP_EXP8[i] as usize] = i as u8;
+    while i < 255 {
+        table[FP_EXP8[i] as usize] = i as u16;
         i += 1;
     }
     table
 }
 
-const FP_LOG8: [u8; 256] = fp_build_log8();
+static FP_LOG8: [u16; 256] = fp_build_log8();
 
-/// Recursive Fan-Paar multiplication with a log-table byte base.
+/// Multiplies two Fan-Paar coordinate words.
 ///
 /// # Panics
-///
 /// Panics unless `bits` is a power of two no greater than 64.
 #[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
 pub const fn fp_multiply(lhs: u64, rhs: u64, bits: u32) -> u64 {
-    if bits == 8 {
-        if lhs == 0 || rhs == 0 {
-            return 0;
-        }
-        // Byte-field table indices; the operands are validated bytes here.
-        #[allow(clippy::cast_possible_truncation)]
-        let log = FP_LOG8[lhs as usize] as usize + FP_LOG8[rhs as usize] as usize;
-        return FP_EXP8[log % 255] as u64;
+    match bits {
+        1 | 2 | 4 => fp_multiply_rec(lhs, rhs, bits),
+        8 => fanpaar8_mul(lhs as u8, rhs as u8) as u64,
+        16 => fanpaar16_mul(lhs as u16, rhs as u16) as u64,
+        32 => fanpaar32_mul(lhs as u32, rhs as u32) as u64,
+        64 => fanpaar64_mul(lhs, rhs),
+        _ => panic!("invalid Fan-Paar degree"),
     }
-    if bits < 8 {
-        return fp_multiply_rec(lhs, rhs, bits);
-    }
-    let half = bits / 2;
-    let mask = fp_low_mask(half);
-    let (a0, a1) = (lhs & mask, lhs >> half);
-    let (b0, b1) = (rhs & mask, rhs >> half);
-    let z0 = fp_multiply(a0, b0, half);
-    let z2 = fp_multiply(a1, b1, half);
-    let z1 = fp_multiply(a0 ^ a1, b0 ^ b1, half) ^ z0 ^ z2;
-    (z0 ^ z2) | ((z1 ^ fp_mul_alpha(z2, half)) << half)
 }
 
-/// Recursive squaring through the linear recurrence.
+/// Squares a Fan-Paar coordinate word.
 ///
 /// # Panics
-///
 /// Panics unless `bits` is a power of two no greater than 64.
 #[must_use]
+#[allow(dead_code)] // Exposed through `internals`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
 pub const fn fp_square(value: u64, bits: u32) -> u64 {
-    if bits == 1 {
-        return value & 1;
+    match bits {
+        1 => value & 1,
+        2 => fanpaar2_square(value as u8) as u64,
+        4 => fanpaar4_square(value as u8) as u64,
+        8 => fanpaar8_square(value as u8) as u64,
+        16 => fanpaar16_square(value as u16) as u64,
+        32 => fanpaar32_square(value as u32) as u64,
+        64 => fanpaar64_square(value),
+        _ => panic!("invalid Fan-Paar degree"),
     }
-    let half = bits / 2;
-    let mask = fp_low_mask(half);
-    let a0 = value & mask;
-    let a1 = value >> half;
-    let z0 = fp_square(a0, half);
-    let z2 = fp_square(a1, half);
-    (z0 ^ z2) | (fp_mul_alpha(z2, half) << half)
 }
 
-/// Recursive conjugate-and-norm inversion, with `inv(0) = 0`.
+/// Inverts a Fan-Paar coordinate word, with `inv(0) = 0`.
 ///
 /// # Panics
-///
 /// Panics unless `bits` is a power of two no greater than 64.
 #[must_use]
+#[allow(dead_code)] // Exposed through `internals`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
 pub const fn fp_invert(value: u64, bits: u32) -> u64 {
-    if bits == 1 {
-        return value & 1;
+    match bits {
+        1 => value & 1,
+        2 => fanpaar2_inv(value as u8) as u64,
+        4 => fanpaar4_inv(value as u8) as u64,
+        8 => fanpaar8_inv(value as u8) as u64,
+        16 => fanpaar16_inv(value as u16) as u64,
+        32 => fanpaar32_inv(value as u32) as u64,
+        64 => fanpaar64_inv(value),
+        _ => panic!("invalid Fan-Paar degree"),
     }
-    if bits == 8 {
-        if value == 0 {
-            return 0;
-        }
-        #[allow(clippy::cast_possible_truncation)]
-        let log = FP_LOG8[value as usize] as usize;
-        return FP_EXP8[(255 - log) % 255] as u64;
-    }
-    let half = bits / 2;
-    let mask = fp_low_mask(half);
-    let a0 = value & mask;
-    let a1 = value >> half;
-    let a0z1 = a0 ^ fp_mul_alpha(a1, half);
-    let norm = fp_multiply(a0, a0z1, half) ^ fp_square(a1, half);
-    let norm_inv = fp_invert(norm, half);
-    fp_multiply(norm_inv, a0z1, half) | (fp_multiply(norm_inv, a1, half) << half)
 }
 
 // ---------------------------------------------------------------------------
@@ -457,26 +458,142 @@ pub(crate) const fn rijndael64_inv(a: u64) -> u64 {
 // ---------------------------------------------------------------------------
 // Fan-Paar bodies at each instance's raw width.
 //
-// The byte and wider rows run the Wiedemann recurrence. The two smaller
-// rows use their descriptors. All words hold only the row's coordinate bits.
+// The fixed-width quadratic steps call their direct subfield. The byte
+// leaf uses tables generated from the same coordinate convention.
 
-macro_rules! fan_paar_bodies {
-    ($raw:ty, $mul:ident, $square:ident, $inv:ident, recurrence: $bits:literal) => {
+#[allow(clippy::cast_possible_truncation)]
+static FP_ALPHA8: [u8; 256] = {
+    let mut table = [0; 256];
+    let mut i = 0;
+    while i < 256 {
+        table[i] = fan_paar_alpha_rec(i as u64, 8) as u8;
+        i += 1;
+    }
+    table
+};
+
+#[allow(clippy::cast_possible_truncation)]
+static FP_SQUARE8: [u8; 256] = {
+    let mut table = [0; 256];
+    let mut i = 0;
+    while i < 256 {
+        table[i] = fp_multiply_rec(i as u64, i as u64, 8) as u8;
+        i += 1;
+    }
+    table
+};
+
+static FP_INVERSE8: [u8; 256] = {
+    let mut table = [0; 256];
+    let mut i = 1;
+    while i < 256 {
+        table[i] = FP_EXP8[255 - FP_LOG8[i] as usize];
+        i += 1;
+    }
+    table
+};
+
+#[inline]
+const fn fanpaar8_alpha(value: u8) -> u8 {
+    FP_ALPHA8[value as usize]
+}
+
+#[inline(always)]
+pub(crate) const fn fanpaar8_mul(lhs: u8, rhs: u8) -> u8 {
+    let log = (FP_LOG8[lhs as usize] as usize).wrapping_add(FP_LOG8[rhs as usize] as usize);
+    FP_EXP8[log]
+}
+
+#[inline]
+const fn fanpaar8_square(value: u8) -> u8 {
+    FP_SQUARE8[value as usize]
+}
+
+#[inline]
+pub(crate) const fn fanpaar8_inv(value: u8) -> u8 {
+    FP_INVERSE8[value as usize]
+}
+
+macro_rules! fan_paar_level {
+    ($raw:ty, $base:ty, $alpha:ident, $mul:ident, $square:ident, $inv:ident,
+     $base_alpha:ident, $base_mul:ident, $base_square:ident, $base_inv:ident) => {
+        #[inline]
+        #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+        const fn $alpha(value: $raw) -> $raw {
+            let hi = (value >> <$base>::BITS) as $base;
+            (hi as $raw) | (((value as $base ^ $base_alpha(hi)) as $raw) << <$base>::BITS)
+        }
+
+        #[inline]
         #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
         pub(crate) const fn $mul(a: $raw, b: $raw) -> $raw {
-            fp_multiply(a as u64, b as u64, $bits) as $raw
+            let (a0, a1) = (a as $base, (a >> <$base>::BITS) as $base);
+            let (b0, b1) = (b as $base, (b >> <$base>::BITS) as $base);
+            let ac = $base_mul(a0, b0);
+            let bd = $base_mul(a1, b1);
+            let lo = ac ^ bd;
+            let hi = $base_mul(a0 ^ a1, b0 ^ b1) ^ lo ^ $base_alpha(bd);
+            (lo as $raw) | ((hi as $raw) << <$base>::BITS)
         }
 
+        #[inline]
         #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
-        pub(crate) const fn $square(a: $raw) -> $raw {
-            fp_square(a as u64, $bits) as $raw
+        const fn $square(value: $raw) -> $raw {
+            let a = $base_square(value as $base);
+            let b = $base_square((value >> <$base>::BITS) as $base);
+            ((a ^ b) as $raw) | (($base_alpha(b) as $raw) << <$base>::BITS)
         }
 
+        #[inline]
         #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
-        pub(crate) const fn $inv(a: $raw) -> $raw {
-            fp_invert(a as u64, $bits) as $raw
+        pub(crate) const fn $inv(value: $raw) -> $raw {
+            let (a, b) = (value as $base, (value >> <$base>::BITS) as $base);
+            let conjugate = a ^ $base_alpha(b);
+            let norm_inv = $base_inv($base_mul(a, conjugate) ^ $base_square(b));
+            ($base_mul(norm_inv, conjugate) as $raw)
+                | (($base_mul(norm_inv, b) as $raw) << <$base>::BITS)
         }
     };
+}
+
+fan_paar_level!(
+    u16,
+    u8,
+    fanpaar16_alpha,
+    fanpaar16_mul,
+    fanpaar16_square,
+    fanpaar16_inv,
+    fanpaar8_alpha,
+    fanpaar8_mul,
+    fanpaar8_square,
+    fanpaar8_inv
+);
+fan_paar_level!(
+    u32,
+    u16,
+    fanpaar32_alpha,
+    fanpaar32_mul,
+    fanpaar32_square,
+    fanpaar32_inv,
+    fanpaar16_alpha,
+    fanpaar16_mul,
+    fanpaar16_square,
+    fanpaar16_inv
+);
+fan_paar_level!(
+    u64,
+    u32,
+    fanpaar64_alpha,
+    fanpaar64_mul,
+    fanpaar64_square,
+    fanpaar64_inv,
+    fanpaar32_alpha,
+    fanpaar32_mul,
+    fanpaar32_square,
+    fanpaar32_inv
+);
+
+macro_rules! fan_paar_bodies {
     ($mul:ident, $square:ident, $inv:ident, description: $description:ident) => {
         #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
         pub(crate) const fn $mul(a: u8, b: u8) -> u8 {
@@ -496,10 +613,6 @@ macro_rules! fan_paar_bodies {
 
 fan_paar_bodies!(fanpaar2_mul, fanpaar2_square, fanpaar2_inv, description: FANPAAR2_DESC);
 fan_paar_bodies!(fanpaar4_mul, fanpaar4_square, fanpaar4_inv, description: FANPAAR4_DESC);
-fan_paar_bodies!(u8, fanpaar8_mul, fanpaar8_square, fanpaar8_inv, recurrence: 8);
-fan_paar_bodies!(u16, fanpaar16_mul, fanpaar16_square, fanpaar16_inv, recurrence: 16);
-fan_paar_bodies!(u32, fanpaar32_mul, fanpaar32_square, fanpaar32_inv, recurrence: 32);
-fan_paar_bodies!(u64, fanpaar64_mul, fanpaar64_square, fanpaar64_inv, recurrence: 64);
 
 // ---------------------------------------------------------------------------
 // Instance const surfaces and generators.
@@ -779,36 +892,33 @@ instance_generator!(
 
 impl Elem<FanPaar8Field> {
     /// Multiplies by this level's indeterminate `X`.
-    #[allow(clippy::cast_possible_truncation)]
     #[inline]
     #[must_use]
     pub const fn mul_alpha(self) -> Self {
         Elem {
-            raw: fp_mul_alpha(self.raw as u64, 8) as u8,
+            raw: fanpaar8_alpha(self.raw),
         }
     }
 }
 
 impl Elem<FanPaar16Field> {
     /// Multiplies by this level's indeterminate `X`.
-    #[allow(clippy::cast_possible_truncation)]
     #[inline]
     #[must_use]
     pub const fn mul_alpha(self) -> Self {
         Elem {
-            raw: fp_mul_alpha(self.raw as u64, 16) as u16,
+            raw: fanpaar16_alpha(self.raw),
         }
     }
 }
 
 impl Elem<FanPaar32Field> {
     /// Multiplies by this level's indeterminate `X`.
-    #[allow(clippy::cast_possible_truncation)]
     #[inline]
     #[must_use]
     pub const fn mul_alpha(self) -> Self {
         Elem {
-            raw: fp_mul_alpha(self.raw as u64, 32) as u32,
+            raw: fanpaar32_alpha(self.raw),
         }
     }
 }

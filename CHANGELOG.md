@@ -22,8 +22,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- Restore the Fan–Paar scalar arithmetic path and accelerate fixed-coefficient
-  Fan–Paar byte rows. [#149](https://github.com/nanithefkuc/fgf/issues/149).
+- Restore fixed-width Fan–Paar arithmetic, including unoptimized builds, and
+  accelerate fixed-coefficient Fan–Paar byte and halfword rows.
+  [#149](https://github.com/nanithefkuc/fgf/issues/149).
 - Decode full-width binary tower lanes without rebuilding their coordinates,
   restoring the scalar Rijndael row path. [#150](https://github.com/nanithefkuc/fgf/issues/150).
 

@@ -661,7 +661,7 @@ impl<F: Field> FieldElem for Elem<F> {
     const ZERO: Self = Self::ZERO;
     const ONE: Self = Self::ONE;
 
-    #[inline]
+    #[inline(always)]
     fn add(self, rhs: Self) -> Self {
         Elem {
             raw: F::add_raw(self.raw, rhs.raw),
@@ -682,7 +682,7 @@ impl<F: Field> FieldElem for Elem<F> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn mul(self, rhs: Self) -> Self {
         Elem {
             raw: F::mul_raw(self.raw, rhs.raw),
