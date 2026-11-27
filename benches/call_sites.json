@@ -1732,6 +1732,14 @@
       "caller": "mul_add",
       "count": 1,
       "entry": "fgf::kernel::x86::gf8::avx2::mul_add_avx2",
+      "file": "src/kernel/extension.rs",
+      "module": "fgf::kernel::extension"
+    },
+    {
+      "call": "x86::gf8::mul_add_avx2",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_add_avx2",
       "file": "src/kernel/gf8.rs",
       "module": "fgf::kernel::gf8"
     },
@@ -1988,8 +1996,24 @@
       "caller": "mul_add",
       "count": 1,
       "entry": "fgf::kernel::x86::gf8::ssse3::mul_add_ssse3",
+      "file": "src/kernel/extension.rs",
+      "module": "fgf::kernel::extension"
+    },
+    {
+      "call": "x86::gf8::mul_add_ssse3",
+      "caller": "mul_add",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_add_ssse3",
       "file": "src/kernel/gf8.rs",
       "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_assign_avx2",
+      "caller": "mul_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_assign_avx2",
+      "file": "src/kernel/extension.rs",
+      "module": "fgf::kernel::extension"
     },
     {
       "call": "x86::gf8::mul_assign_avx2",
@@ -2022,6 +2046,14 @@
       "entry": "fgf::kernel::x86::gf8::gfni::single::mul_assign_gfni",
       "file": "src/kernel/gf8.rs",
       "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_assign_ssse3",
+      "caller": "mul_assign",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_assign_ssse3",
+      "file": "src/kernel/extension.rs",
+      "module": "fgf::kernel::extension"
     },
     {
       "call": "x86::gf8::mul_assign_ssse3",
@@ -2126,6 +2158,14 @@
       "entry": "fgf::kernel::x86::gf8::ssse3::mul_elementwise_ssse3",
       "file": "src/kernel/gf8.rs",
       "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_avx2",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::avx2::mul_into_avx2",
+      "file": "src/kernel/extension.rs",
+      "module": "fgf::kernel::extension"
     },
     {
       "call": "x86::gf8::mul_into_avx2",
@@ -2286,6 +2326,14 @@
       "entry": "fgf::kernel::x86::gf8::gfni::matrix::mul_into_matrix_gfni_with",
       "file": "src/kernel/gf8.rs",
       "module": "fgf::kernel::gf8"
+    },
+    {
+      "call": "x86::gf8::mul_into_ssse3",
+      "caller": "mul_into",
+      "count": 1,
+      "entry": "fgf::kernel::x86::gf8::ssse3::mul_into_ssse3",
+      "file": "src/kernel/extension.rs",
+      "module": "fgf::kernel::extension"
     },
     {
       "call": "x86::gf8::mul_into_ssse3",
