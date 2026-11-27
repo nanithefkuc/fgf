@@ -71,7 +71,7 @@ cover-shard SHARD:
     #!/usr/bin/env bash
     set -euo pipefail
     export CARGO_PROFILE_TEST_OPT_LEVEL=0
-    run=(cargo llvm-cov nextest --no-report --no-tests=fail)
+    run=(cargo llvm-cov nextest --locked --no-report --no-tests=fail)
     emulated=({{COV_EMULATED_TIERS}})
     forced() {
         echo "── SIMD_BACKEND=$1"
@@ -110,7 +110,7 @@ _cover-identity SHARD:
     printf 'shard %s\ntree %s\n' "{{SHARD}}" "$(git rev-parse 'HEAD^{tree}')"
     rustc -vV
     cargo llvm-cov --version
-    cargo nextest --version | head -n 1
+    cargo nextest --version | sed -n 1p
     printf 'rustflags %s\n' "${RUSTFLAGS:-}"
 
 # Merge the hosted shards and apply the same gate as `cover`. Exactly the
@@ -131,16 +131,21 @@ cover-merge:
             "$(echo ${present})" "$(echo ${expected})" >&2
         exit 1
     fi
-    build=(cargo llvm-cov nextest --no-report --no-tests=pass -E 'none()')
+    build=(cargo llvm-cov nextest --locked --no-report --no-tests=pass -E 'none()')
+    identity="$(mktemp)"
+    trap 'rm -f "${identity}"' EXIT
+    for shard in ${expected}; do
+        just _cover-identity "${shard}" > "${identity}"
+        if ! diff -u "coverage-${shard}/identity" "${identity}" >&2; then
+            printf 'cover-merge: %s was built from another tree or toolchain\n' "${shard}" >&2
+            exit 1
+        fi
+    done
     cargo llvm-cov clean --workspace
     "${build[@]}" --all-features
     "${build[@]}" --no-default-features
     for shard in ${expected}; do
         dir="coverage-${shard}"
-        if ! diff -u "${dir}/identity" <(just _cover-identity "${shard}") >&2; then
-            printf 'cover-merge: %s was built from another tree or toolchain\n' "${shard}" >&2
-            exit 1
-        fi
         files=("${dir}"/*.profraw)
         [[ -e "${files[0]}" ]] || { printf 'cover-merge: %s holds no profiles\n' "${shard}" >&2; exit 1; }
         printf 'cover-merge: %s: %d profiles\n' "${shard}" "${#files[@]}"
