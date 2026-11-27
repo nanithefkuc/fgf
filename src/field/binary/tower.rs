@@ -98,11 +98,6 @@ const FP_LOG8: [u8; 256] = fp_build_log8();
 
 /// Recursive Fan-Paar multiplication with a log-table byte base.
 ///
-/// The independent schoolbook recurrence for the whole Wiedemann tower:
-/// the kernel table banks and the descriptor interpreter are both checked
-/// against it, and the pinned Fan-Paar descriptions select it as their
-/// `const` arithmetic strategy.
-///
 /// # Panics
 ///
 /// Panics unless `bits` is a power of two no greater than 64.
@@ -117,7 +112,17 @@ pub const fn fp_multiply(lhs: u64, rhs: u64, bits: u32) -> u64 {
         let log = FP_LOG8[lhs as usize] as usize + FP_LOG8[rhs as usize] as usize;
         return FP_EXP8[log % 255] as u64;
     }
-    fp_multiply_rec(lhs, rhs, bits)
+    if bits < 8 {
+        return fp_multiply_rec(lhs, rhs, bits);
+    }
+    let half = bits / 2;
+    let mask = fp_low_mask(half);
+    let (a0, a1) = (lhs & mask, lhs >> half);
+    let (b0, b1) = (rhs & mask, rhs >> half);
+    let z0 = fp_multiply(a0, b0, half);
+    let z2 = fp_multiply(a1, b1, half);
+    let z1 = fp_multiply(a0 ^ a1, b0 ^ b1, half) ^ z0 ^ z2;
+    (z0 ^ z2) | ((z1 ^ fp_mul_alpha(z2, half)) << half)
 }
 
 /// Recursive squaring through the linear recurrence.
@@ -148,6 +153,14 @@ pub const fn fp_square(value: u64, bits: u32) -> u64 {
 pub const fn fp_invert(value: u64, bits: u32) -> u64 {
     if bits == 1 {
         return value & 1;
+    }
+    if bits == 8 {
+        if value == 0 {
+            return 0;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let log = FP_LOG8[value as usize] as usize;
+        return FP_EXP8[(255 - log) % 255] as u64;
     }
     let half = bits / 2;
     let mask = fp_low_mask(half);
@@ -289,6 +302,7 @@ pub(crate) const FANPAAR2_DESC: &BinaryDescription =
     <FanPaar2Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
 pub(crate) const FANPAAR4_DESC: &BinaryDescription =
     <FanPaar4Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
+#[cfg(test)]
 pub(crate) const FANPAAR8_DESC: &BinaryDescription =
     <FanPaar8Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
 
@@ -443,10 +457,8 @@ pub(crate) const fn rijndael64_inv(a: u64) -> u64 {
 // ---------------------------------------------------------------------------
 // Fan-Paar bodies at each instance's raw width.
 //
-// The wide rows run the Wiedemann recurrence; GF(2^2) through GF(2^8) run
-// the descriptor interpreter over their own description. Every word holds
-// at most the row's coordinate bits, so the narrowing casts drop only zero
-// bits.
+// The byte and wider rows run the Wiedemann recurrence. The two smaller
+// rows use their descriptors. All words hold only the row's coordinate bits.
 
 macro_rules! fan_paar_bodies {
     ($raw:ty, $mul:ident, $square:ident, $inv:ident, recurrence: $bits:literal) => {
@@ -484,7 +496,7 @@ macro_rules! fan_paar_bodies {
 
 fan_paar_bodies!(fanpaar2_mul, fanpaar2_square, fanpaar2_inv, description: FANPAAR2_DESC);
 fan_paar_bodies!(fanpaar4_mul, fanpaar4_square, fanpaar4_inv, description: FANPAAR4_DESC);
-fan_paar_bodies!(fanpaar8_mul, fanpaar8_square, fanpaar8_inv, description: FANPAAR8_DESC);
+fan_paar_bodies!(u8, fanpaar8_mul, fanpaar8_square, fanpaar8_inv, recurrence: 8);
 fan_paar_bodies!(u16, fanpaar16_mul, fanpaar16_square, fanpaar16_inv, recurrence: 16);
 fan_paar_bodies!(u32, fanpaar32_mul, fanpaar32_square, fanpaar32_inv, recurrence: 32);
 fan_paar_bodies!(u64, fanpaar64_mul, fanpaar64_square, fanpaar64_inv, recurrence: 64);
@@ -958,11 +970,15 @@ mod tests {
             }
         }
         for x in 0..=u8::MAX {
-            for y in [0u8, 1, 2, 0x2d, 0x80, 0xff] {
-                let want = fp_multiply(u64::from(x), u64::from(y), 8);
+            for y in 0..=u8::MAX {
+                let want = fp_multiply_rec(u64::from(x), u64::from(y), 8);
                 assert_eq!(u64::from(fanpaar8_mul(x, y)), want);
                 assert_eq!(u64::from(FanPaar8Field::mul_raw(x, y)), want);
             }
+            assert_eq!(
+                u64::from(FanPaar8Field::inv_raw(x)),
+                FANPAAR8_DESC.inv(u64::from(x))
+            );
         }
         let g2 = Elem::<FanPaar2Field>::GENERATOR;
         assert_eq!(g2.pow(3), Elem::<FanPaar2Field>::ONE);

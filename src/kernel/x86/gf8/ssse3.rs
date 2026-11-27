@@ -2,7 +2,7 @@
 //!
 //! Without a byte-wide multiply, `c * x` splits into
 //! `c * (x & 0xf) ^ c * (x & 0xf0)`, two `PSHUFB` lookups against a
-//! [`ScaleTable`]. The multi-row shapes group rows so one source load and one
+//! [`NibbleTable`]. The multi-row shapes group rows so one source load and one
 //! pair of table halves serve several destinations. Lane-wise products of two
 //! varying buffers carry the Russian-peasant multiply in registers.
 //!
@@ -12,9 +12,9 @@
 //! [`archmage::rite`] helpers with per-block proofs.
 
 use super::check_gather;
-use crate::field::binary::byte::ScaleTable;
 use crate::kernel::Matrix;
 use crate::kernel::gf8::{Coeffs, Prepared, mul_add_nibble, mul_assign_nibble, mul_into_nibble};
+use crate::kernel::tables::NibbleTable;
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
@@ -25,11 +25,16 @@ use core::arch::x86_64::*;
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
+pub fn mul_add_ssse3(
+    _token: archmage::X64V2Token,
+    dst: &mut [u8],
+    table: &impl NibbleTable,
+    src: &[u8],
+) {
     assert_eq!(dst.len(), src.len());
-    // Each table half is exactly one 16-byte lookup bank.
-    let lo_tbl = _mm_loadu_si128(&table.lo);
-    let hi_tbl = _mm_loadu_si128(&table.hi);
+    let (lo, hi) = table.halves();
+    let lo_tbl = _mm_loadu_si128(lo);
+    let hi_tbl = _mm_loadu_si128(hi);
     let mask = _mm_set1_epi8(0x0f);
     let (dst_lanes, dst_rest) = dst.as_chunks_mut::<16>();
     let (src_lanes, src_rest) = src.as_chunks::<16>();
@@ -48,10 +53,10 @@ pub fn mul_add_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], table: &Scale
 /// `dst = coeff * dst` by nibble shuffle over 16-byte lanes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], table: &ScaleTable) {
-    // Each table half is exactly one 16-byte lookup bank.
-    let lo_tbl = _mm_loadu_si128(&table.lo);
-    let hi_tbl = _mm_loadu_si128(&table.hi);
+pub fn mul_assign_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], table: &impl NibbleTable) {
+    let (lo, hi) = table.halves();
+    let lo_tbl = _mm_loadu_si128(lo);
+    let hi_tbl = _mm_loadu_si128(hi);
     let mask = _mm_set1_epi8(0x0f);
     let (lanes, rest) = dst.as_chunks_mut::<16>();
     for lane in lanes {
@@ -76,7 +81,7 @@ pub fn mul_assign_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], table: &Sc
 pub fn mul_into_ssse3(
     _token: archmage::X64V2Token,
     dst: &mut [u8],
-    table: &ScaleTable,
+    table: &impl NibbleTable,
     src: &[u8],
 ) {
     assert_eq!(dst.len(), src.len());
@@ -99,10 +104,14 @@ pub fn mul_into_ssse3(
 /// As [`mul_into_impl`], at the 16-byte lane width.
 #[archmage::rite(v2, import_intrinsics)]
 #[allow(unsafe_code)]
-pub(super) fn mul_into_ssse3_impl<const NT: bool>(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
-    // Each table half is exactly one 16-byte lookup bank.
-    let lo_tbl = _mm_loadu_si128(&table.lo);
-    let hi_tbl = _mm_loadu_si128(&table.hi);
+pub(super) fn mul_into_ssse3_impl<const NT: bool>(
+    dst: &mut [u8],
+    table: &impl NibbleTable,
+    src: &[u8],
+) {
+    let (lo, hi) = table.halves();
+    let lo_tbl = _mm_loadu_si128(lo);
+    let hi_tbl = _mm_loadu_si128(hi);
     let mask = _mm_set1_epi8(0x0f);
     let (dst_lanes, dst_rest) = dst.as_chunks_mut::<16>();
     let (src_lanes, src_rest) = src.as_chunks::<16>();

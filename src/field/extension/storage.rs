@@ -594,8 +594,8 @@ where
 /// `Packed` fills its word exactly; `PackedPadded` keeps the coordinate word
 /// below the word width, with every bit at or above the field degree
 /// cleared. `join` rebuilds the word from canonical components only, so the
-/// padding bits of a padded word are zero after every join, and `canonical`
-/// runs the same round trip to clear the padding of an arbitrary word.
+/// padding bits of a padded word are zero after every join. Canonicalization
+/// clears those bits directly: every base coordinate word names a value.
 macro_rules! packed_storage {
     ($storage:ident, $word:ty, $bits:literal) => {
         impl Sealed for $storage<$word> {}
@@ -615,8 +615,10 @@ macro_rules! packed_storage {
                 arithmetic::word_one(base, base.root_index()) as $word
             };
 
+            #[inline]
+            #[allow(clippy::cast_lossless, clippy::cast_possible_truncation)]
             fn canonical(raw: Self::Raw) -> Self::Raw {
-                <Self as StorageRepr<B, D>>::join(<Self as StorageRepr<B, D>>::split(raw))
+                extract_bits(raw as u64, 0, B::DEGREE as usize * D) as $word
             }
 
             #[allow(clippy::cast_lossless)]

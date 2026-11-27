@@ -6,12 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Compare packed rows by value and canonicalize them in place without scratch.
+  [#147](https://github.com/nanithefkuc/fgf/issues/147).
+
 ### Changed
 
 - Development tooling: the hosted coverage gate runs as sharded jobs, with the
   GFNI and AVX-512 tiers under Intel SDE, so its result no longer depends on
   the runner's CPU. [#144](https://github.com/nanithefkuc/fgf/issues/144),
   [#145](https://github.com/nanithefkuc/fgf/pull/145).
+- Document the residue-component byte layout for binary extensions without
+  a full-width packed word. [#148](https://github.com/nanithefkuc/fgf/issues/148).
+
+### Fixed
+
+- Restore the Fan–Paar scalar arithmetic path and accelerate fixed-coefficient
+  Fan–Paar byte rows. [#149](https://github.com/nanithefkuc/fgf/issues/149).
+- Decode full-width binary tower lanes without rebuilding their coordinates,
+  restoring the scalar Rijndael row path. [#150](https://github.com/nanithefkuc/fgf/issues/150).
 
 ## [4.0.1] - 2026-11-26
 

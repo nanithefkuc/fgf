@@ -4258,7 +4258,6 @@ fn backend_reports_match_family_routes() {
     scalar_fallback!(
         FiniteField<2, 8, Normal<0x11B, 0x20>>,
         FiniteField<2, 8, Cantor<0x11B, 0x20>>,
-        FanPaar8Field,
         Custom8Row,
         Custom16Row,
         Custom32Row,
@@ -4291,6 +4290,14 @@ fn backend_reports_match_family_routes() {
     assert_eq!(
         backend_for::<Gf64>(),
         if gfni { process } else { Backend::Scalar },
+    );
+    assert_eq!(
+        backend_for::<FanPaar8Field>(),
+        match process {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
+            Backend::V2 => Backend::V2,
+            _ => Backend::Scalar,
+        },
     );
 
     assert_eq!(backend_for::<FanPaar16Field>(), tier_or_scalar(x86_tier));

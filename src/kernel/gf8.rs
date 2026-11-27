@@ -29,6 +29,7 @@ use crate::field::binary::byte::ScaleTable;
 use crate::field::dispatch::{KernelDispatch, RawDispatch};
 use crate::field::{Elem, FiniteField};
 use crate::kernel::Gf8Strategy;
+use crate::kernel::tables::NibbleTable;
 use crate::kernel::{Backend, gf8_strategy, scalar};
 
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -47,17 +48,19 @@ use crate::kernel::x86;
 /// Two table reads and two XORs per byte, versus a log/antilog pair with a
 /// modular reduction. Also the tail handler for every vector kernel, which is
 /// why it takes the already-built table rather than a coefficient.
-pub fn mul_add_nibble(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
+pub fn mul_add_nibble(dst: &mut [u8], table: &impl NibbleTable, src: &[u8]) {
     debug_assert_eq!(dst.len(), src.len());
+    let (lo, hi) = table.halves();
     for (d, &s) in dst.iter_mut().zip(src) {
-        *d ^= table.lo[(s & 0x0f) as usize] ^ table.hi[(s >> 4) as usize];
+        *d ^= lo[(s & 0x0f) as usize] ^ hi[(s >> 4) as usize];
     }
 }
 
 /// `dst *= coeff` via split-nibble lookup.
-pub fn mul_assign_nibble(dst: &mut [u8], table: &ScaleTable) {
+pub fn mul_assign_nibble(dst: &mut [u8], table: &impl NibbleTable) {
+    let (lo, hi) = table.halves();
     for d in dst.iter_mut() {
-        *d = table.lo[(*d & 0x0f) as usize] ^ table.hi[(*d >> 4) as usize];
+        *d = lo[(*d & 0x0f) as usize] ^ hi[(*d >> 4) as usize];
     }
 }
 
@@ -65,10 +68,11 @@ pub fn mul_assign_nibble(dst: &mut [u8], table: &ScaleTable) {
 ///
 /// Tail handler for the fused out-of-place kernels, mirroring
 /// [`mul_add_nibble`].
-pub fn mul_into_nibble(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
+pub fn mul_into_nibble(dst: &mut [u8], table: &impl NibbleTable, src: &[u8]) {
     debug_assert_eq!(dst.len(), src.len());
+    let (lo, hi) = table.halves();
     for (d, &s) in dst.iter_mut().zip(src) {
-        *d = table.lo[(s & 0x0f) as usize] ^ table.hi[(s >> 4) as usize];
+        *d = lo[(s & 0x0f) as usize] ^ hi[(s >> 4) as usize];
     }
 }
 

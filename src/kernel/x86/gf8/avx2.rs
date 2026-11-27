@@ -15,8 +15,8 @@ use super::ssse3::{
     mul_add_ssse3, mul_assign_ssse3, mul_elementwise_assign_ssse3, mul_elementwise_ssse3,
     mul_into_ssse3_impl,
 };
-use crate::field::binary::byte::ScaleTable;
 use crate::kernel::gf8::{Coeffs, Prepared};
+use crate::kernel::tables::NibbleTable;
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
@@ -27,11 +27,16 @@ use core::arch::x86_64::*;
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
+pub fn mul_add_avx2(
+    _token: archmage::X64V3Token,
+    dst: &mut [u8],
+    table: &impl NibbleTable,
+    src: &[u8],
+) {
     assert_eq!(dst.len(), src.len());
-    // Each table half is exactly one 16-byte lookup bank.
-    let lo_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(&table.lo));
-    let hi_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(&table.hi));
+    let (lo, hi) = table.halves();
+    let lo_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(lo));
+    let hi_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(hi));
     let mask = _mm256_set1_epi8(0x0f);
     let (dst_lanes, dst_rest) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_rest) = src.as_chunks::<32>();
@@ -51,10 +56,10 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], table: &ScaleT
 /// `dst = coeff * dst` by nibble shuffle over 32-byte lanes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], table: &ScaleTable) {
-    // Each table half is exactly one 16-byte lookup bank.
-    let lo_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(&table.lo));
-    let hi_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(&table.hi));
+pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], table: &impl NibbleTable) {
+    let (lo, hi) = table.halves();
+    let lo_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(lo));
+    let hi_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(hi));
     let mask = _mm256_set1_epi8(0x0f);
     let (lanes, rest) = dst.as_chunks_mut::<32>();
     for lane in lanes {
@@ -77,7 +82,12 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], table: &Sca
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
+pub fn mul_into_avx2(
+    _token: archmage::X64V3Token,
+    dst: &mut [u8],
+    table: &impl NibbleTable,
+    src: &[u8],
+) {
     assert_eq!(dst.len(), src.len());
     match crate::kernel::x86::nt_split(dst, 1) {
         Some(peel) => {
@@ -98,10 +108,10 @@ pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], table: &Scale
 /// residue this body keeps.
 #[archmage::rite(v3, import_intrinsics)]
 #[allow(unsafe_code)]
-fn mul_into_impl<const NT: bool>(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
-    // Each table half is exactly one 16-byte lookup bank.
-    let lo_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(&table.lo));
-    let hi_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(&table.hi));
+fn mul_into_impl<const NT: bool>(dst: &mut [u8], table: &impl NibbleTable, src: &[u8]) {
+    let (lo, hi) = table.halves();
+    let lo_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(lo));
+    let hi_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(hi));
     let mask = _mm256_set1_epi8(0x0f);
     // The cursor walks 64-byte pairs of lanes so the prefetch names every
     // line the body is about to store; see [`crate::kernel::x86::prefetch_dst`].

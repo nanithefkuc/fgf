@@ -919,6 +919,73 @@ fn register_special_routes() {
     specials!("m31", crate::fields::M31);
 }
 
+/// Registers packed value operations on residue aliases.
+fn register_packed_values() {
+    type F = fields::M31;
+    const P: u32 = 0x7fff_ffff;
+    const LANES: usize = RESIDENT_TARGET / F::BYTES;
+    type CaseSpec = (
+        &'static str,
+        &'static [&'static str],
+        usize,
+        usize,
+        fn(&Case, &CaseCtx),
+    );
+    let cases: [CaseSpec; 3] = [
+        ("is-zero", &["fgf::ops::is_zero"], 1, 0, |case, ctx| {
+            let row = P.to_le_bytes().repeat(LANES);
+            assert!(ops::is_zero::<F>(&row), "{}: modulus is zero", case.case);
+            registry::time(case, ctx, "scalar", || {
+                fixture::observe(ops::is_zero::<F>(black_box(&row)));
+            });
+        }),
+        ("is-equal", &["fgf::ops::is_equal"], 2, 0, |case, ctx| {
+            let left = (P + 1).to_le_bytes().repeat(LANES);
+            let right = 1u32.to_le_bytes().repeat(LANES);
+            assert!(
+                ops::is_equal::<F>(&left, &right),
+                "{}: aliases equal",
+                case.case
+            );
+            registry::time(case, ctx, "scalar", || {
+                fixture::observe(ops::is_equal::<F>(black_box(&left), black_box(&right)));
+            });
+        }),
+        (
+            "canonicalize-assign",
+            &["fgf::ops::canonicalize_assign"],
+            0,
+            1,
+            |case, ctx| {
+                let mut row = (P + 1).to_le_bytes().repeat(LANES);
+                let want = 1u32.to_le_bytes().repeat(LANES);
+                ops::canonicalize_assign::<F>(&mut row);
+                fixture::assert_bytes_equal(&case.case, &row, &want);
+                registry::time(case, ctx, "scalar", || {
+                    ops::canonicalize_assign::<F>(black_box(&mut row));
+                    fixture::observe(&row);
+                });
+            },
+        ),
+    ];
+    for (op, api, sources, destinations, run) in cases {
+        registry::add(Case {
+            case: format!("bulk/{op}/m31"),
+            api,
+            field: "m31".to_owned(),
+            operation: op.to_owned(),
+            scope: Scope::Steady,
+            bytes: RESIDENT_TARGET,
+            lanes: LANES,
+            sources,
+            destinations,
+            control: false,
+            phase: None,
+            run,
+        });
+    }
+}
+
 /// Register the single-row bulk panel.
 pub fn register() {
     macro_rules! walk {
@@ -947,4 +1014,5 @@ pub fn register() {
     for_each_bulk_field!(walk);
     register_size_sweep();
     register_special_routes();
+    register_packed_values();
 }
