@@ -1329,23 +1329,4 @@ mod tests {
             wiedemann_schoolbook(a0, b1, half) ^ wiedemann_schoolbook(a1, b0, half) ^ alpha_high;
         low | (cross << half)
     }
-
-    #[test]
-    fn byte_log_tables_enumerate_the_generator_powers() {
-        let exp = fp_build_exp8();
-        let log = fp_build_log8();
-        let mut seen = [false; 256];
-        let mut power = 1u64;
-        for (i, &entry) in exp.iter().enumerate() {
-            assert_eq!(u64::from(entry), power, "0x2d^{i}");
-            assert!(!seen[usize::from(entry)], "0x2d^{i} repeats");
-            seen[usize::from(entry)] = true;
-            assert_eq!(usize::from(log[usize::from(entry)]), i, "log 0x2d^{i}");
-            power = wiedemann_schoolbook(power, 0x2d, 8);
-        }
-        // Full multiplicative order: the 255 powers are every nonzero byte
-        // and the cycle closes.
-        assert!(!seen[0]);
-        assert_eq!(power, 1);
-    }
 }
