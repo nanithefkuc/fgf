@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Development tooling: the hosted coverage gate runs as sharded jobs, with the
+  GFNI and AVX-512 tiers under Intel SDE, so its result no longer depends on
+  the runner's CPU. [#144](https://github.com/nanithefkuc/fgf/issues/144),
+  [#145](https://github.com/nanithefkuc/fgf/pull/145).
+
 ## [4.0.1] - 2026-11-26
 
 ### Fixed

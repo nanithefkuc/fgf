@@ -76,18 +76,21 @@ jobs:
 
   # Coverage merges tiers and portable features. `COV_IGNORE` in crate.just
   # lists the GFNI and AVX-512 files and the two binary-field dispatch
-  # modules whose per-type, per-tier arms hosted runners cannot all execute;
-  # every other kernel file gates the 95%. Acceptance hosts report each list
+  # modules excluded from the hosted gate (see the crate's AGENTS.md); every
+  # other kernel file gates the 95%. Acceptance hosts report each list
   # natively through `just cover-native`.
   #
   # Hosted runner CPUs differ, and `SIMD_BACKEND` only downgrades, so the
   # GFNI and AVX-512 tiers (`COV_EMULATED_TIERS`) run under Intel SDE with
   # Sapphire Rapids CPUID, each in its own shard; the native shard runs every
-  # other pass. The SDE archive is pinned by SHA-256. `coverage` merges the
-  # shard exports and applies the gate once.
+  # other pass. The SDE archive is pinned by SHA-256 and the toolchain by
+  # version, so every shard and the merge rebuild identical binaries.
+  # `coverage` checks every shard succeeded, merges the profiles and applies
+  # the gate once.
   coverage-shard:
     name: coverage shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -98,7 +101,7 @@ jobs:
       SDE_SHA256: 94e97d623fec54385686e1e7ba65ebc9941748c05ee451423948334892bf2b50
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@v2
@@ -114,31 +117,35 @@ jobs:
       - name: install Intel SDE
         if: matrix.shard != 'native'
         run: |
-          curl -sSfL --retry 5 -o "$RUNNER_TEMP/sde.tar.xz" "$SDE_URL"
+          curl -sSfL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/sde.tar.xz" "$SDE_URL"
           echo "$SDE_SHA256  $RUNNER_TEMP/sde.tar.xz" | sha256sum -c -
           tar -xf "$RUNNER_TEMP/sde.tar.xz" -C "$RUNNER_TEMP"
           echo "SDE_PATH=$RUNNER_TEMP/$SDE_VERSION" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=$GITHUB_WORKSPACE/.github/scripts/sde-runner.sh" >> "$GITHUB_ENV"
-      - name: emulated tier reports the requested backend
+      - name: emulated tier executes
         if: matrix.shard != 'native'
-        run: |
-          report="$(SIMD_BACKEND='${{ matrix.shard }}' cargo run -q --all-features --example backend_report)"
-          printf '%s\n' "$report" | sed -n 1,2p
-          printf '%s\n' "$report" | grep -qx 'actual=${{ matrix.shard }}'
+        run: SIMD_BACKEND=${{ matrix.shard }} just example backend_report --all-features -- ${{ matrix.shard }}
       - run: just cover-shard ${{ matrix.shard }}
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.shard }}
           path: coverage-${{ matrix.shard }}/
           if-no-files-found: error
+          retention-days: 3
 
   coverage:
     name: coverage >=95% (llvm-cov)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: coverage-shard
+    # Always report a result, so a failed shard fails this check instead of
+    # skipping it.
+    if: always()
     steps:
+      - name: every shard succeeded
+        run: test '${{ needs.coverage-shard.result }}' = success
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@v2
@@ -149,7 +156,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: coverage-*
-      - run: just cover-merge coverage-native coverage-v4x coverage-v3_gfni_crypto
+      - run: just cover-merge
       - uses: actions/upload-artifact@v4
         if: always()
         with:

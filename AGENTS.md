@@ -26,6 +26,8 @@ just doc-stable            # default-feature rustdoc, the docs.rs configuration
 just unsafe-check-gfni     # owned-unsafe GFNI Miri cases
 just cover                 # merged per-tier coverage, 95% minimum
 just cover-native          # full native coverage and excluded-ISA group figures
+just cover-shard SHARD     # one hosted coverage shard (native or an emulated tier)
+just cover-merge           # merge hosted shards and apply the 95% gate
 just validate              # shared correctness and coverage gate
 just release-accept        # crate-specific release checks, including native fixtures
 just test-gather-validation-32 # i686 release regression, overflow checks disabled
@@ -517,18 +519,23 @@ or exact panic prose.
 may resolve to another supported tier; inspect reported backends before treating
 a green run as ISA coverage.
 
-Hosted coverage excludes only the explicit file lists in `crate.just`; the
-hosted runner cannot guarantee GFNI or AVX-512. CI runs it as `just
-cover-shard` jobs merged by `just cover-merge`: the `COV_EMULATED_TIERS`
-shards (`v4x`, `v3_gfni_crypto`) run under Intel SDE with Sapphire Rapids
-CPUID through `.github/scripts/sde-runner.sh`, so every hosted runner
-executes the same tier paths; `just cover` remains the local single-host form.
+Hosted coverage excludes only the explicit file lists in `crate.just`. The
+lists were set because hosted runners could not guarantee GFNI or AVX-512;
+the hosted shards below now emulate both, and the lists' rationale is under
+re-evaluation in [#146](https://github.com/nanithefkuc/fgf/issues/146).
+CI runs coverage as `just cover-shard` jobs merged by `just cover-merge`: the
+`COV_EMULATED_TIERS` shards (`v4x`, `v3_gfni_crypto`) run under Intel SDE
+with Sapphire Rapids CPUID through `.github/scripts/sde-runner.sh`, so every
+hosted runner executes the same tier paths. The merge requires exactly the
+expected shards, each bound to the checkout's tree and toolchain, and
+reports once with the same gate as `just cover`, which remains the local
+single-host form.
 
-| Group | Files relative to `src/kernel/` | Why hosted runners cannot cover it |
+| Group | Files relative to `src/kernel/` | Capability its lines need |
 |---|---|---|
 | GFNI | `x86/gf8/gfni.rs`, `x86/gf8/gfni/{elementwise,gather,matrix,scatter,single}.rs`, `x86/gf8/rows.rs`; `x86/gf16/gfni.rs`, `x86/gf16/gfni/{elementwise,gather,matrix,scatter,single}.rs`; `x86/gf32/gfni.rs`, `x86/gf64/gfni.rs` | GFNI with the selected crypto tier |
 | AVX-512 | `x86/bytes/avx512.rs`; `x86/gf8/avx512.rs`, `x86/gf8/avx512/{elementwise,gather,matrix,scatter,single}.rs`; `x86/gf16/avx512.rs`; `x86/{goldilocks,mersenne31,quad_mersenne31}/avx512.rs`; `x86/residue/avx512.rs`, `x86/residue/avx512/{matrix,single}.rs`, `x86/residue/avx512/single/{u8,u32,u64}.rs` | AVX-512; the byte-field entries also require GFNI |
-| Dispatch | `gf8.rs`, `tower.rs` | Generic dispatch arms are selected per field type and per tier, so no single monomorphized instance executes every arm; `llvm-cov` line totals score each function by its best instance, and hosted runners additionally miss the GFNI and `V4x` arms |
+| Dispatch | `gf8.rs`, `tower.rs` | Generic dispatch arms are selected per field type and per tier, so no single monomorphized instance executes every arm; `llvm-cov` line totals score each function by its best instance |
 
 Portable bodies, narrower x86 kernels, and every other dispatch module remain
 in the hosted 95% gate. `just cover-native` requires `v4x`, runs on a host that
