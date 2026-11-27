@@ -84,7 +84,7 @@ jobs:
   # GFNI and AVX-512 tiers (`COV_EMULATED_TIERS`) run under Intel SDE with
   # Sapphire Rapids CPUID, each in its own shard; the native shard runs every
   # other pass. The SDE archive is pinned by SHA-256 and the toolchain by
-  # version, so every shard and the merge rebuild identical binaries.
+  # version; `cover-merge` refuses shards whose recorded build inputs differ.
   # `coverage` checks every shard succeeded, merges the profiles and applies
   # the gate once.
   coverage-shard:

@@ -96,9 +96,9 @@ cover-shard SHARD:
     cp target/llvm-cov-target/*.profraw "${out}/"
     just _cover-identity "{{SHARD}}" > "${out}/identity"
 
-# The build identity a shard's profiles are bound to: shard name, source
-# tree, and the exact compiler and coverage tools. Equal identities rebuild
-# the same instrumented binaries.
+# The build inputs a shard's profiles are bound to: shard name, source tree,
+# compiler and coverage tool versions, and `RUSTFLAGS`. It checks those
+# recorded inputs; it is not a fingerprint of the built binaries.
 [private]
 _cover-identity SHARD:
     #!/usr/bin/env bash
@@ -140,6 +140,8 @@ cover-merge:
             printf 'cover-merge: %s was built from another tree or toolchain\n' "${shard}" >&2
             exit 1
         fi
+        compgen -G "coverage-${shard}/*.profraw" > /dev/null \
+            || { printf 'cover-merge: %s holds no profiles\n' "${shard}" >&2; exit 1; }
     done
     cargo llvm-cov clean --workspace
     "${build[@]}" --all-features
@@ -147,7 +149,6 @@ cover-merge:
     for shard in ${expected}; do
         dir="coverage-${shard}"
         files=("${dir}"/*.profraw)
-        [[ -e "${files[0]}" ]] || { printf 'cover-merge: %s holds no profiles\n' "${shard}" >&2; exit 1; }
         printf 'cover-merge: %s: %d profiles\n' "${shard}" "${#files[@]}"
         # Process IDs in profile names can repeat across runners.
         for file in "${files[@]}"; do
