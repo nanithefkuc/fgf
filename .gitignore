@@ -4,4 +4,5 @@
 /benches/compare/*/target
 /benches/compare/*/Cargo.lock
 /coverage.lcov
+/coverage-*/
 __pycache__/
