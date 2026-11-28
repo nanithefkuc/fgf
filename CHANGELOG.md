@@ -17,7 +17,7 @@ All notable changes to this project are documented here. The format follows
   GFNI and AVX-512 tiers under Intel SDE, so its result no longer depends on
   the runner's CPU. [#144](https://github.com/nanithefkuc/fgf/issues/144),
   [#145](https://github.com/nanithefkuc/fgf/pull/145).
-- Document the residue-component byte layout for binary extensions without
+- Documented the residue-component byte layout for binary extensions without
   a full-width packed word. [#148](https://github.com/nanithefkuc/fgf/issues/148).
 
 ### Fixed

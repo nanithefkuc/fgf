@@ -83,6 +83,40 @@ fn packed_queries_and_canonicalization_accept_aliases() {
 }
 
 #[test]
+fn packed_component_aliases_over_gf2_canonicalize_both_coordinates() {
+    use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
+
+    struct Gf4Spec;
+    impl ExtensionSpec<2> for Gf4Spec {
+        type Base = FiniteField<2, 1>;
+        type Storage = Components;
+        const NAME: &'static str = "GF(4) over residues";
+        const RELATION: Relation = Relation::from_coordinates(&[1, 1]);
+    }
+    type Gf4 = FiniteField<2, 2, Extension<Gf4Spec, 2>>;
+
+    // Even residues alias zero in both coordinates.
+    let alias_zero = [2u64.to_le_bytes(), 4u64.to_le_bytes()].concat();
+    assert!(ops::is_zero::<Gf4>(&alias_zero));
+    assert!(ops::is_equal::<Gf4>(
+        &alias_zero,
+        &[0u64.to_le_bytes(), 0u64.to_le_bytes()].concat()
+    ));
+    let mut zeros = alias_zero;
+    ops::canonicalize_assign::<Gf4>(&mut zeros);
+    assert_eq!(zeros, [0u8; 16]);
+
+    // Odd residues alias one; the second coordinate aliases zero.
+    let alias_one = [3u64.to_le_bytes(), 2u64.to_le_bytes()].concat();
+    assert!(!ops::is_zero::<Gf4>(&alias_one));
+    let canonical_one = [1u64.to_le_bytes(), 0u64.to_le_bytes()].concat();
+    assert!(ops::is_equal::<Gf4>(&alias_one, &canonical_one));
+    let mut one = alias_one;
+    ops::canonicalize_assign::<Gf4>(&mut one);
+    assert_eq!(one, canonical_one);
+}
+
+#[test]
 fn packed_value_queries_preserve_unique_binary_bytes() {
     type Binary = FiniteField<2, 8, fgf::binary::Polynomial<{ fgf::binary::AES }>>;
     let mut bytes = [0, 0x80, 0xff, 0x01];

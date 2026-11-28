@@ -57,56 +57,75 @@ fn fan_paar_byte_shuffle_matches_descriptor() {
     use crate::kernel::tables::{FpScaleTable, fp_scale_table};
     use crate::kernel::x86;
 
-    fn check(
-        add: impl Fn(&mut [u8], &FpScaleTable, &[u8]),
-        into: impl Fn(&mut [u8], &FpScaleTable, &[u8]),
-        assign: impl Fn(&mut [u8], &FpScaleTable),
-    ) {
+    /// The descriptor product of one coefficient over each source byte.
+    fn expected(coeff: u8, src: &[u8]) -> Vec<u8> {
+        src.iter()
+            .map(|&x| {
+                FANPAAR8_DESC
+                    .mul(u64::from(coeff), u64::from(x))
+                    .to_le_bytes()[0]
+            })
+            .collect()
+    }
+
+    fn check_add(add: impl Fn(&mut [u8], &FpScaleTable, &[u8])) {
         for &len in XOR_LENGTHS {
             let src = noise(len, 0x4de);
             let initial = noise(len, 0xf04);
             for coeff in [0, 1, 0x10, 0x2d, 0x80, 0xff] {
                 let table = fp_scale_table(Elem::<FanPaar8Field>::from_raw(coeff));
-                let expected: Vec<_> = src
-                    .iter()
-                    .map(|&x| {
-                        FANPAAR8_DESC
-                            .mul(u64::from(coeff), u64::from(x))
-                            .to_le_bytes()[0]
-                    })
-                    .collect();
+                let product = expected(coeff, &src);
                 let mut dst = initial.clone();
                 add(&mut dst, table, &src);
-                for ((&out, &before), &product) in dst.iter().zip(&initial).zip(&expected) {
-                    assert_eq!(out, before ^ product);
+                for ((&out, &before), &p) in dst.iter().zip(&initial).zip(&product) {
+                    assert_eq!(out, before ^ p);
                 }
-                into(&mut dst, table, &src);
-                assert_eq!(dst, expected);
-                dst.copy_from_slice(&src);
-                assign(&mut dst, table);
-                assert_eq!(dst, expected);
             }
         }
     }
 
-    if let Some(token) = tier_gate::summon::<X64V3Token>() {
-        eprintln!("kernel_differential executing tier=v3 field=fan-paar8");
-        check(
-            |dst, table, src| x86::gf8::mul_add_avx2(token, dst, table, src),
-            |dst, table, src| x86::gf8::mul_into_avx2(token, dst, table, src),
-            |dst, table| x86::gf8::mul_assign_avx2(token, dst, table),
-        );
-    } else {
-        eprintln!("skipping Fan-Paar byte AVX2: unsupported");
+    fn check_into(into: impl Fn(&mut [u8], &FpScaleTable, &[u8])) {
+        for &len in XOR_LENGTHS {
+            let src = noise(len, 0x4de);
+            for coeff in [0, 1, 0x10, 0x2d, 0x80, 0xff] {
+                let table = fp_scale_table(Elem::<FanPaar8Field>::from_raw(coeff));
+                let product = expected(coeff, &src);
+                let mut dst = noise(len, 0xf04);
+                into(&mut dst, table, &src);
+                assert_eq!(dst, product);
+            }
+        }
     }
-    if let Some(token) = tier_gate::summon::<X64V2Token>() {
-        eprintln!("kernel_differential executing tier=v2 field=fan-paar8");
-        check(
-            |dst, table, src| x86::gf8::mul_add_ssse3(token, dst, table, src),
-            |dst, table, src| x86::gf8::mul_into_ssse3(token, dst, table, src),
-            |dst, table| x86::gf8::mul_assign_ssse3(token, dst, table),
-        );
-    } else {
-        eprintln!("skipping Fan-Paar byte SSSE3: unsupported");
+
+    fn check_assign(assign: impl Fn(&mut [u8], &FpScaleTable)) {
+        for &len in XOR_LENGTHS {
+            let src = noise(len, 0x4de);
+            for coeff in [0, 1, 0x10, 0x2d, 0x80, 0xff] {
+                let table = fp_scale_table(Elem::<FanPaar8Field>::from_raw(coeff));
+                let product = expected(coeff, &src);
+                let mut dst = src.clone();
+                assign(&mut dst, table);
+                assert_eq!(dst, product);
+            }
+        }
     }
+
+    tier_gate::run_entry(x86::gf8::mul_add_avx2, |token, entry| {
+        check_add(|dst, table, src| entry(token, dst, table, src));
+    });
+    tier_gate::run_entry(x86::gf8::mul_into_avx2, |token, entry| {
+        check_into(|dst, table, src| entry(token, dst, table, src));
+    });
+    tier_gate::run_entry(x86::gf8::mul_assign_avx2, |token, entry| {
+        check_assign(|dst, table| entry(token, dst, table));
+    });
+    tier_gate::run_entry(x86::gf8::mul_add_ssse3, |token, entry| {
+        check_add(|dst, table, src| entry(token, dst, table, src));
+    });
+    tier_gate::run_entry(x86::gf8::mul_into_ssse3, |token, entry| {
+        check_into(|dst, table, src| entry(token, dst, table, src));
+    });
+    tier_gate::run_entry(x86::gf8::mul_assign_ssse3, |token, entry| {
+        check_assign(|dst, table| entry(token, dst, table));
+    });
 }

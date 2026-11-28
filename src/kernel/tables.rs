@@ -535,6 +535,10 @@ impl NibbleTable for ScaleTable {
 }
 
 /// Split-nibble multiplication tables for one Fan–Paar byte coefficient.
+///
+/// The Fan–Paar byte field is distinct from the AES field, so `GF2P8MULB`
+/// cannot multiply its bytes. Every backend, including the GFNI tier,
+/// combines the low- and high-nibble products by table shuffle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FpScaleTable {
     /// `lo[i] = coeff * i` for the low nibble.

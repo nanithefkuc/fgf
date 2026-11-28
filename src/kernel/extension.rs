@@ -400,8 +400,6 @@ const fn is_fan_paar_byte<F: Field>() -> bool {
 }
 
 /// The strategy used for fixed-coefficient Fan-Paar byte rows.
-///
-/// See the binary tower measurements in `benchmarks/binary-tower-regressions.md`.
 #[inline]
 fn fan_paar_byte_backend() -> Backend {
     match gf8_strategy() {
@@ -473,7 +471,7 @@ impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Pac
             }
             let table = fp_scale_table(Elem::<FanPaar8Field> { raw: *coeff });
             #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-            if dst.len() < 16 {
+            if dst.len() < crate::kernel::routing::FAN_PAAR_BYTE_SIMD_MIN {
                 // A partial SSSE3 lane uses the scalar nibble loop directly.
                 return gf8::mul_add_nibble(dst, table, src);
             }
@@ -529,9 +527,13 @@ impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Pac
         coeffs: &[Elem<F>],
         src: &[u8],
     ) {
-        for (row, coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-            F::mul_add(RawDispatch, row, &coeff.raw, src);
+        if is_fan_paar_byte::<F>() {
+            for (row, coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
+                F::mul_add(RawDispatch, row, &coeff.raw, src);
+            }
+            return;
         }
+        scalar::mul_add_scatter::<F>(rows, row_len, coeffs, src);
     }
 
     fn mul_add_gather<F: StorageRow<B, D, Self>>(
@@ -540,9 +542,13 @@ impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Pac
         coeffs: &[Elem<F>],
         srcs: &[&[u8]],
     ) {
-        for (coeff, &src) in coeffs.iter().zip(srcs) {
-            F::mul_add(RawDispatch, dst, &coeff.raw, src);
+        if is_fan_paar_byte::<F>() {
+            for (coeff, &src) in coeffs.iter().zip(srcs) {
+                F::mul_add(RawDispatch, dst, &coeff.raw, src);
+            }
+            return;
         }
+        scalar::mul_add_gather::<F>(dst, coeffs, srcs);
     }
 
     fn mul_add_matrix<F: StorageRow<B, D, Self>>(
@@ -552,11 +558,15 @@ impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Pac
         nrows: usize,
         terms: &[(&[Elem<F>], &[u8])],
     ) {
-        for &(coeffs, src) in terms {
-            for (row, coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-                F::mul_add(RawDispatch, row, &coeff.raw, src);
+        if is_fan_paar_byte::<F>() {
+            for &(coeffs, src) in terms {
+                for (row, coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
+                    F::mul_add(RawDispatch, row, &coeff.raw, src);
+                }
             }
+            return;
         }
+        scalar::mul_add_matrix::<F>(rows, row_len, nrows, terms);
     }
 
     fn mul_elementwise<F: StorageRow<B, D, Self>>(

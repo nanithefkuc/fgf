@@ -1996,8 +1996,12 @@ fn fan_paar_mul_add_matches_oracle_at_lane_boundaries() {
         }
     }
 
-    check::<FanPaar8Field>(Elem::<FanPaar8Field>::from_raw(0xa5));
-    check::<FanPaar16Field>(Elem::<FanPaar16Field>::from_raw(0xa55a));
+    for coeff in [0, 1, 0xa5] {
+        check::<FanPaar8Field>(Elem::<FanPaar8Field>::from_raw(coeff));
+    }
+    for coeff in [0, 1, 0xa55a] {
+        check::<FanPaar16Field>(Elem::<FanPaar16Field>::from_raw(coeff));
+    }
 }
 
 fn check_wide_field_ops<F: fgf::FieldBuffer>(coeffs: &[Elem<F>]) {

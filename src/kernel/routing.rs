@@ -122,6 +122,16 @@ pub(super) const XOR_PEEL_MIN: usize = 512;
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(super) const GF8_NIBBLE_MUL_ASSIGN_MIN: usize = 65_536;
 
+/// Shortest destination that routes fixed-coefficient Fan–Paar byte `mul_add`
+/// through the AVX2/SSSE3 nibble-shuffle entries rather than the inline
+/// scalar nibble loop.
+///
+/// Below a single 16-byte SSSE3 lane, the SIMD entries perform zero vector
+/// iterations and descend immediately to [`crate::kernel::gf8::mul_add_nibble`].
+/// Uncited threshold pending a paired measurement on the acceptance hosts.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+pub(super) const FAN_PAAR_BYTE_SIMD_MIN: usize = 16;
+
 /// Shortest matrix row using chunk-resolved matrix coefficients.
 ///
 /// Shorter rows read coefficients directly in each tile or lane. The

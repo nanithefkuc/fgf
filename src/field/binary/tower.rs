@@ -61,7 +61,7 @@ const fn fp_multiply_rec(lhs: u64, rhs: u64, bits: u32) -> u64 {
 /// # Panics
 /// Panics unless `bits` is a power of two no greater than 64.
 #[must_use]
-#[allow(dead_code)] // Exposed through `internals`.
+#[cfg_attr(not(feature = "internals"), allow(dead_code))]
 #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
 pub const fn fp_mul_alpha(value: u64, bits: u32) -> u64 {
     match bits {
@@ -138,7 +138,7 @@ pub const fn fp_multiply(lhs: u64, rhs: u64, bits: u32) -> u64 {
 /// # Panics
 /// Panics unless `bits` is a power of two no greater than 64.
 #[must_use]
-#[allow(dead_code)] // Exposed through `internals`.
+#[cfg_attr(not(feature = "internals"), allow(dead_code))]
 #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
 pub const fn fp_square(value: u64, bits: u32) -> u64 {
     match bits {
@@ -158,7 +158,7 @@ pub const fn fp_square(value: u64, bits: u32) -> u64 {
 /// # Panics
 /// Panics unless `bits` is a power of two no greater than 64.
 #[must_use]
-#[allow(dead_code)] // Exposed through `internals`.
+#[cfg_attr(not(feature = "internals"), allow(dead_code))]
 #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
 pub const fn fp_invert(value: u64, bits: u32) -> u64 {
     match bits {
@@ -1044,6 +1044,18 @@ mod tests {
     #[test]
     fn fanpaar16_generator_order() {
         check_generator_order16!(FanPaar16Field, &[3u128, 5, 17, 257]);
+    }
+
+    #[test]
+    fn fanpaar_log_tables_reserve_the_zero_sentinel() {
+        // Zero has no discrete logarithm; its slot holds the sentinel, and
+        // the repeated-period tail it indexes is all zero.
+        assert_eq!(FP_LOG8[0], FP_LOG_ZERO);
+        assert!(
+            FP_EXP8[usize::from(FP_LOG_ZERO)..]
+                .iter()
+                .all(|&byte| byte == 0)
+        );
     }
 
     #[test]

@@ -962,6 +962,9 @@ fn register_packed_values() {
                 ops::canonicalize_assign::<F>(&mut row);
                 fixture::assert_bytes_equal(&case.case, &row, &want);
                 registry::time(case, ctx, "scalar", || {
+                    // The alias is normalized before timing, so this loop
+                    // measures the canonical-input steady state; there is no
+                    // per-iteration setup hook to rebuild the alias.
                     ops::canonicalize_assign::<F>(black_box(&mut row));
                     fixture::observe(&row);
                 });
