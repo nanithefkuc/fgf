@@ -17,6 +17,7 @@ use core::marker::PhantomData;
 
 use super::arithmetic;
 use super::descriptor::Storage;
+use super::pinned::Instance;
 use super::private::Sealed;
 use crate::field::binary::BinaryField;
 use crate::field::dispatch::{KernelDispatch, RawDispatch};
@@ -154,6 +155,22 @@ pub(crate) trait StorageRepr<B: Field, const D: usize>: ExtensionStorage<B, D> {
     /// Panics when a component storage's raw word is not a pair of `u32`
     /// limbs.
     fn from_pinned_word(word: u64) -> Self::Raw;
+
+    /// Adds canonical raw elements of the structurally matched instance.
+    #[inline]
+    fn add_pinned(instance: Instance, left: Self::Raw, right: Self::Raw) -> Self::Raw {
+        Self::from_pinned_word(
+            instance.add(Self::to_pinned_word(left), Self::to_pinned_word(right)),
+        )
+    }
+
+    /// Multiplies canonical raw elements of the structurally matched instance.
+    #[inline]
+    fn mul_pinned(instance: Instance, left: Self::Raw, right: Self::Raw) -> Self::Raw {
+        Self::from_pinned_word(
+            instance.mul(Self::to_pinned_word(left), Self::to_pinned_word(right)),
+        )
+    }
 }
 
 /// The dispatch contract of one extension storage, generic over the row.
@@ -594,8 +611,8 @@ where
 /// `Packed` fills its word exactly; `PackedPadded` keeps the coordinate word
 /// below the word width, with every bit at or above the field degree
 /// cleared. `join` rebuilds the word from canonical components only, so the
-/// padding bits of a padded word are zero after every join, and `canonical`
-/// runs the same round trip to clear the padding of an arbitrary word.
+/// padding bits of a padded word are zero after every join. Canonicalization
+/// clears those bits directly: every base coordinate word names a value.
 macro_rules! packed_storage {
     ($storage:ident, $word:ty, $bits:literal) => {
         impl Sealed for $storage<$word> {}
@@ -615,8 +632,10 @@ macro_rules! packed_storage {
                 arithmetic::word_one(base, base.root_index()) as $word
             };
 
+            #[inline]
+            #[allow(clippy::cast_lossless, clippy::cast_possible_truncation)]
             fn canonical(raw: Self::Raw) -> Self::Raw {
-                <Self as StorageRepr<B, D>>::join(<Self as StorageRepr<B, D>>::split(raw))
+                raw & const { extract_bits(<$word>::MAX as u64, 0, B::DEGREE as usize * D) as $word }
             }
 
             #[allow(clippy::cast_lossless)]
@@ -662,6 +681,17 @@ macro_rules! packed_storage {
             #[allow(clippy::cast_possible_truncation)]
             fn from_pinned_word(word: u64) -> Self::Raw {
                 word as $word
+            }
+
+            #[inline(always)]
+            fn add_pinned(_instance: Instance, left: Self::Raw, right: Self::Raw) -> Self::Raw {
+                left ^ right
+            }
+
+            #[inline(always)]
+            #[allow(clippy::cast_lossless, clippy::cast_possible_truncation)]
+            fn mul_pinned(instance: Instance, left: Self::Raw, right: Self::Raw) -> Self::Raw {
+                instance.mul(left as u64, right as u64) as $word
             }
         }
 

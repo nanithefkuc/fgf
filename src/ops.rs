@@ -61,6 +61,10 @@
 //! over its buffers, and it is what these kernels preserve. Scalar element
 //! arithmetic shares the same totality: the [`FieldElem`](crate::FieldElem) operations accept
 //! any raw lane value and always reduce canonically.
+//!
+//! [`is_zero`] and [`is_equal`] compare packed rows by decoded value rather
+//! than by their bytes. [`canonicalize_assign`] normalizes a row in place,
+//! without element scratch, for uses such as serialization.
 
 mod coefficient;
 mod dot;
@@ -78,7 +82,7 @@ pub use coefficient::{Coeff, PreparedCoefficient};
 pub use dot::dot_product;
 pub use gather::{add_gather_offsets, mul_add_gather, mul_into_gather};
 pub use matrix::{mul_add_matrix, mul_add_matrix_at, mul_into_matrix, mul_into_matrix_at};
-pub use packing::{pack, unpack};
+pub use packing::{canonicalize_assign, is_equal, is_zero, pack, unpack};
 pub use recip::{div_elementwise_assign, div_elementwise_into, inv_assign, inv_into};
 pub use scatter::{mul_add_scatter, mul_into_scatter};
 pub use single::{

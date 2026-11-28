@@ -28,9 +28,7 @@
 
 use crate::field::FiniteField;
 use crate::field::binary::byte::{ByteReprData, ScaleTable};
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-use crate::field::binary::tower::FanPaar8Field;
-use crate::field::binary::tower::{FanPaar16Field, Rijndael16Field};
+use crate::field::binary::tower::{FanPaar8Field, FanPaar16Field, Rijndael16Field};
 use crate::field::binary::{AES, Polynomial};
 use crate::field::{Cantor, Elem, Normal};
 
@@ -523,13 +521,24 @@ impl TowerCoeff {
     }
 }
 
+/// The table halves consumed by the fixed-coefficient byte kernels.
+pub trait NibbleTable {
+    /// Borrows the low- and high-nibble product tables.
+    fn halves(&self) -> (&[u8; 16], &[u8; 16]);
+}
+
+impl NibbleTable for ScaleTable {
+    #[inline]
+    fn halves(&self) -> (&[u8; 16], &[u8; 16]) {
+        (&self.lo, &self.hi)
+    }
+}
+
 /// Split-nibble multiplication tables for one Fan–Paar byte coefficient.
 ///
-/// The canonical Fan–Paar byte field is *not* the AES field, so `GF2P8MULB`
-/// cannot multiply its bytes; every backend emulates the byte product with a
-/// 16-entry nibble lookup, exactly as [`ScaleTable`] does for GF(2^8). The
-/// two share a shape and a 256-entry static bank, but the multiplication
-/// used to *fill* them differs (Fan–Paar tower vs. AES reduction).
+/// The Fan–Paar byte field is distinct from the AES field, so `GF2P8MULB`
+/// cannot multiply its bytes. Every backend, including the GFNI tier,
+/// combines the low- and high-nibble products by table shuffle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FpScaleTable {
     /// `lo[i] = coeff * i` for the low nibble.
@@ -538,19 +547,23 @@ pub struct FpScaleTable {
     pub hi: [u8; 16],
 }
 
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+impl NibbleTable for FpScaleTable {
+    #[inline]
+    fn halves(&self) -> (&[u8; 16], &[u8; 16]) {
+        (&self.lo, &self.hi)
+    }
+}
+
 impl FpScaleTable {
-    /// Build the nibble tables for `coeff` in the Fan–Paar byte field.
+    /// Builds the nibble tables for `coeff` in the Fan–Paar byte field.
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
     pub const fn new(coeff: Elem<FanPaar8Field>) -> Self {
         use crate::field::binary::tower::fp_multiply;
-        let mut lo = [0u8; 16];
-        let mut hi = [0u8; 16];
+        let mut lo = [0; 16];
+        let mut hi = [0; 16];
         let mut i = 0;
         while i < 16 {
-            // The Fan-Paar recurrence keeps this const build table-leaf fast;
-            // the shared small-row interpreter would recurse per product.
             lo[i] = fp_multiply(i as u64, coeff.to_raw() as u64, 8) as u8;
             hi[i] = fp_multiply((i as u64) << 4, coeff.to_raw() as u64, 8) as u8;
             i += 1;
@@ -559,32 +572,24 @@ impl FpScaleTable {
     }
 }
 
-/// Shared nibble-table bank, one entry per Fan–Paar byte coefficient.
-///
-/// A separate bank from the AES bank: the Fan–Paar byte field is a different
-/// field, so its products are different bytes. 8 KiB, resident in L1/L2,
-/// touched only by Fan–Paar kernels.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-static FP_SCALE_TABLE_BANK: [FpScaleTable; 256] = build_fp_bank();
-
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[allow(clippy::cast_possible_truncation)]
-const fn build_fp_bank() -> [FpScaleTable; 256] {
-    let mut bank = [FpScaleTable::new(Elem::<FanPaar8Field>::from_raw(0)); 256];
+/// The shared split-nibble bank in Fan–Paar coordinates.
+static FAN_PAAR_SCALE_BANK: [FpScaleTable; 256] = {
+    let mut bank = [FpScaleTable::new(Elem::<FanPaar8Field>::ZERO); 256];
     let mut i = 0;
     while i < 256 {
-        bank[i] = FpScaleTable::new(Elem::<FanPaar8Field>::from_raw(i as u8));
+        #[allow(clippy::cast_possible_truncation)]
+        let coeff = i as u8;
+        bank[i] = FpScaleTable::new(Elem::<FanPaar8Field>::from_raw(coeff));
         i += 1;
     }
     bank
-}
+};
 
-/// Return the shared nibble tables for a Fan–Paar byte coefficient.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+/// Returns the shared nibble tables for a Fan–Paar byte coefficient.
 #[inline]
 #[must_use]
 pub fn fp_scale_table(coeff: Elem<FanPaar8Field>) -> &'static FpScaleTable {
-    &FP_SCALE_TABLE_BANK[coeff.to_raw() as usize]
+    &FAN_PAAR_SCALE_BANK[usize::from(coeff.to_raw())]
 }
 
 /// Four nibble-table factors a shuffle kernel consumes lane-by-lane.
@@ -873,19 +878,15 @@ mod tests {
         check_bank::<0x187>();
     }
 
-    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     #[test]
     fn fan_paar_nibble_tables_match_the_tower_recurrence() {
-        use crate::field::binary::tower::fp_multiply;
-        let runtime = build_fp_bank();
-        for bank in [&runtime, &FP_SCALE_TABLE_BANK] {
-            for c in 0..=u8::MAX {
-                let table = &bank[usize::from(c)];
-                for x in 0..=u8::MAX {
-                    let product = fp_multiply(u64::from(c), u64::from(x), 8);
-                    let split = table.lo[usize::from(x & 0x0f)] ^ table.hi[usize::from(x >> 4)];
-                    assert_eq!(u64::from(split), product, "{c:#04x} * {x:#04x}");
-                }
+        use crate::field::binary::tower::FANPAAR8_DESC;
+        for c in 0..=u8::MAX {
+            let table = fp_scale_table(Elem::<FanPaar8Field>::from_raw(c));
+            for x in 0..=u8::MAX {
+                let product = FANPAAR8_DESC.mul(u64::from(c), u64::from(x));
+                let split = table.lo[usize::from(x & 0x0f)] ^ table.hi[usize::from(x >> 4)];
+                assert_eq!(u64::from(split), product, "{c:#04x} * {x:#04x}");
             }
         }
     }

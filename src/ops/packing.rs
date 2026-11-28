@@ -4,7 +4,60 @@
 //! buffers produced here satisfy the packed-operation input contract
 //! directly.
 
-use crate::field::{Elem, FieldBuffer, Validate};
+use crate::field::{Elem, FieldBuffer, FieldElem, PrimeIdentity, Validate};
+
+use super::geometry::{check_pair, check_width};
+
+/// Returns whether every lane decodes to zero, including in an empty row.
+///
+/// # Panics
+/// Panics if `row` holds a partial lane.
+#[must_use]
+pub fn is_zero<F: FieldBuffer>(row: &[u8]) -> bool {
+    check_width::<F>("is_zero", "row", row.len());
+    if has_unique_binary_lanes::<F>() {
+        return row.iter().all(|&byte| byte == 0);
+    }
+    row.chunks_exact(F::BYTES)
+        .all(|lane| F::decode(lane).is_zero())
+}
+
+/// Returns whether corresponding lanes of two rows decode to equal values.
+///
+/// # Panics
+/// Panics if the lengths differ or a row holds a partial lane.
+#[must_use]
+pub fn is_equal<F: FieldBuffer>(left: &[u8], right: &[u8]) -> bool {
+    check_pair::<F>("is_equal", "left", left.len(), "right", right.len());
+    if has_unique_binary_lanes::<F>() {
+        return left == right;
+    }
+    left.chunks_exact(F::BYTES)
+        .zip(right.chunks_exact(F::BYTES))
+        .all(|(a, b)| a == b || F::decode(a) == F::decode(b))
+}
+
+/// Rewrites a row in place to the canonical encoding of its lane values.
+///
+/// Uses no scratch buffer. Leaves already canonical lanes unchanged.
+///
+/// # Panics
+/// Panics if `dst` holds a partial lane, before writing any bytes.
+pub fn canonicalize_assign<F: FieldBuffer>(dst: &mut [u8]) {
+    check_width::<F>("canonicalize_assign", "dst", dst.len());
+    if has_unique_binary_lanes::<F>() {
+        return;
+    }
+    for lane in dst.chunks_exact_mut(F::BYTES) {
+        let value = F::decode(lane);
+        F::encode(lane, value);
+    }
+}
+
+#[inline]
+const fn has_unique_binary_lanes<F: FieldBuffer>() -> bool {
+    F::Characteristic::CHARACTERISTIC == 2 && F::STORAGE_BITS == F::DEGREE
+}
 
 /// Packs field elements into their stable little-endian byte representation.
 ///

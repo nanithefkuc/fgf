@@ -1982,6 +1982,28 @@ fn empty_buffers_are_no_ops() {
     ops::mul_add_gather::<FiniteField<2, 8, Polynomial<AES>>>(&mut empty, &[], &[]);
 }
 
+#[test]
+fn fan_paar_mul_add_matches_oracle_at_lane_boundaries() {
+    fn check<F: FieldBuffer>(coeff: Elem<F>) {
+        for lanes in [1, 15, 16, 17, 31, 32, 33] {
+            let len = lanes * F::BYTES;
+            let src = noise(len, 0x3591);
+            let mut dst = noise(len, 0x5fa9);
+            let mut want = dst.clone();
+            oracle_mul_add::<F>(&mut want, coeff, &src);
+            ops::mul_add::<F>(&mut dst, coeff, &src);
+            assert_eq!(dst, want, "{}: {lanes} lanes", F::NAME);
+        }
+    }
+
+    for coeff in [0, 1, 0xa5] {
+        check::<FanPaar8Field>(Elem::<FanPaar8Field>::from_raw(coeff));
+    }
+    for coeff in [0, 1, 0xa55a] {
+        check::<FanPaar16Field>(Elem::<FanPaar16Field>::from_raw(coeff));
+    }
+}
+
 fn check_wide_field_ops<F: fgf::FieldBuffer>(coeffs: &[Elem<F>]) {
     let row_len = F::BYTES * 17;
     let src0 = noise(row_len, 0x3200 + u64::from(F::STORAGE_BITS));
@@ -4258,7 +4280,6 @@ fn backend_reports_match_family_routes() {
     scalar_fallback!(
         FiniteField<2, 8, Normal<0x11B, 0x20>>,
         FiniteField<2, 8, Cantor<0x11B, 0x20>>,
-        FanPaar8Field,
         Custom8Row,
         Custom16Row,
         Custom32Row,
@@ -4291,6 +4312,14 @@ fn backend_reports_match_family_routes() {
     assert_eq!(
         backend_for::<Gf64>(),
         if gfni { process } else { Backend::Scalar },
+    );
+    assert_eq!(
+        backend_for::<FanPaar8Field>(),
+        match process {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
+            Backend::V2 => Backend::V2,
+            _ => Backend::Scalar,
+        },
     );
 
     assert_eq!(backend_for::<FanPaar16Field>(), tier_or_scalar(x86_tier));

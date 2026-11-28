@@ -27,6 +27,14 @@
 //! row's raw word, bytes, and coordinate word are canonical: constructors
 //! canonicalize components through the base and clear padding bits.
 //!
+//! When a binary extension over GF(2) has no full-width `Packed<W>` form,
+//! use [`Components`] over `FiniteField<2, 1>` (the residue presentation)
+//! for packed row operations. This holds one little-endian `u64` lane per
+//! binary coordinate. The relation must define the intended presentation;
+//! the component layout is not a compact encoding of an existing scalar
+//! presentation. In particular, `PackedPadded<W>` has no byte form and
+//! cannot be used directly with [`ops`](crate::ops).
+//!
 //! [`QuadMersenne31`] is the extension row
 //! `FiniteField<0x7FFF_FFFF, 2, Extension<ComplexMersenne31, 2>>`: pairs
 //! `[re, im]` of [`Mersenne31`](crate::prime::Mersenne31) limbs with
@@ -109,6 +117,29 @@
 //! // Every nonzero element inverts, and the defining relation holds.
 //! let inverse = (t + ONE).inv();
 //! assert_eq!((t + ONE) * inverse, ONE);
+//! ```
+//!
+//! A byte-backed GF(4) over the residue GF(2) base:
+//!
+//! ```
+//! use fgf::{
+//!     Elem, FiniteField, ops,
+//!     extension::{Components, Extension, ExtensionSpec, Relation},
+//! };
+//!
+//! struct Gf4Spec;
+//! impl ExtensionSpec<2> for Gf4Spec {
+//!     type Base = FiniteField<2, 1>;
+//!     type Storage = Components;
+//!     const NAME: &'static str = "GF(4)";
+//!     const RELATION: Relation = Relation::from_coordinates(&[1, 1]);
+//! }
+//!
+//! type Gf4 = FiniteField<2, 2, Extension<Gf4Spec, 2>>;
+//! let mut row = [0; 2 * size_of::<u64>()];
+//! ops::pack::<Gf4>(&mut row, &[Elem::<Gf4>::ONE]);
+//! assert_eq!(row[0], 1);
+//! assert!(row[1..].iter().all(|&byte| byte == 0));
 //! ```
 //!
 //! `QuadMersenne31` known answers, with `i² = −1`:

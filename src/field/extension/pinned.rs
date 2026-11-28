@@ -146,7 +146,7 @@ impl Instance {
     }
 
     /// Field multiplication of two canonical instance words.
-    #[inline]
+    #[inline(always)]
     pub const fn mul(self, left: u64, right: u64) -> u64 {
         match self {
             Self::Rijndael16 => tower::rijndael16_mul(left as u16, right as u16) as u64,
@@ -154,10 +154,10 @@ impl Instance {
             Self::Rijndael64 => tower::rijndael64_mul(left, right),
             Self::FanPaar2 => tower::FANPAAR2_DESC.mul(left, right),
             Self::FanPaar4 => tower::FANPAAR4_DESC.mul(left, right),
-            Self::FanPaar8 => tower::FANPAAR8_DESC.mul(left, right),
-            Self::FanPaar16 => tower::fp_multiply(left, right, 16),
-            Self::FanPaar32 => tower::fp_multiply(left, right, 32),
-            Self::FanPaar64 => tower::fp_multiply(left, right, 64),
+            Self::FanPaar8 => tower::fanpaar8_mul(left as u8, right as u8) as u64,
+            Self::FanPaar16 => tower::fanpaar16_mul(left as u16, right as u16) as u64,
+            Self::FanPaar32 => tower::fanpaar32_mul(left as u32, right as u32) as u64,
+            Self::FanPaar64 => tower::fanpaar64_mul(left, right),
             Self::QuadMersenne31 => limb_word(quad_mersenne31::raw_mul(limbs(left), limbs(right))),
         }
     }
@@ -172,10 +172,10 @@ impl Instance {
             Self::Rijndael64 => tower::rijndael64_inv(value),
             Self::FanPaar2 => tower::FANPAAR2_DESC.inv(value),
             Self::FanPaar4 => tower::FANPAAR4_DESC.inv(value),
-            Self::FanPaar8 => tower::FANPAAR8_DESC.inv(value),
-            Self::FanPaar16 => tower::fp_invert(value, 16),
-            Self::FanPaar32 => tower::fp_invert(value, 32),
-            Self::FanPaar64 => tower::fp_invert(value, 64),
+            Self::FanPaar8 => tower::fanpaar8_inv(value as u8) as u64,
+            Self::FanPaar16 => tower::fanpaar16_inv(value as u16) as u64,
+            Self::FanPaar32 => tower::fanpaar32_inv(value as u32) as u64,
+            Self::FanPaar64 => tower::fanpaar64_inv(value),
             Self::QuadMersenne31 => limb_word(quad_mersenne31::raw_inv(limbs(value))),
         }
     }

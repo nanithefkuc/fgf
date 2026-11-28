@@ -306,7 +306,7 @@ pub mod gf16 {
     use crate::field::binary::byte::ScaleTable;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::field::binary::tower::FanPaar16Field;
-    use crate::field::binary::tower::Rijndael16Field;
+    use crate::field::binary::tower::{Rijndael16Field, fanpaar16_mul};
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::field::binary::{AES, Polynomial};
     use crate::field::dispatch::RawDispatch;
@@ -765,6 +765,22 @@ pub mod gf16 {
         }
     }
 
+    /// Accumulates a Fan-Paar product in full-width little-endian lanes.
+    fn fan_paar_mul_add(dst: &mut [u8], coeff: u16, src: &[u8]) {
+        debug_assert_eq!(dst.len(), src.len());
+        match coeff {
+            0 => return,
+            1 => return crate::kernel::xor(dst, src),
+            _ => {}
+        }
+        let (dst, _) = dst.as_chunks_mut::<2>();
+        let (src, _) = src.as_chunks::<2>();
+        for (d, &s) in dst.iter_mut().zip(src) {
+            let product = fanpaar16_mul(coeff, u16::from_le_bytes(s));
+            *d = (u16::from_le_bytes(*d) ^ product).to_le_bytes();
+        }
+    }
+
     /// The AVX2 GF(2^16) gather: one AXPY per source.
     ///
     /// AVX2 has enough width but not enough registers to retain several
@@ -929,6 +945,8 @@ pub mod gf16 {
                         // Not `scalar::mul_add`: the nibble tables amortize
                         // one resolve over the whole buffer.
                         mul_add_scalar(dst, &rijndael_tables(other.coeff()), src);
+                    } else if fanpaar16::<F>() {
+                        fan_paar_mul_add(dst, other.coeff(), src);
                     } else {
                         scalar::mul_add::<F>(dst, coeff, src);
                     }

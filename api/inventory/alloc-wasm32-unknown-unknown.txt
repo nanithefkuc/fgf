@@ -812,11 +812,14 @@ pub fn fgf::ops::add_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
 pub fn fgf::ops::add_assign_rows<F: fgf::FieldBuffer>(&mut [u8], usize, &[u8])
 pub fn fgf::ops::add_assign_scalar<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>)
 pub fn fgf::ops::add_gather_offsets<F: fgf::FieldBuffer>(&mut [u8], &[u32], &[u8])
+pub fn fgf::ops::canonicalize_assign<F: fgf::FieldBuffer>(&mut [u8])
 pub fn fgf::ops::div_elementwise_assign<F: fgf::FieldBuffer>(&mut [u8], &[u8])
 pub fn fgf::ops::div_elementwise_into<F: fgf::FieldBuffer>(&mut [u8], &[u8], &[u8])
 pub fn fgf::ops::dot_product<F: fgf::FieldBuffer>(&[u8], &[u8]) -> fgf::Elem<F>
 pub fn fgf::ops::inv_assign<F: fgf::FieldBuffer>(&mut [u8])
 pub fn fgf::ops::inv_into<F: fgf::FieldBuffer>(&mut [u8], &[u8])
+pub fn fgf::ops::is_equal<F: fgf::FieldBuffer>(&[u8], &[u8]) -> bool
+pub fn fgf::ops::is_zero<F: fgf::FieldBuffer>(&[u8]) -> bool
 pub fn fgf::ops::mul_add<F: fgf::FieldBuffer>(&mut [u8], fgf::Elem<F>, &[u8])
 pub fn fgf::ops::mul_add_gather<F: fgf::FieldBuffer>(&mut [u8], &[fgf::Elem<F>], &[&[u8]])
 pub fn fgf::ops::mul_add_gather_with<F: fgf::FieldBuffer>(&mut [u8], fgf::ops::CoeffVecRef<'_, F>, &[&[u8]])

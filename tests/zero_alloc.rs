@@ -19,6 +19,22 @@ type FanPaar8Row = fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary:
 type ResiduePrime = FiniteField<1_000_000_007, 1, Residue>;
 type ResidueTwo = FiniteField<2, 1, Residue>;
 
+#[test]
+fn packed_queries_and_canonicalization_do_not_allocate() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    let mut aliases = [0xff, 0xff, 0xff, 0x7f].repeat(16);
+    let zero = [0; 64];
+    let allocations = count_allocations(|| {
+        assert!(ops::is_zero::<Mersenne31>(&aliases));
+        assert!(ops::is_equal::<Mersenne31>(&aliases, &zero));
+        ops::canonicalize_assign::<Mersenne31>(&mut aliases);
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(aliases, zero);
+}
+
 /// A custom degree-32 extension over GF(2^16): `t^2 + t + 0x2001`, distinct
 /// from every pinned presentation.
 #[derive(Clone, Copy)]

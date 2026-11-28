@@ -9,7 +9,8 @@
 //!   dispatch in [`super::tower`], whose vector arms serve the rows
 //!   structurally equal to a shipped Rijndael or Fan-Paar instance and whose
 //!   portable arm serves every other row.
-//! - `Packed<u8>` rows run the scalar byte loops with XOR addition.
+//! - `Packed<u8>` rows matching Fan-Paar use byte-scale tables; other
+//!   rows use typed scalar multiplication. Both use XOR addition.
 //! - `Components` rows structurally equal to the shipped prime extension run
 //!   the QM31 kernels in [`super::quad_mersenne31`]; every other component
 //!   row runs the portable [`prime`] path.
@@ -17,6 +18,7 @@
 //! A row outside the shipped instances reports [`Backend::Scalar`], no
 //! vector elementwise capability, and a zero vector-elementwise threshold.
 
+use crate::field::binary::tower::FanPaar8Field;
 use crate::field::dispatch::{KernelDispatch, RawDispatch};
 use crate::field::extension::pinned::{self, Instance};
 use crate::field::extension::storage::{StorageBuffer, StorageDispatch, StorageRepr, StorageRow};
@@ -24,7 +26,11 @@ use crate::field::extension::{Components, Extension, ExtensionSpec, ExtensionSto
 use crate::field::finite_field::FiniteField;
 use crate::field::quad_mersenne31::QuadMersenne31;
 use crate::field::{Elem, Field, FieldBuffer};
-use crate::kernel::{Backend, prime, quad_mersenne31, scalar};
+use crate::kernel::tables::fp_scale_table;
+use crate::kernel::{Backend, Gf8Strategy, gf8, gf8_strategy, prime, quad_mersenne31, scalar};
+
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+use crate::kernel::{x86, x86_v2_token, x86_v3_token};
 
 /// The storage of an extension row over `S`.
 type StorageOf<S, const D: usize> = <S as ExtensionSpec<D>>::Storage;
@@ -384,10 +390,42 @@ where
 // One-byte packed rows
 // ---------------------------------------------------------------------------
 
-/// The scalar byte loops: XOR addition, and multiplication through the
-/// row's own arithmetic. The prepared coefficient is the raw byte.
+/// Whether the row has the shipped Fan-Paar byte presentation.
+#[inline]
+const fn is_fan_paar_byte<F: Field>() -> bool {
+    matches!(
+        const { pinned::instance(F::DESCRIPTOR) },
+        Some(Instance::FanPaar8)
+    )
+}
+
+/// The strategy used for fixed-coefficient Fan-Paar byte rows.
+#[inline]
+fn fan_paar_byte_backend() -> Backend {
+    match gf8_strategy() {
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
+        Gf8Strategy::Avx512 => Backend::V3,
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        Gf8Strategy::Gfni | Gf8Strategy::Avx2 => Backend::V3,
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        Gf8Strategy::Ssse3 => Backend::V2,
+        Gf8Strategy::Scalar => Backend::Scalar,
+    }
+}
+
+/// Packed byte rows prepare only the raw coefficient, which indexes the
+/// static scale bank for Fan-Paar and multiplies directly for other rows.
 impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Packed<u8> {
     type Prepared = u8;
+
+    #[inline]
+    fn backend<F: StorageRow<B, D, Self>>(_proof: RawDispatch) -> Backend {
+        if is_fan_paar_byte::<F>() {
+            fan_paar_byte_backend()
+        } else {
+            Backend::Scalar
+        }
+    }
 
     #[inline]
     fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> u8 {
@@ -425,6 +463,26 @@ impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Pac
         coeff: &u8,
         src: &[u8],
     ) {
+        if is_fan_paar_byte::<F>() {
+            match *coeff {
+                0 => return,
+                1 => return crate::kernel::xor(dst, src),
+                _ => {}
+            }
+            let table = fp_scale_table(Elem::<FanPaar8Field> { raw: *coeff });
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+            if dst.len() < crate::kernel::routing::FAN_PAAR_BYTE_SIMD_MIN {
+                // A partial SSSE3 lane uses the scalar nibble loop directly.
+                return gf8::mul_add_nibble(dst, table, src);
+            }
+            return match fan_paar_byte_backend() {
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                Backend::V3 => x86::gf8::mul_add_avx2(x86_v3_token(), dst, table, src),
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                Backend::V2 => x86::gf8::mul_add_ssse3(x86_v2_token(), dst, table, src),
+                _ => gf8::mul_add_nibble(dst, table, src),
+            };
+        }
         scalar::mul_add::<F>(dst, Elem { raw: *coeff }, src);
     }
 
@@ -434,11 +492,31 @@ impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Pac
         coeff: &u8,
         src: &[u8],
     ) {
+        if is_fan_paar_byte::<F>() {
+            let table = fp_scale_table(Elem::<FanPaar8Field> { raw: *coeff });
+            return match fan_paar_byte_backend() {
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                Backend::V3 => x86::gf8::mul_into_avx2(x86_v3_token(), dst, table, src),
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                Backend::V2 => x86::gf8::mul_into_ssse3(x86_v2_token(), dst, table, src),
+                _ => gf8::mul_into_nibble(dst, table, src),
+            };
+        }
         dst.copy_from_slice(src);
         scalar::mul_assign::<F>(dst, Elem { raw: *coeff });
     }
 
     fn mul_assign<F: StorageRow<B, D, Self>>(_proof: RawDispatch, dst: &mut [u8], coeff: &u8) {
+        if is_fan_paar_byte::<F>() {
+            let table = fp_scale_table(Elem::<FanPaar8Field> { raw: *coeff });
+            return match fan_paar_byte_backend() {
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                Backend::V3 => x86::gf8::mul_assign_avx2(x86_v3_token(), dst, table),
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+                Backend::V2 => x86::gf8::mul_assign_ssse3(x86_v2_token(), dst, table),
+                _ => gf8::mul_assign_nibble(dst, table),
+            };
+        }
         scalar::mul_assign::<F>(dst, Elem { raw: *coeff });
     }
 
@@ -449,6 +527,12 @@ impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Pac
         coeffs: &[Elem<F>],
         src: &[u8],
     ) {
+        if is_fan_paar_byte::<F>() {
+            for (row, coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
+                F::mul_add(RawDispatch, row, &coeff.raw, src);
+            }
+            return;
+        }
         scalar::mul_add_scatter::<F>(rows, row_len, coeffs, src);
     }
 
@@ -458,6 +542,12 @@ impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Pac
         coeffs: &[Elem<F>],
         srcs: &[&[u8]],
     ) {
+        if is_fan_paar_byte::<F>() {
+            for (coeff, &src) in coeffs.iter().zip(srcs) {
+                F::mul_add(RawDispatch, dst, &coeff.raw, src);
+            }
+            return;
+        }
         scalar::mul_add_gather::<F>(dst, coeffs, srcs);
     }
 
@@ -468,6 +558,14 @@ impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Pac
         nrows: usize,
         terms: &[(&[Elem<F>], &[u8])],
     ) {
+        if is_fan_paar_byte::<F>() {
+            for &(coeffs, src) in terms {
+                for (row, coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
+                    F::mul_add(RawDispatch, row, &coeff.raw, src);
+                }
+            }
+            return;
+        }
         scalar::mul_add_matrix::<F>(rows, row_len, nrows, terms);
     }
 
@@ -481,7 +579,7 @@ impl<B: crate::field::BinaryField, const D: usize> StorageDispatch<B, D> for Pac
     }
 
     fallback_defaults!(
-        storage: backend, mul_add_scatter_plan, mul_add_gather_plan,
+        storage: mul_add_scatter_plan, mul_add_gather_plan,
         mul_add_matrix_plan, mul_elementwise_assign, add_assign_scalar,
         sub_assign_scalar,
     );

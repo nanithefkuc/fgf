@@ -20,6 +20,124 @@ type PPrime = FiniteField<1_000_000_007, 1, Residue>;
 type PFull = FiniteField<4_294_967_291, 1, Residue>;
 type PWide = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>;
 
+#[test]
+fn packed_queries_and_canonicalization_accept_aliases() {
+    use fgf::extension::QuadMersenne31;
+    use fgf::prime::{Goldilocks, Mersenne31};
+
+    fn check<F: FieldBuffer>(zero: &[u8], one: &[u8], below: &[u8]) {
+        let mut zeros = vec![0; F::BYTES];
+        let mut ones = vec![0; F::BYTES];
+        F::encode(&mut ones, Elem::<F>::ONE);
+        assert!(ops::is_zero::<F>(zero));
+        assert!(ops::is_zero::<F>(&[]));
+        assert!(!ops::is_zero::<F>(one));
+        assert!(ops::is_equal::<F>(one, &ones));
+        assert!(ops::is_equal::<F>(&[], &[]));
+        assert!(!ops::is_equal::<F>(zero, below));
+
+        let mut row = [zero, one, below].concat();
+        let expected = [zeros.as_slice(), ones.as_slice(), below].concat();
+        assert!(ops::is_equal::<F>(&row, &expected));
+        ops::canonicalize_assign::<F>(&mut row);
+        assert_eq!(row, expected);
+        ops::canonicalize_assign::<F>(&mut zeros);
+        assert!(ops::is_zero::<F>(&zeros));
+    }
+
+    fn check_modulus<F: FieldBuffer>(p: u64) {
+        check::<F>(
+            &p.to_le_bytes()[..F::BYTES],
+            &(p + 1).to_le_bytes()[..F::BYTES],
+            &(p - 1).to_le_bytes()[..F::BYTES],
+        );
+    }
+
+    let p = 0x7fff_ffff_u32;
+    check::<Mersenne31>(
+        &p.to_le_bytes(),
+        &(p + 1).to_le_bytes(),
+        &(p - 1).to_le_bytes(),
+    );
+    check::<QuadMersenne31>(
+        &(u64::from(p) << 32 | u64::from(p)).to_le_bytes(),
+        &(u64::from(p) << 32 | u64::from(p + 1)).to_le_bytes(),
+        &u64::from(p - 1).to_le_bytes(),
+    );
+    let p = 0xffff_ffff_0000_0001_u64;
+    check::<Goldilocks>(
+        &p.to_le_bytes(),
+        &(p + 1).to_le_bytes(),
+        &(p - 1).to_le_bytes(),
+    );
+    let p = 4_294_967_291_u32;
+    check::<PFull>(
+        &p.to_le_bytes(),
+        &(p + 1).to_le_bytes(),
+        &(p - 1).to_le_bytes(),
+    );
+    check_modulus::<P2>(2);
+    check_modulus::<P7>(7);
+    check_modulus::<PPrime>(1_000_000_007);
+    check_modulus::<PWide>(0xffff_ffff_ffff_ffc5);
+}
+
+#[test]
+fn packed_component_aliases_over_gf2_canonicalize_both_coordinates() {
+    use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
+
+    struct Gf4Spec;
+    impl ExtensionSpec<2> for Gf4Spec {
+        type Base = FiniteField<2, 1>;
+        type Storage = Components;
+        const NAME: &'static str = "GF(4) over residues";
+        const RELATION: Relation = Relation::from_coordinates(&[1, 1]);
+    }
+    type Gf4 = FiniteField<2, 2, Extension<Gf4Spec, 2>>;
+
+    // Even residues alias zero in both coordinates.
+    let alias_zero = [2u64.to_le_bytes(), 4u64.to_le_bytes()].concat();
+    assert!(ops::is_zero::<Gf4>(&alias_zero));
+    assert!(ops::is_equal::<Gf4>(
+        &alias_zero,
+        &[0u64.to_le_bytes(), 0u64.to_le_bytes()].concat()
+    ));
+    let mut zeros = alias_zero;
+    ops::canonicalize_assign::<Gf4>(&mut zeros);
+    assert_eq!(zeros, [0u8; 16]);
+
+    // Odd residues alias one; the second coordinate aliases zero.
+    let alias_one = [3u64.to_le_bytes(), 2u64.to_le_bytes()].concat();
+    assert!(!ops::is_zero::<Gf4>(&alias_one));
+    let canonical_one = [1u64.to_le_bytes(), 0u64.to_le_bytes()].concat();
+    assert!(ops::is_equal::<Gf4>(&alias_one, &canonical_one));
+    let mut one = alias_one;
+    ops::canonicalize_assign::<Gf4>(&mut one);
+    assert_eq!(one, canonical_one);
+}
+
+#[test]
+fn packed_value_queries_preserve_unique_binary_bytes() {
+    type Binary = FiniteField<2, 8, fgf::binary::Polynomial<{ fgf::binary::AES }>>;
+    let mut bytes = [0, 0x80, 0xff, 0x01];
+    assert!(ops::is_zero::<Binary>(&[0; 4]));
+    assert!(!ops::is_zero::<Binary>(&bytes));
+    ops::canonicalize_assign::<Binary>(&mut bytes);
+    assert!(ops::is_equal::<Binary>(&bytes, &[0, 0x80, 0xff, 0x01]));
+    assert!(!ops::is_equal::<Binary>(&bytes, &[0, 0x80, 0xff, 0]));
+}
+
+#[test]
+fn packed_canonicalization_rejects_partial_lanes_before_writing() {
+    let mut row = [0xff, 0xff, 0xff, 0x7f, 0x12];
+    let original = row;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ops::canonicalize_assign::<fgf::prime::Mersenne31>(&mut row);
+    }));
+    assert!(result.is_err());
+    assert_eq!(row, original);
+}
+
 /// Byte lengths crossing every lane width of the rows under test plus
 /// longer rows; every packed call requires whole lanes.
 const LENS: [usize; 8] = [0, 8, 16, 24, 40, 64, 72, 256];

@@ -48,3 +48,84 @@ fn macro_kernels_matrix_plan_matches_per_row_application() {
     }
     assert_eq!(got, want, "prepared matrix");
 }
+
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+#[test]
+fn fan_paar_byte_shuffle_matches_descriptor() {
+    use super::*;
+    use crate::field::binary::tower::{FANPAAR8_DESC, FanPaar8Field};
+    use crate::kernel::tables::{FpScaleTable, fp_scale_table};
+    use crate::kernel::x86;
+
+    /// The descriptor product of one coefficient over each source byte.
+    fn expected(coeff: u8, src: &[u8]) -> Vec<u8> {
+        src.iter()
+            .map(|&x| {
+                FANPAAR8_DESC
+                    .mul(u64::from(coeff), u64::from(x))
+                    .to_le_bytes()[0]
+            })
+            .collect()
+    }
+
+    fn check_add(add: impl Fn(&mut [u8], &FpScaleTable, &[u8])) {
+        for &len in XOR_LENGTHS {
+            let src = noise(len, 0x4de);
+            let initial = noise(len, 0xf04);
+            for coeff in [0, 1, 0x10, 0x2d, 0x80, 0xff] {
+                let table = fp_scale_table(Elem::<FanPaar8Field>::from_raw(coeff));
+                let product = expected(coeff, &src);
+                let mut dst = initial.clone();
+                add(&mut dst, table, &src);
+                for ((&out, &before), &p) in dst.iter().zip(&initial).zip(&product) {
+                    assert_eq!(out, before ^ p);
+                }
+            }
+        }
+    }
+
+    fn check_into(into: impl Fn(&mut [u8], &FpScaleTable, &[u8])) {
+        for &len in XOR_LENGTHS {
+            let src = noise(len, 0x4de);
+            for coeff in [0, 1, 0x10, 0x2d, 0x80, 0xff] {
+                let table = fp_scale_table(Elem::<FanPaar8Field>::from_raw(coeff));
+                let product = expected(coeff, &src);
+                let mut dst = noise(len, 0xf04);
+                into(&mut dst, table, &src);
+                assert_eq!(dst, product);
+            }
+        }
+    }
+
+    fn check_assign(assign: impl Fn(&mut [u8], &FpScaleTable)) {
+        for &len in XOR_LENGTHS {
+            let src = noise(len, 0x4de);
+            for coeff in [0, 1, 0x10, 0x2d, 0x80, 0xff] {
+                let table = fp_scale_table(Elem::<FanPaar8Field>::from_raw(coeff));
+                let product = expected(coeff, &src);
+                let mut dst = src.clone();
+                assign(&mut dst, table);
+                assert_eq!(dst, product);
+            }
+        }
+    }
+
+    tier_gate::run_entry(x86::gf8::mul_add_avx2, |token, entry| {
+        check_add(|dst, table, src| entry(token, dst, table, src));
+    });
+    tier_gate::run_entry(x86::gf8::mul_into_avx2, |token, entry| {
+        check_into(|dst, table, src| entry(token, dst, table, src));
+    });
+    tier_gate::run_entry(x86::gf8::mul_assign_avx2, |token, entry| {
+        check_assign(|dst, table| entry(token, dst, table));
+    });
+    tier_gate::run_entry(x86::gf8::mul_add_ssse3, |token, entry| {
+        check_add(|dst, table, src| entry(token, dst, table, src));
+    });
+    tier_gate::run_entry(x86::gf8::mul_into_ssse3, |token, entry| {
+        check_into(|dst, table, src| entry(token, dst, table, src));
+    });
+    tier_gate::run_entry(x86::gf8::mul_assign_ssse3, |token, entry| {
+        check_assign(|dst, table| entry(token, dst, table));
+    });
+}
